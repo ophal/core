@@ -1,0 +1,19 @@
+# Allow execution of .cgi scripts.
+AddHandler cgi-script .cgi
+
+<FilesMatch "\.(html)$">
+  Order allow,deny
+</FilesMatch>
+
+# Handle any 404 errors.
+ErrorDocument 404 /lua.cgi
+
+# Set the default handler.
+DirectoryIndex lua.cgi
+
+# Force simple error message for requests for non-existent favicon.ico.
+<Files favicon.ico>
+  # There is no end quote below, for compatibility with Apache 1.3.
+  ErrorDocument 404 "The requested file favicon.ico was not found.
+</Files>
+

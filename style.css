@@ -1,0 +1,18 @@
+#header {
+  margin: 0 0 16px 160px;
+}
+
+#sidebar {
+  width: 160px;
+  height: 600px;
+  position: fixed;
+  float: left;
+}
+
+.content {
+  margin-left: 170px; /* left sidebar*/
+}
+
+h1 {
+  margin-bottom: 5px;
+}

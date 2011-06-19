@@ -1,0 +1,6 @@
+Original Author: Fernando Paredes Garcia <fernando@develcuy.com>
+
+Drupal
+------
+Ophal is inspired on Drupal API. Actually, some portions of source code were copied from Drupal and modified later.
+

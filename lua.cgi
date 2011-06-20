@@ -1,5 +1,7 @@
 #!/usr/bin/env luajit
 
+--[[ Ophal v0.1-alpha1 ]]
+
 print [[Content-type: text/html; charset=utf-8
 ]]
 

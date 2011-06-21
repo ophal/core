@@ -29,13 +29,7 @@ function include(file)
   end
 end
 
---[[ TODO
-- Use hook:bootstrap to allow modules call its dependencies when needed,
-- Use hook:bootstrap to fill the list of Ophal modules to load, 
-- Use hook:environment to fill the list of Lua functions to load, modules call its dependencies when needed,
-- Optionally (setting based), build a cache of dependencies based on path
-]]
-
+-- Allowed functions and Lua modules
 env = {io = {open = io.open, stderr = io.stderr}, pcall = pcall, loadstring = loadstring, setfenv = setfenv, assert = assert, print = function (s) io.write(s) end, table = table, require = require, error = error, lfs = require [[lfs]], include = include, settings = require [[settings]]}
 env.env = env
 

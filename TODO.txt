@@ -5,3 +5,4 @@
 - Use hook:environment to fill the list of Lua functions to load, modules call its dependencies when needed
 - Optionally (setting based), build a cache of dependencies based on path
 - Implement headers handler
+- Document API with Doxygen or similar

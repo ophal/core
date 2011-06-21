@@ -1,6 +1,7 @@
-- Move this TODO list to a case tracker or similar.
-- Use hook:bootstrap to allow modules call its dependencies when needed,
-- Use hook:bootstrap to fill the list of Ophal modules to load, 
-- Use hook:environment to fill the list of Lua functions to load, modules call its dependencies when needed,
+- Move this TODO list to a case tracker or similar
+- Move README.txt to on-line documentation
+- Use hook:bootstrap to allow modules call its dependencies when needed
+- Use hook:bootstrap to fill the list of Ophal modules to load 
+- Use hook:environment to fill the list of Lua functions to load, modules call its dependencies when needed
 - Optionally (setting based), build a cache of dependencies based on path
-- Document API with Doxygen or similar
+- Implement headers handler

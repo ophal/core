@@ -6,7 +6,7 @@ print [[Content-type: text/html; charset=utf-8
 ]]
 
 function include(file)
-  file = table.concat({[[themes]], settings.slash, settings.theme, settings.slash, file}) 
+  file = table.concat({[[themes]], settings.slash, settings.theme, settings.slash, file, [[.tpl.html]]}) 
   local attr, err = lfs.attributes(file)
   
   if attr ~= nil and attr.mode == [[file]] then
@@ -35,4 +35,4 @@ env.env = env
 
 setfenv(include, env)
 
-include([[index.html]])
+include([[index]])

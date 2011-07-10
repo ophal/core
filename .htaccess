@@ -1,3 +1,5 @@
+Options +ExecCGI
+
 # Allow execution of .cgi scripts.
 AddHandler cgi-script .cgi
 

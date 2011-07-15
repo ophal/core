@@ -16,13 +16,16 @@ function include(file)
     fh:close()
 
     -- load source code
-    local prog = loadstring(src)
-    setfenv (prog, env)
+    local prog, err = loadstring(src)
+    if not prog then
+      error(file .. [[: ]] .. err)
+    end
+    setfenv(prog, env)
 
     -- execute
     local status, err = pcall(prog)
     if not status then
-      print [[<strong>]]; print(err); print[[</strong>]]
+      error(err)
     end
   else
     error(err)

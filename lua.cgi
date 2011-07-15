@@ -30,7 +30,7 @@ function include(file)
 end
 
 -- Allowed functions and Lua modules
-env = {io = {open = io.open, stderr = io.stderr}, pcall = pcall, loadstring = loadstring, setfenv = setfenv, assert = assert, print = function (s) io.write(s) end, table = table, require = require, error = error, lfs = require [[lfs]], include = include, settings = require [[settings]]}
+env = {io = {open = io.open, stderr = io.stderr}, pcall = pcall, loadstring = loadstring, setfenv = setfenv, assert = assert, print = function (s) io.write(s); end, echo = function (...) for _, v in pairs({...}) do io.write(v); end end, table = table, require = require, error = error, lfs = require [[lfs]], include = include, settings = require [[settings]]}
 env.env = env
 
 setfenv(include, env)

@@ -1,8 +1,5 @@
--- functions cache
-local write, setfenv = io.write, setfenv
-
--- Allowed functions and Lua modules
-local env = {
+-- Jailed environment functions and modules
+env = {
   io = io,
   os = os,
   tonumber = tonumber,
@@ -13,8 +10,6 @@ local env = {
   setfenv = setfenv,
   getfenv = getfenv,
   assert = assert,
-  print = function (s) write(tostring(s)); end,
-  echo = function (...) for _, v in pairs({...}) do write(tostring(v)); end end,
   table = table,
   require = require,
   unpack = unpack,
@@ -30,31 +25,46 @@ local env = {
   lfs = require [[lfs]],
   lpeg = require [[lpeg]],
   theme = {},
-  settings = {},
   main = main,
 }
+local env = env
 
-module([[ophal]])
+-- Load settings
+settings = {modules = {}}
+require [[settings]]
+env.settings = settings
+
+-- The actual module
+local write, setfenv = io.write, setfenv
+module [[ophal]]
 
 function bootstrap()
+  -- Jail
   setfenv(0, env) -- global environment
   setfenv(1, env) -- bootstrap environment
   setfenv(main, env) -- script environment
-
   env._G = env
   env.env = env
 
-  require [[settings]]
+  -- output functions
+  function env.print(s)
+    write(tostring(s))
+  end
+
+  function env.echo(...)
+    for _, v in pairs({...}) do
+      write(tostring(v))
+    end
+  end
+
+  -- load core
   require [[includes.common]]
   require [[includes.theme]]
 
   -- load modules
   for k, v in pairs(settings.modules) do
     if v then
-      require([[modules.]] .. k)
+      require([[modules.]] .. k .. [[.init]])
     end
   end
-
-  -- run script
-  main()
 end

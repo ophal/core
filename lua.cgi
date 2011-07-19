@@ -12,3 +12,5 @@ end
 require [[includes.bootstrap]]
 
 ophal.bootstrap()
+
+main()

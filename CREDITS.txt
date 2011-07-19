@@ -1,6 +1,12 @@
-Original Author: Fernando Paredes Garcia <fernando@develcuy.com>
+All Ophal code is Copyright 2011 by Fernando Paredes Garcia <fernando@develcuy.com>
+
+Other software compatible with GPL license is included:
 
 Drupal
 ------
 Ophal is inspired on Drupal API. Actually, some portions of source code were copied from Drupal and modified later.
+All Drupal code is Copyright 2001 - 2010 by the original authors.
 
+jQuery
+------
+jQuery - Copyright (c) 2008 - 2011 John Resig

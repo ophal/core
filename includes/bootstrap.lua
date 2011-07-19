@@ -45,5 +45,13 @@ function bootstrap()
   require [[includes.common]]
   require [[includes.theme]]
 
+  -- load modules
+  for k, v in pairs(settings.modules) do
+    if v then
+      require([[modules.]] .. k)
+    end
+  end
+
+  -- run script
   main()
 end

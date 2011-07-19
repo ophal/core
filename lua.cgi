@@ -1,6 +1,6 @@
 #!/usr/bin/env luajit
 
---[[ Ophal v0.1-alpha3 ]]
+--[[ Ophal v0.1-alpha4 ]]
 
 print [[Content-type: text/html; charset=utf-8
 ]]

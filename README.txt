@@ -1,7 +1,8 @@
 == Table of Contents ==
 
-I. What is Ophal?
-II. Roadmap
+I.   What is Ophal?
+II.  Roadmap
+III. Dependencies
 
 
 == I. What is Ophal? ==
@@ -18,3 +19,11 @@ The reason for its name is a secret.
 2. Beta
 3. Release Candidate
 4. First Stable Release
+
+
+== III. Dependencies
+Ophal depends on the following Lua modules:
+- LuaSocket
+- LPEG
+- LuaFilesystem
+

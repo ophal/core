@@ -14,6 +14,8 @@ env = {
   require = require,
   unpack = unpack,
   pairs = pairs,
+  ipairs = ipairs,
+  rawset = rawset,
   error = error,
   debug = debug,
   package = package,
@@ -55,6 +57,29 @@ function bootstrap()
     for _, v in pairs({...}) do
       write(tostring(v))
     end
+  end
+
+  -- Parse query string
+  do
+    function split(s, sep)
+      sep = lpeg.P(sep)
+      local elem = lpeg.C((1 - sep)^0)
+      local p = lpeg.Ct(elem * (sep * elem)^0)
+      return lpeg.match(p, s)
+    end
+    local list = split(os.getenv [[QUERY_STRING]] or [[]], [[&]])
+    local parsed = {}
+    if list then
+      local tmp
+      require [[socket/url]]
+      for _, v in pairs(list) do
+        if #v > 0 then
+          tmp = split(v, [[=]])
+          parsed[tmp[1]] = socket.url.unescape(tmp[2] or [[]])
+        end
+      end
+    end
+    env._GET = parsed
   end
 
   -- load core

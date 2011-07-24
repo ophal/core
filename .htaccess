@@ -20,3 +20,13 @@ DirectoryIndex lua.cgi
   ErrorDocument 404 "The requested file favicon.ico was not found.
 </Files>
 
+# Various rewrite rules.
+<IfModule mod_rewrite.c>
+  RewriteEngine on
+
+  # Rewrite URLs of the form 'x' to the form 'lua.cgi?q=x'.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_URI} !=/favicon.ico
+  RewriteRule ^(.*)$ lua.cgi?q=$1 [L,QSA]
+</IfModule>

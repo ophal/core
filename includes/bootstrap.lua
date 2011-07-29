@@ -1,4 +1,5 @@
 -- Jailed environment functions and modules
+
 env = {
   io = io,
   os = os,
@@ -24,6 +25,11 @@ env = {
   tostring = tostring,
   setmetatable = setmetatable,
   getmetatable = getmetatable,
+  seawolf = {
+    filesystem = require [[seawolf.filesystem]],
+    text = require [[seawolf.text]],
+  },
+  _SERVER = os.getenv,
   lfs = require [[lfs]],
   lpeg = require [[lpeg]],
   theme = {},

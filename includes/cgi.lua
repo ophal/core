@@ -1,5 +1,5 @@
-require [[socket/url]]
-local write, unescape = io.write, socket.url.unescape
+require [[socket.url]]
+local write, unescape, trim, dirname = io.write, socket.url.unescape, seawolf.text.trim, seawolf.filesystem.dirname
 
 -- Parse query string
 local function split(s, sep)
@@ -32,4 +32,18 @@ function echo(...)
   for _, v in pairs({...}) do
     write(tostring(v))
   end
+end
+
+-- Create base URL
+base_root = (_SERVER [[HTTPS]] ~= nil and _SERVER [[HTTPS]] == [[on]]) and [[https]] or [[http]]
+base_root = base_root .. '://' .. (_SERVER [[HTTP_HOST]] or [[]])
+base_url = base_root
+
+local dir = trim(dirname(_SERVER [[SCRIPT_NAME]] or [[]]), [[\,/]])
+if dir ~= [[]] then
+  base_path = [[/]] .. dir
+  base_url = base_url .. base_path
+  base_path = base_path .. [[/]]
+else
+  base_path = [[/]]
 end

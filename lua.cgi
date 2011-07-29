@@ -1,8 +1,7 @@
 #!/usr/bin/env luajit
 
---[[ Ophal v0.1-alpha4 ]]
-
-print [[Content-type: text/html; charset=utf-8
+print [[X-Powered-By: Ophal/0.1-alpha4
+Content-type: text/html; charset=utf-8
 ]]
 
 function main()

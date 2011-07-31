@@ -62,7 +62,7 @@ env.settings = settings
 local setfenv = setfenv
 module [[ophal]]
 
-function bootstrap()
+function bootstrap(main)
   -- Jail
   setfenv(0, env) -- global environment
   setfenv(1, env) -- bootstrap environment
@@ -83,4 +83,6 @@ function bootstrap()
       require([[modules.]] .. k .. [[.init]])
     end
   end
+
+  main()
 end

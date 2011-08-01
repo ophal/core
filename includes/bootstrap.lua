@@ -1,3 +1,5 @@
+local version = [[Ophal/0.1-alpha4]]
+
 -- Cache control
 if os.getenv [[HTTP_IF_MODIFIED_SINCE]] ~= nil then
   print [[Status: 304 Not Modified
@@ -7,12 +9,12 @@ Cache-Control: must-revalidate
 end
 
 print(string.format([[Content-type: text/html; charset=utf-8
-X-Powered-By: Ophal/0.1-alpha4
+X-Powered-By: %s
 Expires: Sun, 19 Nov 1978 05:00:00 GMT
 Last-Modified: %s
 Cache-Control: store, no-cache, must-revalidate, post-check=0, pre-check=0
 Keep-Alive: timeout=15, max=90
-]], os.date([[!%a, %d %b %Y %X GMT]], os.time(os.date([[*t]])) - 15*60)))
+]], version, os.date([[!%a, %d %b %Y %X GMT]], os.time(os.date([[*t]])) - 15*60)))
 
 -- Jailed environment functions and modules
 

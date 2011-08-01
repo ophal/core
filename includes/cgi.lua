@@ -1,14 +1,44 @@
-require [[socket.url]]
-local write, unescape, trim, dirname = io.write, socket.url.unescape, seawolf.text.trim, seawolf.filesystem.dirname
+local write, time, date, exit = io.write, os.time, os.date, os.exit
+
+-- output functions
+function print(s)
+  write(tostring(s))
+end
+
+function echo(...)
+  for _, v in pairs({...}) do
+    write(tostring(v))
+  end
+end
+
+-- Browser cache control
+if _SERVER [[HTTP_IF_MODIFIED_SINCE]] ~= nil then
+  print [[Status: 304 Not Modified
+Cache-Control: must-revalidate
+
+]]
+  exit()
+end
+
+print(string.format([[Content-type: text/html; charset=utf-8
+X-Powered-By: %s
+Expires: Sun, 19 Nov 1978 05:00:00 GMT
+Last-Modified: %s
+Cache-Control: store, no-cache, must-revalidate, post-check=0, pre-check=0
+Keep-Alive: timeout=15, max=90
+
+]], ophal.version, date([[!%a, %d %b %Y %X GMT]], time(date([[*t]])) - 15*60)))
 
 -- Parse query string
+require [[socket.url]]
+local unescape = socket.url.unescape
 local function split(s, sep)
   sep = lpeg.P(sep)
   local elem = lpeg.C((1 - sep)^0)
   local p = lpeg.Ct(elem * (sep * elem)^0)
   return lpeg.match(p, s)
 end
-local list = split(os.getenv [[QUERY_STRING]] or [[]], [[&]])
+local list = split(_SERVER [[QUERY_STRING]] or [[]], [[&]])
 local parsed = {}
 if list then
   local tmp, key, value
@@ -22,28 +52,3 @@ if list then
   end
 end
 _GET = parsed
-
--- output functions
-function print(s)
-  write(tostring(s))
-end
-
-function echo(...)
-  for _, v in pairs({...}) do
-    write(tostring(v))
-  end
-end
-
--- Create base URL
-base_root = (_SERVER [[HTTPS]] ~= nil and _SERVER [[HTTPS]] == [[on]]) and [[https]] or [[http]]
-base_root = base_root .. '://' .. (_SERVER [[HTTP_HOST]] or [[]])
-base_url = base_root
-
-local dir = trim(dirname(_SERVER [[SCRIPT_NAME]] or [[]]), [[\,/]])
-if dir ~= [[]] then
-  base_path = [[/]] .. dir
-  base_url = base_url .. base_path
-  base_path = base_path .. [[/]]
-else
-  base_path = [[/]]
-end

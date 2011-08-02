@@ -26,4 +26,6 @@ Ophal depends on the following Lua modules:
 - LuaSocket
 - LPEG
 - LuaFilesystem
+- Lua Posix
+- Lrexlib PCRE (libpcre3-dev)
 

@@ -20,6 +20,18 @@ DirectoryIndex lua.cgi
   ErrorDocument 404 "The requested file favicon.ico was not found.
 </Files>
 
+# Etags rules.
+<IfModule mod_headers.c>
+  # Disabled:
+  # FileETag None
+
+  # Enable Etags:
+  # FileETag MTime Size
+
+  # Enable Etags in a clustered environment:
+  # FileETag MTime Size
+</IfModule>
+
 # Various rewrite rules.
 <IfModule mod_rewrite.c>
   RewriteEngine on

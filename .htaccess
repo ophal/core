@@ -9,10 +9,10 @@ AddHandler cgi-script .cgi
 </FilesMatch>
 
 # Handle any 404 errors.
-ErrorDocument 404 /lua.cgi
+ErrorDocument 404 /index.cgi
 
 # Set the default handler.
-DirectoryIndex lua.cgi
+DirectoryIndex index.cgi
 
 # Force simple error message for requests for non-existent favicon.ico.
 <Files favicon.ico>
@@ -36,9 +36,9 @@ DirectoryIndex lua.cgi
 <IfModule mod_rewrite.c>
   RewriteEngine on
 
-  # Rewrite URLs of the form 'x' to the form 'lua.cgi?q=x'.
+  # Rewrite URLs of the form 'x' to the form 'index.cgi?q=x'.
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteCond %{REQUEST_URI} !=/favicon.ico
-  RewriteRule ^(.*)$ lua.cgi?q=$1 [L,QSA]
+  RewriteRule ^(.*)$ index.cgi?q=$1 [L,QSA]
 </IfModule>

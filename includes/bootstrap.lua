@@ -30,7 +30,10 @@ env = {
   lfs = require [[lfs]],
   lpeg = require [[lpeg]],
   theme = {},
-  ophal = {version = version},
+  ophal = {
+    version = version,
+    modules = {},
+  },
 }
 
 -- Load settings
@@ -76,6 +79,7 @@ function bootstrap(main)
 
   -- load core
   require [[includes.common]]
+  require [[includes.module]]
   require [[includes.theme]]
 
   -- load modules

@@ -14,6 +14,7 @@ settings.cache = false
     othermodule = false, -- disabled module
   }
 ]=]
+settings.modules = {}
 
 --[=[ Extend jailed environment
   Ophal code is jailed into a environment with few functions. Use the

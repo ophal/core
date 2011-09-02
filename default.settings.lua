@@ -2,6 +2,8 @@ settings.slash = string.sub(package.config,1,1)
 settings.theme = [[basic]]
 settings.language = [[en]]
 settings.language_dir = [[ltr]]
+settings.site_frontpage = [[lorem_ipsum]]
+settings.site_name = [[Ophal]]
 settings.cache = false
 
 --[=[ Active/Disabled modules
@@ -14,7 +16,9 @@ settings.cache = false
     othermodule = false, -- disabled module
   }
 ]=]
-settings.modules = {}
+settings.modules = {
+  lorem_ipsum = true,
+}
 
 --[=[ Extend jailed environment
   Ophal code is jailed into a environment with few functions. Use the

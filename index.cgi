@@ -3,5 +3,5 @@
 require [[includes.bootstrap]]
 
 ophal.bootstrap(function ()
-  theme [[html]]
+  menu_execute_active_handler()
 end)

@@ -57,6 +57,9 @@ function bootstrap(main)
 
   -- CGI init
   require [[includes.cgi]]
+  if _GET.q == nil then
+    _GET.q = settings.site_frontpage
+  end
 
   -- load Seawolf
   require [[seawolf.variable]]
@@ -81,6 +84,7 @@ function bootstrap(main)
   require [[includes.common]]
   require [[includes.module]]
   require [[includes.theme]]
+  require [[includes.menu]]
 
   -- load modules
   for k, v in pairs(settings.modules) do

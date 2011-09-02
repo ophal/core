@@ -2,7 +2,7 @@ function module_invoke_all(hook, ...)
   local result, r = {}
 
   for _, m in pairs(ophal.modules) do
-    r = m.menu(...)
+    r = m[hook](...)
     if type(r) == [[table]] then
       for path, v in pairs(r) do
         result[path] = v

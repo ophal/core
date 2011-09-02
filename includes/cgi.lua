@@ -45,8 +45,8 @@ if list then
   for _, v in pairs(list) do
     if #v > 0 then
       tmp = split(v, [[=]])
-      key = unescape(tmp[1]:gsub([[+]], [[ ]]))
-      value = unescape(tmp[2]:gsub([[+]], [[ ]]))
+      key = unescape((tmp[1] or [[]]):gsub([[+]], [[ ]]))
+      value = unescape((tmp[2] or [[]]):gsub([[+]], [[ ]]))
       parsed[key] = value
     end
   end

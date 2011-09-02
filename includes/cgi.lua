@@ -12,7 +12,7 @@ function echo(...)
 end
 
 -- Browser cache control
-if _SERVER [[HTTP_IF_MODIFIED_SINCE]] ~= nil then
+if settings.cache and _SERVER [[HTTP_IF_MODIFIED_SINCE]] ~= nil then
   print [[Status: 304 Not Modified
 Cache-Control: must-revalidate
 

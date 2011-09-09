@@ -6,7 +6,6 @@ module [[ophal.modules.lorem_ipsum]]
 function menu()
   local items = {}
   items.lorem_ipsum = {
-    module = [[lorem_ipsum]],
     title = [[Lorem Ipsum]],
     page_callback = [[page]],
   }

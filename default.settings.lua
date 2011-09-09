@@ -21,7 +21,7 @@ settings.modules = {
 }
 
 --[=[ Extend jailed environment
-  Ophal code is jailed into a environment with few functions. Use the
+  Ophal code is jailed into an environment with few functions. Use the
   global variable 'env' to add external functions and lua modules.
 
   Example:

@@ -4,9 +4,9 @@ local table, assert, error, setfenv = table, assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
 
 setmetatable(theme, {
-  __call = function(t, file, args)
-    file = currentdir .. [[themes]] .. slash .. theme_name .. slash .. file .. [[.tpl.html]]
-    if t[file] == nil then
+  __call = function(t, f, args)
+    file = currentdir .. [[themes]] .. slash .. theme_name .. slash .. f .. [[.tpl.html]]
+    if t[f] == nil then
       local attr, err = lfs.attributes(file)
 
       if attr ~= nil and attr.mode == [[file]] then
@@ -37,6 +37,8 @@ setmetatable(theme, {
       else
         error(err)
       end
+    else
+      return t[f](unpack(args))
     end
   end
 })

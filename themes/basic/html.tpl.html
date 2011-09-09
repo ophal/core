@@ -1,15 +1,15 @@
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="]]; echo(settings.language, [[" lang="]], settings.language, [[" dir="]], settings.language_dir, [[">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="]]; echo(settings.language, [[" lang="]], settings.language, [[" dir="]], settings.language_dir); print [[">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-<title>]], title, [[</title>
-<link type="text/css" rel="stylesheet" media="all" href="]], base_path, [[themes/]], settings.theme); print [[/style.css" />
+<title>]]; print (header_title); print [[</title>
+<link type="text/css" rel="stylesheet" media="all" href="]]; echo(base_path, [[themes/]], settings.theme); print [[/style.css" />
 </head>
 <body>
 <div id="header">
-<h1>Title</h1>
+<h1>]]; print(title); print [[</h1>
 </div>
-<div id="sidebar">]]; theme [[sidebar_first]]; print [[</div>
+<div id="sidebar">]]; print(theme [[sidebar_first]]); print [[</div>
 <div id="content">]]; print(content); print [[</div>
-<div id="footer">]]; theme [[footer]]; print [[</div>
+<div id="footer">]]; print(theme [[footer]]); print [[</div>
 </body>
 </html>

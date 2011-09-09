@@ -89,7 +89,10 @@ function bootstrap(main)
   -- load modules
   for k, v in pairs(settings.modules) do
     if v then
-      require([[modules.]] .. k .. [[.init]])
+      status, err = pcall(require, [[modules.]] .. k .. [[.init]])
+      if not status then
+        io.write(([[bootstrap: %s]]):format(err))
+      end
     end
   end
 

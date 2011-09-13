@@ -103,5 +103,9 @@ function bootstrap(main)
     end
   end
 
-  main()
+  -- execute script
+  status, err = pcall(main)
+  if not status then
+    io.write(([[bootstrap: %s]]):format(err))
+  end
 end

@@ -23,7 +23,9 @@ function menu_execute_active_handler()
   if not handler then
     handler = {title = [[Page not found]]}
     content = [[The requested page could not be found.]]
+    page_set_title(handler.title)
   else
+    page_set_title(handler.title) -- allow later override
     status, content = pcall(ophal.modules[handler.module][handler.page_callback])
     if not status then
       content = ([[module '%s': %s]]):format(handler.module, content)
@@ -31,6 +33,5 @@ function menu_execute_active_handler()
   end
 
   -- Render page
-  page_set_title(handler.title)
-  print(theme([[html]], {header_title = ophal.title, title = handler.title, content = content}))
+  print(theme([[html]], {header_title = ophal.header_title, title = ophal.title, content = content}))
 end

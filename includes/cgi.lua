@@ -1,4 +1,5 @@
 local write, time, date, exit = io.write, os.time, os.date, os.exit
+local explode = seawolf.text.explode
 
 -- output functions
 function print(s)
@@ -32,19 +33,13 @@ Keep-Alive: timeout=15, max=90
 -- Parse query string
 require [[socket.url]]
 local unescape = socket.url.unescape
-local function split(s, sep)
-  sep = lpeg.P(sep)
-  local elem = lpeg.C((1 - sep)^0)
-  local p = lpeg.Ct(elem * (sep * elem)^0)
-  return lpeg.match(p, s)
-end
-local list = split(_SERVER [[QUERY_STRING]] or [[]], [[&]])
+local list = explode([[&]], _SERVER [[QUERY_STRING]] or [[]])
 local parsed = {}
 if list then
   local tmp, key, value
   for _, v in pairs(list) do
     if #v > 0 then
-      tmp = split(v, [[=]])
+      tmp = explode([[=]], v)
       key = unescape((tmp[1] or [[]]):gsub([[+]], [[ ]]))
       value = unescape((tmp[2] or [[]]):gsub([[+]], [[ ]]))
       parsed[key] = value

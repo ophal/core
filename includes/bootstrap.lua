@@ -30,6 +30,9 @@ env = {
   lfs = require [[lfs]],
   lpeg = require [[lpeg]],
   theme = {},
+  base_root = [[]],
+  base_path = [[/]],
+  base_url = [[]],
   ophal = {
     version = version,
     modules = {},
@@ -55,17 +58,21 @@ function bootstrap(main)
   env._G = env
   env.env = env
 
-  -- CGI init
-  require [[includes.cgi]]
-  if _GET.q == nil then
-    _GET.q = settings.site_frontpage
-  end
-
   -- load Seawolf
   require [[seawolf.variable]]
   require [[seawolf.fs]]
   require [[seawolf.text]]
-  
+
+  -- CGI init
+  require [[includes.cgi]]
+
+  -- Prepare path
+  if _GET.q == nil then
+    _GET.q = settings.site_frontpage
+  end
+  require [[includes.path]]
+  sanitize_path()
+
   -- Create base URL
   base_root = (_SERVER [[HTTPS]] ~= nil and _SERVER [[HTTPS]] == [[on]]) and [[https]] or [[http]]
   base_root = base_root .. '://' .. (_SERVER [[HTTP_HOST]] or [[]])
@@ -76,8 +83,6 @@ function bootstrap(main)
     base_path = [[/]] .. dir
     base_url = base_url .. base_path
     base_path = base_path .. [[/]]
-  else
-    base_path = [[/]]
   end
 
   -- load core
@@ -85,6 +90,8 @@ function bootstrap(main)
   require [[includes.module]]
   require [[includes.theme]]
   require [[includes.menu]]
+
+  local status, err
 
   -- load modules
   for k, v in pairs(settings.modules) do

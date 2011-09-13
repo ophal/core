@@ -30,6 +30,7 @@ setmetatable(theme, {
         args.print = print
         args.settings = settings
         args.echo = echo
+        args.base_path = base_path
         args.theme = theme
         setfenv(prog, args)
 

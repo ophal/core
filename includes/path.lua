@@ -1,8 +1,10 @@
 local explode = seawolf.text.explode
+local aliases = ophal.aliases
+local paths = ophal.paths
 
 function path_register_alias(path, alias)
-  ophal.aliases[path] = alias
-  ophal.aliases[alias] = path
+  aliases[path] = alias
+  aliases[alias] = path
 end
 
 do
@@ -28,10 +30,19 @@ local slash = settings.slash
 
 do
   local path_tree, path
+  function init_path()
+    local alias
 
-  function sanitize_path()
     if path_tree == nil and path == nil then
       path_tree, path = {}
+
+      -- lookup path alias
+      alias = aliases[_GET.q]
+      if alias then
+        _GET.q = alias
+      end
+
+      -- build path tree
       for i = 1,8 do
         a = arg(i - 1)
         if a == nil or a == [[]] then

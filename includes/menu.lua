@@ -4,16 +4,12 @@
 ]]
 function menu_get_handler()
   local a, path, aliased
-  local paths, aliases, handler = ophal.paths, ophal.aliases
-  local path_tree = sanitize_path()
+  local paths, handler = ophal.paths
+  local path_tree = init_path()
   for i = 1,#path_tree do
     a = #path_tree - (i - 1) -- start from bottom
     path = path_tree[a] -- get path from stack
     handler = paths[path] -- lookup handler
-    if not handler then
-      -- lookup handler using aliases
-      handler = paths[ophal.aliases[path]]
-    end
     if handler then
       return handler
     end

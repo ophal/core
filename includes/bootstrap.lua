@@ -73,7 +73,6 @@ function bootstrap(main)
     _GET.q = settings.site_frontpage
   end
   require [[includes.path]]
-  sanitize_path()
 
   -- Create base URL
   base_root = (_SERVER [[HTTPS]] ~= nil and _SERVER [[HTTPS]] == [[on]]) and [[https]] or [[http]]
@@ -107,6 +106,8 @@ function bootstrap(main)
 
   -- call hook init
   module_invoke_all([[init]])
+
+  init_path()
 
   -- execute script
   status, err = pcall(main)

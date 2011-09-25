@@ -103,6 +103,9 @@ function bootstrap(main)
     end
   end
 
+  -- call hook init
+  module_invoke_all([[init]])
+
   -- execute script
   status, err = pcall(main)
   if not status then

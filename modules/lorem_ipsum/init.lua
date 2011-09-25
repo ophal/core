@@ -1,4 +1,5 @@
-local path_register_alias, url = path_register_alias, url
+local path_register_alias, url, theme = path_register_alias, url, theme
+local page_set_title = page_set_title
 
 module [[ophal.modules.lorem_ipsum]]
 
@@ -22,8 +23,15 @@ function menu()
 end
 
 function page()
-  return [[<h4>Content</h4>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. In tristique arcu sit amet nulla semper cursus. Pellentesque ut augue dui. Suspendisse ac turpis id ante gravida aliquet sed sed nisi. Fusce nec bibendum purus. Vivamus blandit ultrices magna, nec ultrices nulla ullamcorper ac. Donec eu tellus sit amet orci pharetra pharetra vitae vitae tortor. Etiam et ante vel urna mollis iaculis nec eu quam. Proin purus lectus, malesuada id hendrerit ut, pellentesque a justo. Vivamus eget magna risus, sit amet vulputate tellus. In dictum dapibus lorem, in mattis enim dapibus in. Praesent iaculis, nisl nec consequat viverra, libero purus lacinia mi, in condimentum est nisi eu lorem. Maecenas adipiscing aliquam sem, id convallis nunc imperdiet eget. Vestibulum quis sapien sodales eros ultricies adipiscing. Aliquam erat volutpat. Proin venenatis purus eget metus mattis feugiat.</p>
+  local title = theme([[link]], {url([[lorem_ipsum]], true), [[Lorem Ipsum]]})
+
+  page_set_title([[Lorem Ipsum]], title)
+
+  return theme([[lorem_ipsum]])
+end
+
+function theme.lorem_ipsum()
+  return [[<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. In tristique arcu sit amet nulla semper cursus. Pellentesque ut augue dui. Suspendisse ac turpis id ante gravida aliquet sed sed nisi. Fusce nec bibendum purus. Vivamus blandit ultrices magna, nec ultrices nulla ullamcorper ac. Donec eu tellus sit amet orci pharetra pharetra vitae vitae tortor. Etiam et ante vel urna mollis iaculis nec eu quam. Proin purus lectus, malesuada id hendrerit ut, pellentesque a justo. Vivamus eget magna risus, sit amet vulputate tellus. In dictum dapibus lorem, in mattis enim dapibus in. Praesent iaculis, nisl nec consequat viverra, libero purus lacinia mi, in condimentum est nisi eu lorem. Maecenas adipiscing aliquam sem, id convallis nunc imperdiet eget. Vestibulum quis sapien sodales eros ultricies adipiscing. Aliquam erat volutpat. Proin venenatis purus eget metus mattis feugiat.</p>
 
 <p>Ut luctus, orci vitae rhoncus semper, odio ante commodo erat, non pellentesque ipsum odio id arcu. Morbi congue libero nec nunc lobortis sit amet pretium turpis semper. Aliquam erat volutpat. Vestibulum scelerisque varius pulvinar. Etiam molestie diam et lorem sodales tristique. Ut sit amet erat urna. Morbi aliquam vulputate metus vitae dapibus. Ut viverra consectetur nisl eu fermentum. Nunc malesuada rhoncus ante, sed lacinia enim euismod vel. Integer accumsan velit dui, sit amet mattis nulla. In ac felis at magna suscipit auctor ut quis neque. Aliquam cursus gravida egestas.</p>
 

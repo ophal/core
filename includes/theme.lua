@@ -55,3 +55,7 @@ setmetatable(theme, {
     end
   end
 })
+
+function theme.link(path, text)
+  return ([[<a href="%s%s">%s</a>]]):format(base_path, path, text)
+end

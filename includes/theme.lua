@@ -2,9 +2,11 @@ local slash, theme_name = settings.slash, settings.theme
 local pcall, settings, cursrentdir = pcall, settings, lfs.currentdir
 local table, assert, error, setfenv = table, assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
+local base_path = base_path
 
 setmetatable(theme, {
   __call = function(t, f, args)
+    if not args then args = {} end
     if t[f] == nil then
       file = ([[%sthemes%s%s%s%s.tpl.html]]):format(currentdir, slash, theme_name, slash, f)
 

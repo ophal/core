@@ -1,4 +1,13 @@
+local path_register_alias, url = path_register_alias, url
+
 module [[ophal.modules.lorem_ipsum]]
+
+--[[
+  Implementation of hook_init().
+]]
+function init()
+  path_register_alias([[lorem_ipsum]], [[loremipsum]])
+end
 
 --[[
   Implementation of hook_menu().

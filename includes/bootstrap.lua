@@ -36,6 +36,8 @@ env = {
   ophal = {
     version = version,
     modules = {},
+    paths = {},
+    aliases = {},
   },
 }
 

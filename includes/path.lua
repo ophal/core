@@ -1,5 +1,10 @@
 local explode = seawolf.text.explode
 
+function path_register_alias(path, alias)
+  ophal.aliases[path] = alias
+  ophal.aliases[alias] = path
+end
+
 do
   local arguments, q
 
@@ -43,4 +48,16 @@ do
     end
     return path_tree, path
   end
+end
+
+function url(path, alias)
+  if alias == nil then alias = false end
+
+  if alias then
+    alias = ophal.aliases[path]
+    if alias ~= nil then
+      return alias
+    end
+  end
+  return path
 end

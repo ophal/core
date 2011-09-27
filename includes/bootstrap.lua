@@ -65,6 +65,11 @@ function bootstrap(main)
   require [[seawolf.fs]]
   require [[seawolf.text]]
 
+  -- Load debug API
+  if settings.debugapi then
+    require [[includes.debug]]
+  end
+
   -- CGI init
   require [[includes.cgi]]
 

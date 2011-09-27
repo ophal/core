@@ -5,6 +5,7 @@ settings.language_dir = [[ltr]]
 settings.site_frontpage = [[lorem_ipsum]]
 settings.site_name = [[Ophal]]
 settings.cache = false
+settings.debugapi = true
 
 --[=[ Active/Disabled modules
   List of Ophal modules to load.

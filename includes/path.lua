@@ -1,10 +1,12 @@
+if not ophal.aliases.source then ophal.aliases.source = {} end
+if not ophal.aliases.alias then ophal.aliases.alias = {} end
+
 local explode = seawolf.text.explode
 local aliases = ophal.aliases
-local paths = ophal.paths
 
 function path_register_alias(path, alias)
-  aliases[path] = alias
-  aliases[alias] = path
+  aliases.source[path] = alias
+  aliases.alias[alias] = path
 end
 
 do
@@ -37,7 +39,7 @@ do
       path_tree, path = {}
 
       -- lookup path alias
-      alias = aliases[_GET.q]
+      alias = aliases.alias[_GET.q]
       if alias then
         _GET.q = alias
       end
@@ -65,8 +67,8 @@ function url(path, alias)
   if alias == nil then alias = false end
 
   if alias then
-    alias = ophal.aliases[path]
-    if alias ~= nil then
+    alias = aliases.source[path]
+    if alias then
       return alias
     end
   end

@@ -1,4 +1,3 @@
-
 --[[
   Look for path handlers in path_tree.
 ]]
@@ -18,11 +17,6 @@ end
 
 function menu_execute_active_handler()
   local handler, content, status
-
-  -- Load paths
-  if #ophal.paths == 0 then
-    ophal.paths = module_invoke_all([[menu]])
-  end
 
   -- Execute handler
   handler = menu_get_handler()

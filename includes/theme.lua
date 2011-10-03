@@ -56,6 +56,17 @@ setmetatable(theme, {
   end
 })
 
+function parse_attributes(options)
+  if type(options) ~= [[table]] then options = {} end
+
+  local attr = {}
+
+  for k, v in pairs(options) do
+    table.insert(attr, ([[%s="%s"]]):format(k, v))
+  end
+  return table.concat(attr, " ")
+end
+
 function theme.link(path, text)
   return ([[<a href="%s%s">%s</a>]]):format(base_path, path, text)
 end

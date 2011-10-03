@@ -67,6 +67,9 @@ function parse_attributes(options)
   return table.concat(attr, " ")
 end
 
-function theme.link(path, text)
-  return ([[<a href="%s%s">%s</a>]]):format(base_path, path, text)
+function theme.link(path, text, options)
+  if type(options) ~= [[table]] then options = {} end
+
+  return ([[<a href="%s%s" %s>%s</a>]]):format(base_path, path, parse_attributes(options), text)
 end
+

@@ -21,6 +21,9 @@ setmetatable(theme, {
         local src = ('print [[%s]]'):format(fh:read([[*a]]))
         fh:close()
 
+        -- translate lua template tag
+        src = src:gsub([[(<%?lua)(.-)(%?>)]], "]]; %2print[[")
+
         -- load source code
         local prog, err = loadstring(src, file)
         if not prog then

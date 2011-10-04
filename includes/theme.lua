@@ -37,6 +37,7 @@ setmetatable(theme, {
         args.echo = echo
         args.base_path = base_path
         args.theme = theme
+        args.print_t = print_t
         setfenv(prog, args)
 
         -- execute
@@ -68,6 +69,13 @@ function parse_attributes(options)
     table.insert(attr, ([[%s="%s"]]):format(k, v))
   end
   return table.concat(attr, " ")
+end
+
+--[[
+  Print output of given theme function and parameters.
+]]
+function print_t(...)
+  print(theme(...))
 end
 
 function theme.link(path, text, options)

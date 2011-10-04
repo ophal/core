@@ -32,7 +32,8 @@ The reason for its name is a secret.
 
 
 == III. Dependencies
-Ophal depends on the following Lua modules:
+Ophal has the following dependencies:
+- Nutria Seawolf (http://gitorious.org/nutria/seawolf)
 - LuaSocket
 - LPEG
 - LuaFilesystem

@@ -38,6 +38,7 @@ setmetatable(theme, {
         args.base_path = base_path
         args.theme = theme
         args.print_t = print_t
+        args.print_f = print_f
         setfenv(prog, args)
 
         -- execute
@@ -79,6 +80,13 @@ end
 ]]
 function print_t(...)
   print(theme(...))
+end
+
+--[[
+  Print output of given theme function and parameters.
+]]
+function print_f(text, ...)
+  print(text:format(...))
 end
 
 function theme.link(path, text, options)

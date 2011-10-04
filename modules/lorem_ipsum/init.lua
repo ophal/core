@@ -23,7 +23,7 @@ function menu()
 end
 
 function page()
-  local title = theme([[link]], {url([[lorem_ipsum]], true), [[Lorem Ipsum]]})
+  local title = theme([[a]], {url([[lorem_ipsum]], true), [[Lorem Ipsum]]})
 
   page_set_title([[Lorem Ipsum]], title)
 

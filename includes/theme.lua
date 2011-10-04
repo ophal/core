@@ -89,7 +89,7 @@ function print_f(text, ...)
   print(text:format(...))
 end
 
-function theme.link(path, text, options)
+function theme.a(path, text, options)
   if type(options) ~= [[table]] then options = {} end
 
   return ([[<a href="%s%s" %s>%s</a>]]):format(base_path, path, parse_attributes(options), text)

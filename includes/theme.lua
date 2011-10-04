@@ -45,7 +45,7 @@ setmetatable(theme, {
         if status then
           return [[]] -- TODO: return a buffered output of the template
         else
-          return ([[template '%s': %s]]):format(file, err)
+          return ([[template '%s': %s]]):format(file, result)
         end
       end
     else

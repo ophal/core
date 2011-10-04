@@ -60,6 +60,9 @@ setmetatable(theme, {
   end
 })
 
+--[[
+  Translate given table key-value pairs to attr="value". 
+]]
 function parse_attributes(options)
   if type(options) ~= [[table]] then options = {} end
 

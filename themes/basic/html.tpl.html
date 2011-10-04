@@ -1,15 +1,15 @@
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="]]; echo(settings.language, [[" lang="]], settings.language, [[" dir="]], settings.language_dir); print [[">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="<?lua echo(settings.language, [[" lang="]], settings.language, [[" dir="]], settings.language_dir) ?>">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-<title>]]; print (header_title); print [[</title>
-<link type="text/css" rel="stylesheet" media="all" href="]]; echo(base_path, [[themes/]], settings.theme); print [[/style.css" />
+<title><?lua print (header_title) ?></title>
+<link type="text/css" rel="stylesheet" media="all" href="<?lua echo(base_path, [[themes/]], settings.theme) ?>/style.css" />
 </head>
 <body>
 <div id="header">
-<h1>]]; print(title); print [[</h1>
+<h1><?lua print(title) ?></h1>
 </div>
-<div id="sidebar">]]; print(theme [[sidebar_first]]); print [[</div>
-<div id="content">]]; print(content); print [[</div>
-<div id="footer">]]; print(theme [[footer]]); print [[</div>
+<div id="sidebar"><?lua print_t [[sidebar_first]] ?></div>
+<div id="content"><?lua print(content) ?></div>
+<div id="footer"><?lua print_t [[footer]] ?></div>
 </body>
 </html>

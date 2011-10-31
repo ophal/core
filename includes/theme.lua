@@ -93,12 +93,12 @@ end
   Anchor theme function.
 ]]
 function theme.a(path, text, options)
-  return ([[<a href="%s%s" %s>%s</a>]]):format(base_path, path, render_attributes(options), text)
+  return ([[<a href="%s%s" %s>%s</a>]]):format(base_path, path or [[]], render_attributes(options), text or [[]])
 end
 
 --[[
   Image theme function.
 ]]
 function theme.img(path, options)
-  return ([[<img src="%s%s" %s />]]):format(base_path, path, render_attributes(options))
+  return ([[<img src="%s%s" %s />]]):format(base_path, path or [[]], render_attributes(options))
 end

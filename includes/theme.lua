@@ -95,3 +95,10 @@ end
 function theme.a(path, text, options)
   return ([[<a href="%s%s" %s>%s</a>]]):format(base_path, path, render_attributes(options), text)
 end
+
+--[[
+  Image theme function.
+]]
+function theme.img(path, options)
+  return ([[<img src="%s%s" %s />]]):format(base_path, path, render_attributes(options))
+end

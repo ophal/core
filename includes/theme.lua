@@ -65,7 +65,7 @@ setmetatable(theme, {
   Translate given table key-value pairs to attr="value". 
 ]]
 function render_attributes(options)
-  if type(options) ~= [[table]] then options = {} end
+  if type(options) ~= [[table]] then return [[]] end
 
   local attr = {}
 
@@ -89,9 +89,9 @@ function print_f(text, ...)
   print(text:format(...))
 end
 
+--[[
+  Anchor theme function.
+]]
 function theme.a(path, text, options)
-  if type(options) ~= [[table]] then options = {} end
-
   return ([[<a href="%s%s" %s>%s</a>]]):format(base_path, path, render_attributes(options), text)
 end
-

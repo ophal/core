@@ -1,24 +1,33 @@
 body {
-  background: url("images/ophalproject.png") no-repeat scroll 0 0 transparent;
 }
 
 #header {
-  margin: 0 0 16px 160px;
+  position: absolute;
+  top: 0;
 }
+  #header #logo {
+    float: left;
+  }
+  #header .title {
+    float: right;
+  }
 
 #sidebar {
   width: 160px;
-  height: 600px;
-  position: fixed;
   float: left;
 }
 
 #content {
+  margin-top: 80px;
   margin-left: 170px; /* left sidebar*/
 }
 
 h1 {
   margin-bottom: 5px;
+}
+
+#footer {
+  clear: both;
 }
 
 .powered-by {

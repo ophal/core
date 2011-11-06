@@ -33,5 +33,5 @@ function menu_execute_active_handler()
   end
 
   -- Render page
-  print(theme([[html]], {header_title = ophal.header_title, title = ophal.title, content = content}))
+  print_t{[[html]], header_title = ophal.header_title, title = ophal.title, content = content}
 end

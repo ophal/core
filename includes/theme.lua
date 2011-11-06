@@ -1,62 +1,83 @@
 local slash, theme_name = settings.slash, settings.theme
-local pcall, settings, cursrentdir = pcall, settings, lfs.currentdir
+local pcall, settings = pcall, settings
 local table, assert, error, setfenv = table, assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
 local base_path = base_path
 
-setmetatable(theme, {
-  __call = function(t, f, args)
-    if not args then args = {} end
-    if t[f] == nil then
-      file = ([[%sthemes%s%s%s%s.tpl.html]]):format(currentdir, slash, theme_name, slash, f)
+--[[
+  Render theme template.
+]]
+local function theme_render(f, arg)
+  file = ([[%sthemes%s%s%s%s.tpl.html]]):format(currentdir, slash, theme_name, slash, f)
 
-      local attr, err = lfs.attributes(file)
-      if err then
-        return ([[template '%s': %s]]):format(file, err)
-      end
+  local attr, err = lfs.attributes(file)
+  if err then
+    return ([[template '%s': %s]]):format(file, err)
+  end
 
-      if attr ~= nil and attr.mode == [[file]] then
-        -- read file contents
-        local fh = assert(io.open(file))
-        local src = ('print [[%s]]'):format(fh:read([[*a]]))
-        fh:close()
+  if attr ~= nil and attr.mode == [[file]] then
+    -- read file contents
+    local fh = assert(io.open(file))
+    local src = ('print [[%s]]'):format(fh:read([[*a]]))
+    fh:close()
 
-        -- translate lua template tag
-        src = src:gsub([[(<%?lua)(.-)(%?>)]], "]]; %2print[[")
+    -- translate lua template tag
+    src = src:gsub([[(<%?lua)(.-)(%?>)]], "]]; %2print[[")
 
-        -- load source code
-        local prog, err = loadstring(src, file)
-        if not prog then
-          return ([[template '%s': %s]]):format(file, err)
-        end
+    -- load source code
+    local prog, err = loadstring(src, file)
+    if not prog then
+      return ([[template '%s': %s]]):format(file, err)
+    end
 
-        -- jail
-        args = args or {}
-        args.print = print
-        args.settings = settings
-        args.echo = echo
-        args.base_path = base_path
-        args.theme = theme
-        args.print_t = print_t
-        args.print_f = print_f
-        setfenv(prog, args)
+    -- jail
+    arg.print = print
+    arg.settings = settings
+    arg.echo = echo
+    arg.base_path = base_path
+    arg.theme = theme
+    arg.print_t = print_t
+    arg.print_f = print_f
+    setfenv(prog, arg)
 
-        -- execute
-        local status, result = pcall(prog)
-        if status then
-          return [[]] -- TODO: return a buffered output of the template
-        else
-          return ([[template '%s': %s]]):format(file, result)
-        end
-      end
+    -- execute
+    local status, result = pcall(prog)
+    if status then
+      return [[]] -- TODO: return a buffered output of the template
     else
-      -- execute
-      local status, result = pcall(t[f], unpack(args))
-      if status then
-        return result
-      else
-        return ([[theme function %s: '%s']]):format(f, result)
-      end
+      return ([[template '%s': %s]]):format(file, result)
+    end
+  end
+end
+
+--[[
+  Execute theme function.
+]]
+local function theme_execute(f, ...)
+  local arg = {...}
+
+  local status, result = pcall(theme[f], unpack(arg))
+  if status then
+    return result
+  else
+    return ([[theme function %s: '%s']]):format(f, result)
+  end
+end
+
+--[[
+  Theme metatable.
+]]
+setmetatable(theme, {
+  __call = function(t, arg)
+    if not arg then arg = {} end
+
+    local f = arg[1]
+
+    if t[f] == nil then
+      arg[1] = nil -- clean-up theme environment
+      return theme_render(f, arg)
+    else
+      return theme_execute(unpack(arg))
     end
   end
 })

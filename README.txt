@@ -7,24 +7,23 @@ III. Dependencies
 
 == I. What is Ophal? ==
 
-Ophal is a highly scalable web platform, easy to maintain and extend. It
-is not married with a particular technology, just the essence will be
-kept on any major change needed to achieve its mission.
+Ophal is a highly scalable web platform, easy to maintain, learn, extend
+and open to improvements.
 
 The reason for its name is a secret.
 
 
 == II. Roadmap ==
 1. Alpha
-  Implement a CGI framework that supports: Modules, Themes, Browser's
-  cache, Sessions, File Uploads and Friendly URLs.
+  Implement a web development framework that supports: Modules, Themes, Browser's
+  cache, Sessions, File Uploads(RFCs 1867 & 2388) and Friendly URLs.
 
 2. Beta
-  Implement a minimal CMS, using only Lua scripting.
+  Implement a minimal CMS: content CRUD in a DBMS.
 
 3. Release Candidate
   - Bugs fixing and performance improvements.
-  - Start 0.2 branch: Port CGI framework to C, Security improvements and
+  - Start 0.2 branch: Port core to C, Security improvements and
     Form API.
 
 4. First Stable Release

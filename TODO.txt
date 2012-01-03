@@ -6,3 +6,4 @@
 - Optionally (setting based), build a cache of dependencies based on path
 - Implement headers handler
 - Document API with Doxygen or similar
+- Implement lazy loading API: load things only when they are called

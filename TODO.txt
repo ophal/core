@@ -7,3 +7,4 @@
 - Implement headers handler
 - Document API with Doxygen or similar
 - Implement lazy loading API: load things only when they are called
+- HTML5 by default (Websockets and all the fireworks yay!)

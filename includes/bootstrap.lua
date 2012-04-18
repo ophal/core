@@ -26,6 +26,7 @@ env = {
   tostring = tostring,
   setmetatable = setmetatable,
   getmetatable = getmetatable,
+  select = select,
   _SERVER = os.getenv,
   lfs = require [[lfs]],
   lpeg = require [[lpeg]],

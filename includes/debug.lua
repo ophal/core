@@ -1,8 +1,14 @@
 local print_r = seawolf.variable.print_r
 
 --[[
-  Output given value using seawolf's print_r().
+  Wrapper of function print_r() from Nutria Seawolf.
 ]]
-function debug.print_r(val)
-  print(([[<pre>%s</pre>]]):format(seawolf.variable.print_r(val,1)))
+function debug.print_r(val, return_)
+  local result = ([[<pre>%s</pre>]]):format(seawolf.variable.print_r(val, true))
+
+  if return_ then
+    return result
+  end
+
+  print(result)
 end

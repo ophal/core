@@ -111,11 +111,11 @@ function bootstrap(main)
   end
 
   -- call hook init
-  module_invoke_all([[init]])
+  module_invoke_all [[init]]
 
   -- call hook menu to load path handlers
   -- TODO: implement path cache
-  ophal.paths = module_invoke_all([[menu]])
+  ophal.paths = module_invoke_all [[menu]]
 
   -- process current path
   init_path()

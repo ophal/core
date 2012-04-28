@@ -34,6 +34,7 @@ env = {
   base_root = [[]],
   base_path = [[/]],
   base_url = [[]],
+  output_buffer = {},
   ophal = {
     version = version,
     modules = {},
@@ -92,11 +93,9 @@ function bootstrap(main)
     base_path = base_path .. [[/]]
   end
 
-  -- load core
+  -- load core (phase 1)
   require [[includes.common]]
   require [[includes.module]]
-  require [[includes.theme]]
-  require [[includes.menu]]
 
   local status, err
 
@@ -109,6 +108,13 @@ function bootstrap(main)
       end
     end
   end
+
+  -- call hook boot
+  module_invoke_all [[boot]]
+
+  -- load core (phase 2)
+  require [[includes.theme]]
+  require [[includes.menu]]
 
   -- call hook init
   module_invoke_all [[init]]
@@ -124,5 +130,13 @@ function bootstrap(main)
   status, err = pcall(main)
   if not status then
     io.write(([[bootstrap: %s]]):format(err))
+  end
+
+  -- call hook exit
+  module_invoke_all [[exit]]
+
+  -- flush output buffer
+  if settings.output_buffering then
+    output_flush()
   end
 end

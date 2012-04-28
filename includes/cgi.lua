@@ -1,5 +1,7 @@
-local write, time, date, exit = io.write, os.time, os.date, os.exit
-local explode = seawolf.text.explode
+local io_write, write, buffer = io.write, io.write, env.output_buffer
+local time, date, exit = os.time, os.date, os.exit
+local tinsert, explode = table.insert, seawolf.text.explode
+local tconcat = table.concat
 
 -- output functions
 function print(s)
@@ -47,3 +49,33 @@ if list then
   end
 end
 _GET = parsed
+
+-- output buffering
+if settings.output_buffering then
+  write = function (s)
+    local type_ = type(s)
+    if type_ ~= [[string]] then
+      s = ([[(%s)]]):format(type_)
+    end
+    tinsert(buffer, #buffer + 1, s) 
+  end
+end
+
+function output_clean()
+  for k, v in pairs(env.output_buffer) do
+    output_buffer[k] = nil -- wipe buffer
+  end
+  -- turn off output buffering
+  write = io_write
+  settings.output_buffering = false
+end
+
+function output_get_clean()
+  local output = tconcat(env.output_buffer)
+  output_clean()
+  return output
+end
+
+function output_flush()
+  print(output_get_clean())
+end

@@ -7,6 +7,7 @@ settings.site_name = [[Ophal]]
 settings.cache = false
 settings.debugapi = true
 settings.maintenance_mode = false
+settings.output_buffering = true
 
 --[=[ Active/Disabled modules
   List of Ophal modules to load.

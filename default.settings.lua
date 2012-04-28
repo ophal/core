@@ -7,7 +7,7 @@ settings.site_name = [[Ophal]]
 settings.cache = false
 settings.debugapi = true
 settings.maintenance_mode = false
-settings.output_buffering = true
+settings.output_buffering = false
 
 --[=[ Active/Disabled modules
   List of Ophal modules to load.
@@ -31,4 +31,18 @@ settings.modules = {
 
   require [[external.library]]
   env.myfunction = external.library.function
+]=]
+
+--[=[
+  Boost provides static cache by saving all the output to files.
+
+  Example:
+
+  settings.modules.boost = true
+  settings.boost = {
+    path = [[files/boost/]],
+    lifetime = 3600, -- seconds
+    signature = [[<!-- Page cached by Boost @ %s, expires @ %s -->]],
+    date_format = [[!%Y-%m-%d %T UTC]],
+  }
 ]=]

@@ -51,7 +51,7 @@ end
 ]]
 function has_expired(file)
   local ts = lfs.attributes(file, [[modification]])
-  io.write(ts)
+
   if ts + settings.boost.lifetime <= os.time() then
     os.remove(file)
     return true

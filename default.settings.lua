@@ -10,7 +10,7 @@ settings.maintenance_mode = false
 settings.output_buffering = false
 
 --[=[ Active/Disabled modules
-  List of Ophal modules to load.
+  List of Ophal modules to load on bootstrap.
 
   Example:
 
@@ -22,6 +22,24 @@ settings.output_buffering = false
 settings.modules = {
   lorem_ipsum = true,
 }
+
+--[=[ Database connection settings
+  Ophal automatically connects on bootstrap to a database if a the key
+  'db' is set with connection settings.
+
+  Example:
+
+  settings.db = {
+    default = {
+      driver = [[PostgreSQL]],
+      database = [[database]],
+      username = [[username]],
+      password = [[password]],
+      host = [[localhost]],
+      port = [[5432]],
+    }
+  }
+]=]
 
 --[=[ Extend jailed environment
   Ophal code is jailed into an environment with few functions. Use the

@@ -116,6 +116,12 @@ function bootstrap(main)
   require [[includes.theme]]
   require [[includes.menu]]
 
+  -- database connection (phase 3)
+  if settings.db ~= nil then
+    require [[includes.database]]
+    db_connect()
+  end
+
   -- call hook init
   module_invoke_all [[init]]
 

@@ -2,8 +2,12 @@ settings.slash = string.sub(package.config,1,1)
 settings.theme = [[basic]]
 settings.language = [[en]]
 settings.language_dir = [[ltr]]
-settings.site_frontpage = [[lorem_ipsum]]
-settings.site_name = [[Ophal]]
+settings.site = {
+  frontpage = [[lorem_ipsum]],
+  name = [[Ophal]],
+  logo_title = [[The Ophal Project]],
+  logo_path = [[themes/basic/images/ophalproject.png]],
+}
 settings.cache = false
 settings.debugapi = true
 settings.maintenance_mode = false
@@ -64,3 +68,4 @@ settings.modules = {
     date_format = [[!%Y-%m-%d %T UTC]],
   }
 ]=]
+

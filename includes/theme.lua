@@ -123,3 +123,12 @@ end
 function theme.img(path, options)
   return ([[<img src="%s%s" %s />]]):format(base_path, path or [[]], render_attributes(options))
 end
+
+--[[
+  Logo theme function.
+]]
+function theme.logo()
+  local site = settings.site
+  return theme{[[a]], [[]], theme{[[img]], site.logo_path, {alt = site.logo_title, title = site.logo_title}}, {id = [[logo]]}}
+end
+

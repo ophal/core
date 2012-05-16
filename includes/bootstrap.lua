@@ -77,7 +77,7 @@ function bootstrap(main)
 
   -- Prepare path
   if _GET.q == nil then
-    _GET.q = settings.site_frontpage
+    _GET.q = settings.site.frontpage
   end
   require [[includes.path]]
 
@@ -146,3 +146,4 @@ function bootstrap(main)
     output_flush()
   end
 end
+

@@ -2,6 +2,7 @@ function page_set_title(header_title, title)
   if header_title then
     if title == nil then title = header_title end
     ophal.title = title
-    ophal.header_title = (header_title and header_title .. [[ | ]] or [[]]) .. settings.site_name
+    ophal.header_title = (header_title and header_title .. [[ | ]] or [[]]) .. settings.site.name
   end
 end
+

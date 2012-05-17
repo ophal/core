@@ -113,8 +113,8 @@ end
 --[[
   Anchor theme function.
 ]]
-function theme.a(path, text, options)
-  return ([[<a href="%s%s" %s>%s</a>]]):format(base_path, path or [[]], render_attributes(options), text or [[]])
+function theme.a(variables)
+  return ([[<a href="%s" %s>%s</a>]]):format(variables.path, render_attributes(variables.attributes), variables.text)
 end
 
 --[[
@@ -129,6 +129,6 @@ end
 ]]
 function theme.logo()
   local site = settings.site
-  return theme{[[a]], [[]], theme{[[img]], site.logo_path, {alt = site.logo_title, title = site.logo_title}}, {id = [[logo]]}}
+  return l(theme{[[img]], site.logo_path, {alt = site.logo_title, title = site.logo_title}}, [[]], {attributes = {id = [[logo]]}})
 end
 

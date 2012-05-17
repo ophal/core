@@ -1,5 +1,5 @@
 local path_register_alias, url, theme = path_register_alias, url, theme
-local page_set_title = page_set_title
+local page_set_title, l = page_set_title, l
 
 module [[ophal.modules.lorem_ipsum]]
 
@@ -23,7 +23,7 @@ function menu()
 end
 
 function page()
-  local title = theme{[[a]], url([[lorem_ipsum]], true), [[Lorem Ipsum]]}
+  local title = l([[Lorem Ipsum]], [[lorem_ipsum]])
 
   page_set_title([[Lorem Ipsum]], title)
 
@@ -37,3 +37,4 @@ function theme.lorem_ipsum()
 
 <p>Morbi placerat viverra dui, vitae malesuada enim varius at. Donec hendrerit nisl sed ligula iaculis ornare. Donec fringilla vestibulum tristique. Pellentesque eget dui lorem, bibendum consectetur enim. Quisque consequat libero quis enim laoreet condimentum. Etiam sem felis, accumsan at accumsan eget, ultrices ac nulla. Etiam in mollis dolor. Ut a leo nibh. Praesent quis odio et dolor pulvinar adipiscing. Praesent ut sapien sit amet sem pulvinar interdum. Nullam accumsan imperdiet nisi. Pellentesque sodales magna vel tortor eleifend ac molestie dolor mollis. Praesent viverra mollis urna, eget pretium nulla congue nec. Curabitur neque elit, porttitor sit amet pharetra ac, vehicula rutrum lacus.</p>]]
 end
+

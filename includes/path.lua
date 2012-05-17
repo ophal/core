@@ -63,14 +63,36 @@ do
   end
 end
 
-function url(path, alias)
-  if alias == nil then alias = false end
+function url(path, options)
+  if options == nil then options = {} end
+  if path == nil then path = [[]] end
 
-  if alias then
+  if not (options.alias or options.external) then
     alias = aliases.source[path]
     if alias then
       return alias
     end
   end
-  return path
+
+  if options.external then
+    return path
+  else
+    return options.absolute and path or base_path .. path
+  end
 end
+
+function l(text, path, options)
+  if options == nil then options = {} end
+
+  local attributes = options.attributes or {}
+  options.attributes = nil
+
+  local variables = {
+    text = text,
+    path = url(path, options),
+    attributes = attributes,
+  }
+
+  return theme{[[a]], variables}
+end
+

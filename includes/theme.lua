@@ -2,7 +2,7 @@ local slash, theme_name = settings.slash, settings.theme
 local pcall, settings = pcall, settings
 local table, assert, error, setfenv = table, assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
-local base_path = base_path
+local base_path, l = base_path, l
 
 --[[
   Render theme template.
@@ -38,6 +38,7 @@ local function theme_render(f, arg)
     arg.theme = theme
     arg.print_t = print_t
     arg.print_f = print_f
+    arg.l = l
     setfenv(prog, arg)
 
     -- execute

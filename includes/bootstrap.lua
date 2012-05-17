@@ -96,6 +96,7 @@ function bootstrap(main)
   -- load core (phase 1)
   require [[includes.common]]
   require [[includes.module]]
+  require [[includes.theme]]
 
   local status, err
 
@@ -113,7 +114,6 @@ function bootstrap(main)
   module_invoke_all [[boot]]
 
   -- load core (phase 2)
-  require [[includes.theme]]
   require [[includes.menu]]
 
   -- database connection (phase 3)

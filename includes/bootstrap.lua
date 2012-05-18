@@ -40,6 +40,8 @@ env = {
     modules = {},
     paths = {},
     aliases = {},
+    title = [[]],
+    header_title = [[]],
   },
 }
 

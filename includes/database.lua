@@ -2,6 +2,8 @@ local DBI, dbh = require [[DBI]]
 
 function db_connect()
   local connection = settings.db.default
+  if not connection.autocommit then connection.autocommit = true end
+
   dbh = assert(DBI.Connect(
     connection.driver,
     connection.database,
@@ -10,6 +12,9 @@ function db_connect()
     connection.host,
     connection.port
   ))
+
+  -- commit the transaction
+  dbh:autocommit(connection.autocommit)
 
   -- check status of the connection
   return dbh:ping()

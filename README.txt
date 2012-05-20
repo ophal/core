@@ -38,3 +38,5 @@ Ophal has the following dependencies:
 - LuaFilesystem
 - Lua Posix
 - Lrexlib PCRE (libpcre3-dev)
+- LuaDBI
+

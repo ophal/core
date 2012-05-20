@@ -1,4 +1,4 @@
-local version = [[Ophal/0.1-alpha7]]
+local version = [[Ophal/0.1-alpha8]]
 
 -- Jailed environment functions and modules
 env = {

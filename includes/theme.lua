@@ -39,6 +39,7 @@ local function theme_render(f, arg)
     arg.print_t = print_t
     arg.print_f = print_f
     arg.l = l
+    arg.path_to_theme = path_to_theme
     setfenv(prog, arg)
 
     -- execute
@@ -111,6 +112,10 @@ function print_f(text, ...)
   print(text:format(...))
 end
 
+function path_to_theme()
+  return ([[themes/%s]]):format(theme_name)
+end
+
 --[[
   Anchor theme function.
 ]]
@@ -128,8 +133,12 @@ end
 --[[
   Logo theme function.
 ]]
+
+--[[
+  Logo theme function.
+]]
 function theme.logo()
   local site = settings.site
-  return l(theme{[[img]], site.logo_path, {alt = site.logo_title, title = site.logo_title}}, [[]], {attributes = {id = [[logo]]}})
+  local logo_path = ([[%s/%s]]):format(path_to_theme(), site.logo_path)
+  return l(theme{[[img]], logo_path, {alt = site.logo_title, title = site.logo_title}}, [[]], {attributes = {id = [[logo]]}})
 end
-

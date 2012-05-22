@@ -6,7 +6,7 @@ settings.site = {
   frontpage = [[lorem_ipsum]],
   name = [[Ophal]],
   logo_title = [[The Ophal Project]],
-  logo_path = [[themes/basic/images/ophalproject.png]],
+  logo_path = [[images/ophalproject.png]],
 }
 settings.cache = false
 settings.debugapi = true

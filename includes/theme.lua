@@ -133,10 +133,6 @@ end
 --[[
   Logo theme function.
 ]]
-
---[[
-  Logo theme function.
-]]
 function theme.logo()
   local site = settings.site
   local logo_path = ([[%s/%s]]):format(path_to_theme(), site.logo_path)

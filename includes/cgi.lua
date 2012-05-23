@@ -23,6 +23,19 @@ Cache-Control: must-revalidate
   exit()
 end
 
+-- Redirect to mobile domain name
+if settings.mobile then
+  local domain_name = settings.mobile.domain_name
+  if settings.mobile.redirect and mobile.detect.isMobile() and _SERVER [[HTTP_HOST]] ~= domain_name then
+    io.write(([[Content-Type: text/html
+X-Powered-By: %s
+Location: http://%s
+
+Redirecting to <a href="http://%s">http://%s</a>.]]):format(ophal.version, domain_name, domain_name, domain_name))
+    os.exit()
+  end
+end
+
 print(string.format([[Content-type: text/html; charset=utf-8
 X-Powered-By: %s
 Expires: Sun, 19 Nov 1978 05:00:00 GMT

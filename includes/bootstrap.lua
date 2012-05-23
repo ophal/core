@@ -32,6 +32,7 @@ env = {
   lfs = require [[lfs]],
   lpeg = require [[lpeg]],
   theme = {},
+  mobile = {},
   base_root = [[]],
   base_path = [[/]],
   base_url = [[]],
@@ -73,6 +74,11 @@ function bootstrap(main)
   -- Load debug API
   if settings.debugapi then
     require [[includes.debug]]
+  end
+
+  -- Mobile init
+  if settings.mobile then
+    require [[includes.mobile]]
   end
 
   -- CGI init

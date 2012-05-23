@@ -1,8 +1,18 @@
-local slash, theme_name = settings.slash, settings.theme
+local theme_name
+local slash = settings.slash
 local pcall, settings = pcall, settings
 local table, assert, error, setfenv = table, assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
 local base_path, l = base_path, l
+
+if
+  settings.mobile and
+  (mobile.detect.isMobile() or _SERVER [[HTTP_HOST]] == settings.mobile.domain_name)
+then
+  theme_name = settings.mobile.theme
+else
+  theme_name = settings.theme
+end
 
 --[[
   Render theme template.
@@ -36,6 +46,7 @@ local function theme_render(f, arg)
     arg.echo = echo
     arg.base_path = base_path
     arg.theme = theme
+    arg.mobile = mobile
     arg.print_t = print_t
     arg.print_f = print_f
     arg.debug = debug

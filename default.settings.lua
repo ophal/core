@@ -55,6 +55,20 @@ settings.modules = {
   env.myfunction = external.library.function
 ]=]
 
+--[=[ Mobile support settings
+  The mobile_detect library is a helper for mobile web development.
+  Set settings.mobile to nil to turn off mobile support.
+  Always make sure to set settings.domain_name if settings.redirect is
+  set to true.
+
+  Example:
+  settings.mobile = {
+    theme = [[mobile]],
+    domain_name = [[mobile.mydomain.com]],
+    redirect = true,
+  }
+]=]
+
 --[=[
   Boost provides static cache by saving all the output to files.
 
@@ -68,4 +82,3 @@ settings.modules = {
     date_format = [[!%Y-%m-%d %T UTC]],
   }
 ]=]
-

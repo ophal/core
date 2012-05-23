@@ -18,6 +18,7 @@ env = {
   pairs = pairs,
   ipairs = ipairs,
   rawset = rawset,
+  rawget = rawget,
   error = error,
   debug = debug,
   package = package,

@@ -38,8 +38,11 @@ local function theme_render(f, arg)
     arg.theme = theme
     arg.print_t = print_t
     arg.print_f = print_f
+    arg.debug = debug
     arg.l = l
     arg.path_to_theme = path_to_theme
+    arg.pairs = pairs
+    arg._SERVER = _SERVER
     setfenv(prog, arg)
 
     -- execute

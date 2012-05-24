@@ -1,4 +1,4 @@
-All Ophal code is Copyright 2011 by Fernando Paredes Garcia <fernando@develcuy.com>
+All Ophal code is Copyright 2011 - 2012 by Fernando Paredes Garcia <fernando@develcuy.com>
 
 Some portions of source code has been copied from following software:
 
@@ -12,4 +12,8 @@ Other software compatible with GPL license is included:
 jQuery
 ------
 jQuery - Copyright (c) 2008 - 2011 John Resig
+
+Mobile_Detect
+-------------
+http://code.google.com/p/php-mobile-detect/ - MIT License
 

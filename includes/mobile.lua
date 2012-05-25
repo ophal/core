@@ -6,7 +6,7 @@ local tconcat, tinsert = table.concat, table.insert
 --[[
   Ophal mobile detect library.
 
-  Based on Mobile_Detect (PHP)
+  Based on PHP's Mobile_Detect - (c) Serban Ghita 2009-2012
   Version 2.0.7 - vic.stanciu@gmail.com, 3rd May 2012
   Site:   https://code.google.com/p/php-mobile-detect/
 ]]

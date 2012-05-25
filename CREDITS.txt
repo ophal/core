@@ -11,9 +11,10 @@ Other software compatible with GPL license is included:
 
 jQuery
 ------
-jQuery - Copyright (c) 2008 - 2011 John Resig
+Copyright (c) 2008 - 2011 John Resig
 
 Mobile_Detect
 -------------
+Copyright (c) 2009 - 2012 Serban Ghita
 http://code.google.com/p/php-mobile-detect/ - MIT License
 

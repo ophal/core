@@ -1,3 +1,6 @@
+local get_css, get_js, init_path = get_css, get_js, init_path
+local path_set_title, pcall, print_t = path_set_title, pcall, print_t
+
 --[[
   Look for path handlers in path_tree.
 ]]
@@ -33,5 +36,11 @@ function menu_execute_active_handler()
   end
 
   -- Render page
-  print_t{[[html]], header_title = ophal.header_title, title = ophal.title, content = content}
+  print_t{[[html]],
+    header_title = ophal.header_title,
+    title = ophal.title,
+    content = content,
+    javascript = get_js(),
+    css = get_css(),
+  }
 end

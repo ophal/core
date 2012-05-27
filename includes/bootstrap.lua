@@ -128,7 +128,9 @@ function bootstrap(main)
   -- database connection (phase 3)
   if settings.db ~= nil then
     require [[includes.database]]
-    db_connect()
+    if settings.db.default ~= nil then
+      db_connect()
+    end
   end
 
   -- call hook init

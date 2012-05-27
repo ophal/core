@@ -1,7 +1,12 @@
 local DBI, dbh = require [[DBI]]
 
-function db_connect()
-  local connection = settings.db.default
+function db_connect(db_id)
+  if db_id == nil then db_id = [[default]] end
+
+  local connection = settings.db[db_id]
+
+  if connection == nil then return end
+
   if not connection.autocommit then connection.autocommit = true end
 
   dbh = assert(DBI.Connect(
@@ -21,6 +26,8 @@ function db_connect()
 end
 
 function db_query(query, ...)
+  if dbh == nil then return end
+
   -- prepare a query
   local sth = assert(dbh:prepare(query))
 

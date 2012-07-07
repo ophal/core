@@ -36,14 +36,29 @@ Redirecting to <a href="http://%s">http://%s</a>.]]):format(ophal.version, domai
   end
 end
 
-print(string.format([[Content-type: text/html; charset=utf-8
+-- Headers
+if settings.sessionapi then
+  -- Look for session cookie
+  cgic.cookies(ophal.cookies)
+  local session_id = cgic.cookieString([[session-id]], 36)
+  -- if session ID is not valid then set a new ID
+  if not uuid.isvalid(session_id) then
+    session_id = uuid.new()
+    cgic.headerCookieSetString([[session-id]], session_id,
+      60*60*24*365*12, base_path, _SERVER [[SERVER_NAME]] or [[]])
+  end
+  -- free CGI memory
+  cgic.exit()
+end
+
+print(([[Content-type: text/html; charset=utf-8
 X-Powered-By: %s
 Expires: Sun, 19 Nov 1978 05:00:00 GMT
 Last-Modified: %s
 Cache-Control: store, no-cache, must-revalidate, post-check=0, pre-check=0
 Keep-Alive: timeout=15, max=90
 
-]], ophal.version, date([[!%a, %d %b %Y %X GMT]], time(date([[*t]])) - 15*60)))
+]]):format(ophal.version, date([[!%a, %d %b %Y %X GMT]], time(date([[*t]])) - 15*60)))
 
 -- Parse query string
 require [[socket.url]]

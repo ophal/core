@@ -31,6 +31,8 @@ env = {
   _SERVER = os.getenv,
   lfs = require [[lfs]],
   lpeg = require [[lpeg]],
+  cgic = require [[cgic]],
+  uuid = require [[uuid]],
   theme = {},
   mobile = {},
   base_root = [[]],
@@ -44,6 +46,7 @@ env = {
     aliases = {},
     title = [[]],
     header_title = [[]],
+    cookies = {},
   },
 }
 
@@ -81,15 +84,6 @@ function bootstrap(main)
     require [[includes.mobile]]
   end
 
-  -- CGI init
-  require [[includes.cgi]]
-
-  -- Prepare path
-  if _GET.q == nil then
-    _GET.q = settings.site.frontpage
-  end
-  require [[includes.path]]
-
   -- Create base URL
   base_root = (_SERVER [[HTTPS]] ~= nil and _SERVER [[HTTPS]] == [[on]]) and [[https]] or [[http]]
   base_root = base_root .. '://' .. (_SERVER [[HTTP_HOST]] or [[]])
@@ -101,6 +95,16 @@ function bootstrap(main)
     base_url = base_url .. base_path
     base_path = base_path .. [[/]]
   end
+
+  -- CGI init
+  cgic.init()
+  require [[includes.cgi]]
+
+  -- Prepare path
+  if _GET.q == nil then
+    _GET.q = settings.site.frontpage
+  end
+  require [[includes.path]]
 
   -- load core (phase 1)
   require [[includes.common]]

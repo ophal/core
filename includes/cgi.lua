@@ -1,7 +1,8 @@
 local io_write, write, buffer = io.write, io.write, env.output_buffer
 local time, date, exit = os.time, os.date, os.exit
 local tinsert, explode = table.insert, seawolf.text.explode
-local tconcat = table.concat
+local empty = seawolf.variable.empty
+local tconcat, lower = table.concat, string.lower
 
 -- output functions
 function print(s)
@@ -14,12 +15,79 @@ function echo(...)
   end
 end
 
+-- Headers handler
+ophal.header = {
+  sent = false,
+  data = {
+    -- Default headers
+    [ [[content-type]]] = {[[text/html; charset=utf-8]]},
+    [ [[x-powered-by]]] = {ophal.version},
+  },
+  set = function (t, header)
+    local name = header[1]
+    local value = header[2]
+    if header[3] ~= nil then
+      replace = header[3]
+    else
+      replace = true
+    end
+
+    local headers = t.data
+
+    if not empty(name) and type(value) == [[string]]  and type(name) == [[string]] then
+      name = lower(name)
+      if name == [[status]] then
+        replace = true -- always replace status header
+      end
+      if replace then
+        headers[name] = {value}
+      else
+        if headers[name] == nil then
+          headers[name] = {}
+        end
+        tinsert(headers[name], value)
+      end
+    end
+  end,
+  print = function (t)
+    if not t.sent then
+      for n, d in pairs(t.data) do
+        for _, v in pairs(d) do
+          io_write(([[%s: %s
+]]):format(n, v))
+        end
+      end
+      t.sent = true
+    end
+  end
+}
+
+function header(...)
+  ophal.header:set{...}
+end
+
+-- Make sure to print headers on the first output
+do
+  local write_orig = write
+  write = function (s)
+    write = write_orig
+    ophal.header:print()
+    print "\n"
+    print(s)
+  end
+
+  local exit_orig = exit
+  exit = function ()
+    exit = exit_orig
+    ophal.header:print()
+    exit_orig()
+  end
+end
+
 -- Browser cache control
 if settings.cache and _SERVER [[HTTP_IF_MODIFIED_SINCE]] ~= nil then
-  print [[Status: 304 Not Modified
-Cache-Control: must-revalidate
-
-]]
+  header([[status]], [[304 Not Modified]])
+  header([[cache-control]], [[must-revalidate]])
   exit()
 end
 
@@ -27,16 +95,13 @@ end
 if settings.mobile then
   local domain_name = settings.mobile.domain_name
   if settings.mobile.redirect and mobile.detect.isMobile() and _SERVER [[HTTP_HOST]] ~= domain_name then
-    io.write(([[Content-Type: text/html
-X-Powered-By: %s
-Location: http://%s
-
-Redirecting to <a href="http://%s">http://%s</a>.]]):format(ophal.version, domain_name, domain_name, domain_name))
+    header([[Location]], [[http://]] .. domain_name)
+    print(([[Redirecting to <a href="http://%s">http://%s</a>.]]):format(domain_name, domain_name))
     os.exit()
   end
 end
 
--- Headers
+-- Session handler
 if settings.sessionapi then
   -- Look for session cookie
   cgic.cookies(ophal.cookies)
@@ -44,6 +109,7 @@ if settings.sessionapi then
   -- if session ID is not valid then set a new ID
   if not uuid.isvalid(session_id) then
     session_id = uuid.new()
+    -- Print session cookie header (directly, not handled by ophal.header)
     cgic.headerCookieSetString([[session-id]], session_id,
       60*60*24*365*12, base_path, _SERVER [[SERVER_NAME]] or [[]])
   end
@@ -51,14 +117,11 @@ if settings.sessionapi then
   cgic.exit()
 end
 
-print(([[Content-type: text/html; charset=utf-8
-X-Powered-By: %s
-Expires: Sun, 19 Nov 1978 05:00:00 GMT
-Last-Modified: %s
-Cache-Control: store, no-cache, must-revalidate, post-check=0, pre-check=0
-Keep-Alive: timeout=15, max=90
-
-]]):format(ophal.version, date([[!%a, %d %b %Y %X GMT]], time(date([[*t]])) - 15*60)))
+-- Set headers for dynamic content
+header([[expires]], [[Sun, 19 Nov 1978 05:00:00 GMT]])
+header([[last-modified]], date([[!%a, %d %b %Y %X GMT]], time(date([[*t]])) - 15*60))
+header([[cache-control]], [[store, no-cache, must-revalidate, post-check=0, pre-check=0]])
+header([[Keep-Alive]], [[timeout=15, max=90]])
 
 -- Parse query string
 require [[socket.url]]

@@ -1,11 +1,17 @@
 All Ophal code is Copyright 2011 - 2012 by Fernando Paredes Garcia <fernando@develcuy.com>
 
-Some portions of source code has been copied from following software:
+Some portions of source code has been copied or adapted from following software:
 
 Drupal
 ------
-Ophal is inspired on Drupal API.
 All Drupal code is Copyright 2001 - 2010 by the original authors.
+Ophal is inspired on Drupal API.
+
+Nutria Nemo
+-----------
+All Nutria code is Copyright 2010 - 2011 Fernando Paredes Garcia
+Ophal reuses portions of Nutria Nemo's source code.
+
 
 Other software compatible with GPL license is included:
 
@@ -17,4 +23,3 @@ Mobile_Detect
 -------------
 Copyright (c) 2009 - 2012 Serban Ghita
 http://code.google.com/p/php-mobile-detect/ - MIT License
-

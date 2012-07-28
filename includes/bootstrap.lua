@@ -1,4 +1,4 @@
-local version = ([[Ophal/0.1-alpha8 (%s)]]):format(_VERSION)
+local version = [[Ophal/0.1-alpha8 (]] .. _VERSION .. [[)]]
 
 -- Jailed environment functions and modules
 env = {
@@ -47,6 +47,7 @@ env = {
     title = [[]],
     header_title = [[]],
     cookies = {},
+    header = nil,
   },
 }
 
@@ -118,7 +119,7 @@ function bootstrap(main)
     if v then
       status, err = pcall(require, [[modules.]] .. k .. [[.init]])
       if not status then
-        io.write(([[bootstrap: %s]]):format(err))
+        print([[bootstrap: ]] .. err)
       end
     end
   end
@@ -150,7 +151,7 @@ function bootstrap(main)
   -- execute script
   status, err = pcall(main)
   if not status then
-    io.write(([[bootstrap: %s]]):format(err))
+    print([[bootstrap: ]] .. err)
   end
 
   -- call hook exit

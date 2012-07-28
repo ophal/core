@@ -25,6 +25,7 @@ function menu_execute_active_handler()
   handler = menu_get_handler()
   if not handler then
     handler = {title = [[Page not found]]}
+    header([[Status]], [[404 Page not found]])
     content = [[The requested page could not be found.]]
     page_set_title(handler.title)
   else

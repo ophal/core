@@ -101,7 +101,7 @@ function bootstrap(main)
   require [[includes.cgi]]
 
   -- Prepare path
-  if _GET.q == nil then
+  if seawolf.variable.empty(_GET.q) then
     _GET.q = settings.site.frontpage
   end
   require [[includes.path]]

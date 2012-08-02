@@ -4,7 +4,32 @@ local tinsert, explode = table.insert, seawolf.text.explode
 local empty = seawolf.variable.empty
 local tconcat, lower = table.concat, string.lower
 
--- output functions
+-- Output functions
+-- Make sure to print headers on the first output
+write = function (s)
+  io.write = io_write
+  write = io_write
+  ophal.header:print()
+  write "\n"
+  write(s)
+end
+io.write = write
+
+do
+  local exit_orig = exit
+  exit = function ()
+    os.exit = exit_orig
+    exit = exit_orig
+    ophal.header:print()
+    exit_orig()
+  end
+  os.exit = exit
+end
+
+--[[ Ophal's print function.
+
+  It is the unique Ophal's output function, *write() is for internal use only*.
+]]
 function print(s)
   write(tostring(s))
 end
@@ -66,24 +91,6 @@ function header(...)
   ophal.header:set{...}
 end
 
--- Make sure to print headers on the first output
-do
-  local write_orig = write
-  write = function (s)
-    write = write_orig
-    ophal.header:print()
-    print "\n"
-    print(s)
-  end
-
-  local exit_orig = exit
-  exit = function ()
-    exit = exit_orig
-    ophal.header:print()
-    exit_orig()
-  end
-end
-
 -- Browser cache control
 if settings.cache and _SERVER [[HTTP_IF_MODIFIED_SINCE]] ~= nil then
   header([[status]], [[304 Not Modified]])
@@ -142,31 +149,40 @@ end
 _GET = parsed
 
 -- output buffering
-if settings.output_buffering then
-  write = function (s)
-    local type_ = type(s)
-    if type_ ~= [[string]] then
-      s = ([[(%s)]]):format(type_)
+do
+  local write_orig = write
+  if settings.output_buffering then
+    write = function (s)
+      local type_ = type(s)
+      if type_ ~= [[string]] then
+        s = ([[(%s)]]):format(type_)
+      end
+      tinsert(buffer, #buffer + 1, s)
     end
-    tinsert(buffer, #buffer + 1, s) 
   end
-end
 
-function output_clean()
-  for k, v in pairs(env.output_buffer) do
-    output_buffer[k] = nil -- wipe buffer
+  function output_clean()
+    for k, v in pairs(buffer) do
+      buffer[k] = nil -- wipe buffer
+    end
+    -- restore output function
+    write = write_orig
+    -- turn off output buffering
+    settings.output_buffering = false
   end
-  -- turn off output buffering
-  write = io_write
-  settings.output_buffering = false
 end
 
 function output_get_clean()
-  local output = tconcat(env.output_buffer)
+  local output = tconcat(buffer)
   output_clean()
   return output
 end
 
 function output_flush()
-  print(output_get_clean())
+  -- WARNING! need to get output first and then write it, since output function
+  -- is controlled by output_clean()
+  local output = output_get_clean()
+  -- NOTICE! most times this is the first ever call to write(), which takes care
+  -- of headers, don't use io_write()!
+  write(output)
 end

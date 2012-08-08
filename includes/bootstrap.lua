@@ -29,6 +29,7 @@ env = {
   getmetatable = getmetatable,
   select = select,
   _SERVER = os.getenv,
+  _SESSION = nil,
   lfs = require [[lfs]],
   lpeg = require [[lpeg]],
   cgic = require [[cgic]],
@@ -48,6 +49,7 @@ env = {
     header_title = [[]],
     cookies = {},
     header = nil,
+    session = nil,
   },
 }
 
@@ -74,6 +76,7 @@ function bootstrap(main)
   require [[seawolf.variable]]
   require [[seawolf.fs]]
   require [[seawolf.text]]
+  require [[seawolf.behaviour]]
 
   -- Load debug API
   if settings.debugapi then
@@ -138,6 +141,12 @@ function bootstrap(main)
     end
   end
 
+  -- load session (phase 4)
+  if settings.sessionapi then
+    require [[includes.session]]
+    session_start()
+  end
+
   -- call hook init
   module_invoke_all [[init]]
 
@@ -157,9 +166,16 @@ function bootstrap(main)
   -- call hook exit
   module_invoke_all [[exit]]
 
+  -- destroy session (phase end)
+  if settings.sessionapi then
+    session_write_close()
+  end
+
+  -- CGI exit
+  cgic.exit() -- free memory
+
   -- flush output buffer
   if settings.output_buffering then
     output_flush()
   end
 end
-

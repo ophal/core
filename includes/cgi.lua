@@ -17,11 +17,11 @@ io.write = write
 
 do
   local exit_orig = exit
-  exit = function ()
+  exit = function (code)
     os.exit = exit_orig
     exit = exit_orig
     ophal.header:print()
-    exit_orig()
+    exit_orig(code)
   end
   os.exit = exit
 end
@@ -108,21 +108,8 @@ if settings.mobile then
   end
 end
 
--- Session handler
-if settings.sessionapi then
-  -- Look for session cookie
-  cgic.cookies(ophal.cookies)
-  local session_id = cgic.cookieString([[session-id]], 36)
-  -- if session ID is not valid then set a new ID
-  if not uuid.isvalid(session_id) then
-    session_id = uuid.new()
-    -- Print session cookie header (directly, not handled by ophal.header)
-    cgic.headerCookieSetString([[session-id]], session_id,
-      60*60*24*365*12, base_path, _SERVER [[SERVER_NAME]] or [[]])
-  end
-  -- free CGI memory
-  cgic.exit()
-end
+-- Load list of cookies
+cgic.cookies(ophal.cookies)
 
 -- Set headers for dynamic content
 header([[expires]], [[Sun, 19 Nov 1978 05:00:00 GMT]])
@@ -151,6 +138,7 @@ _GET = parsed
 -- output buffering
 do
   local write_orig = write
+  local exit_orig = exit
   if settings.output_buffering then
     write = function (s)
       local type_ = type(s)
@@ -158,6 +146,17 @@ do
         s = ([[(%s)]]):format(type_)
       end
       tinsert(buffer, #buffer + 1, s)
+    end
+    io.write = write
+    exit = function (code)
+      output_flush()
+      exit_orig(code)
+    end
+    os.exit = exit
+    local error_orig = error
+    error = function (s)
+      output_flush()
+      error_orig(s)
     end
   end
 
@@ -167,6 +166,7 @@ do
     end
     -- restore output function
     write = write_orig
+    io.write = write_orig
     -- turn off output buffering
     settings.output_buffering = false
   end

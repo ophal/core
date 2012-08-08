@@ -104,13 +104,19 @@ function bootstrap(main)
   cgic.init()
   require [[includes.cgi]]
 
+  -- load session (phase 1)
+  if settings.sessionapi then
+    require [[includes.session]]
+    session_start()
+  end
+
   -- Prepare path
   if seawolf.variable.empty(_GET.q) then
     _GET.q = settings.site.frontpage
   end
   require [[includes.path]]
 
-  -- load core (phase 1)
+  -- load core (phase 2)
   require [[includes.common]]
   require [[includes.module]]
   require [[includes.theme]]
@@ -130,7 +136,7 @@ function bootstrap(main)
   -- call hook boot
   module_invoke_all [[boot]]
 
-  -- load core (phase 2)
+  -- load menu sub-system
   require [[includes.menu]]
 
   -- database connection (phase 3)
@@ -139,12 +145,6 @@ function bootstrap(main)
     if settings.db.default ~= nil then
       db_connect()
     end
-  end
-
-  -- load session (phase 4)
-  if settings.sessionapi then
-    require [[includes.session]]
-    session_start()
   end
 
   -- call hook init

@@ -32,7 +32,7 @@ The reason for its name is a secret.
 
 == III. Dependencies
 Ophal has the following dependencies:
-- Nutria Seawolf (http://gitorious.org/nutria/seawolf)
+- Seawolf (http://gitorious.org/ophal/seawolf)
 - Lua-CGIC (http://gitorious.org/ophal/cgic)
 - LuaSocket
 - LPEG
@@ -41,4 +41,5 @@ Ophal has the following dependencies:
 - Lrexlib PCRE (libpcre3-dev)
 - LuaDBI
 - luuid
+- luajson
 

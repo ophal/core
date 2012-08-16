@@ -22,6 +22,7 @@ function boot()
     file = filepath()
     if fs.is_file(file) and not has_expired(file) then
       output_clean()
+      session_write_close()
       io.input(file)
       print(io.read([[*all]]))
       os.exit()

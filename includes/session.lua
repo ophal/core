@@ -1,8 +1,8 @@
 local temp_dir = seawolf.behaviour.temp_dir
 local safe_open, safe_write = seawolf.fs.safe_open, seawolf.fs.safe_write
-local safe_close = seawolf.fs.safe_close
-local json, time = require [[json]], os.time
-local base_path = base_path
+local safe_close, table_dump = seawolf.fs.safe_close, seawolf.contrib.table_dump
+local time, base_path, rawset, tconcat = os.time, base_path, rawset, table.concat
+local format = string.format
 local session
 
 -- Session handler
@@ -26,7 +26,7 @@ end
 
 -- Start new or resume existing session
 function session_start()
-  local fh, sign, err, data
+  local fh, sign, err, data, data_function, parsed
 
   if not session.open then
     -- Compute session filename
@@ -39,8 +39,21 @@ function session_start()
       session.file.sign = sign
       -- Load session data
       session.open = true
-      data = json.decode(fh:read([[*a]]) or [[]])
+      local data = fh:read([[*a]]) or [[]]
       fh:close()
+      if data:byte(1) == 27 then
+        error [[session: binary bytecode in session data!]]
+      end
+
+      -- Parse session data
+      data_function, err = loadstring(data)
+      if data_function then
+        setfenv(data_function, {}) -- empty environment
+        parsed, data, err = pcall(data_function)
+      end
+      if err then
+        error(format([[session: %s]], err))
+      end
       _SESSION = type(data) == [[table]] and data or {}
       session.data = _SESSION
     else
@@ -61,14 +74,16 @@ function session_write_close()
   local serialized, rawdata, saved, err
 
   if session.open then
-    serialized, rawdata, err = pcall(json.encode, session.data)
+    rawdata = {[[return ]]}
+    serialized, err = pcall(table_dump, session.data, function (s) rawset(rawdata, #rawdata + 1, s) end)
+    rawdata = tconcat(rawdata)
     if serialized then
       saved, err = safe_write(session.file.name, session.file.sign, rawdata)
       if not saved then
-        error [[Can't save session data!]]
+        error [[session: Can't save session data!]]
       end
     else
-      error(err)
+      error(format([[session: %s]], err))
     end
     session_close()
   end

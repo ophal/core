@@ -77,6 +77,7 @@ function bootstrap(main)
   require [[seawolf.fs]]
   require [[seawolf.text]]
   require [[seawolf.behaviour]]
+  require [[seawolf.contrib]]
 
   -- Load debug API
   if settings.debugapi then

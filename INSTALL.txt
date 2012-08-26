@@ -1,0 +1,72 @@
+Ophal installation instructions
+===============================
+
+WARNING! Yet incomplete, please send feedback to info@ophal.org
+
+1. Server configuration
+This instructions assume that you installed Ophal at /var/www/ophal.
+
+== Apache
+Enable mod rewrite and use following configuration for reference:
+
+<VirtualHost *:80>
+        ServerAlias ophal
+
+        DocumentRoot /var/www/ophal
+        <Directory />
+                Options FollowSymLinks
+                AllowOverride None
+        </Directory>
+        <Directory /var/www/ophal/>
+                Options Indexes FollowSymLinks MultiViews +ExecCGI
+                AllowOverride All
+                Order allow,deny
+                allow from all
+        </Directory>
+
+        ErrorLog /var/log/apache2/ophal-error.log
+
+        # Possible values include: debug, info, notice, warn, error, crit,
+        # alert, emerg.
+        LogLevel debug
+
+        CustomLog /var/log/apache2/ophal-access.log combined
+
+</VirtualHost>
+
+== Lighttpd
+Install mod_magnet and use the file lighttpd.ophal.lua to configure your
+server. Also, enable module cgi. Then use following configuration for reference:
+
+$HTTP["host"] =~ ".+\.ophal" {
+  evhost.path-pattern = "/var/www/%_/"
+  index-file.names = ("index.cgi")
+  cgi.assign = ( ".cgi" => "/usr/local/bin/luajit" )
+  magnet.attract-physical-path-to = ("/etc/lighttpd/lighttpd.ophal.lua")
+}
+
+Notice that configuration above assumes that you are using "luajit".
+
+
+2. Dependencies
+== Debian
+$ sudo luarocks install lpeg
+$ sudo apt-get install uuid-dev
+$ sudo luarocks install luuid
+$ sudo luarocks install luaposix
+$ sudo luarocks install luafilesystem
+$ sudo luarocks install luasocket
+$ cd /tmp
+$ git clone --depth=1 git://gitorious.org/ophal/cgic.git
+$ cd cgic && make && sudo make install
+$ cd /tmp
+$ git clone --depth=1 git://gitorious.org/ophal/seawolf.git
+$ sudo mv seawolf /usr/local/share/lua/5.1/
+
+3. Settings file
+Copy file default.settings.lua to settings.lua, make the desired changes and
+set it to read-only.
+
+If you successfully installed ophal, please don't mind to send your feedback to
+info@ophal.org, in order to help improve installation instructions.
+

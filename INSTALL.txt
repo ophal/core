@@ -49,6 +49,10 @@ Notice that configuration above assumes that you are using "luajit".
 
 
 2. Dependencies
+== LuaJIT or Lua?
+Ophal uses LuaJIT 2.x by default, but is compatible with Lua if you prefer it.
+You need to edit the first line of index.cgi in order to switch interpreter.
+
 == Debian
 $ sudo luarocks install lpeg
 $ sudo apt-get install uuid-dev

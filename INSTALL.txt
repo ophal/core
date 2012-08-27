@@ -9,6 +9,16 @@ This instructions assume that you installed Ophal at /var/www/ophal.
 == Apache
 Enable mod rewrite and use following configuration for reference:
 
+=== Sub-directory
+	Alias /lua /var/www/ophal/
+        <Directory "/var/www/ophal">
+                AllowOverride All
+                Options Indexes FollowSymLinks MultiViews +ExecCGI
+                Order allow,deny
+                Allow from all
+        </Directory>
+
+=== Virtualhost
 <VirtualHost *:80>
         ServerAlias ophal
 

@@ -141,7 +141,13 @@ end
   Image theme function.
 ]]
 function theme.img(path, options)
-  return ([[<img src="%s%s" %s />]]):format(base_path, path or [[]], render_attributes(options))
+  path = path or [[]]
+  if options and options.external then
+    options.external = nil
+  else
+    path = base_path .. path
+  end
+  return ([[<img src="%s" %s />]]):format(path, render_attributes(options))
 end
 
 --[[

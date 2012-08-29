@@ -1,3 +1,4 @@
+- Beta release: Write documentation
 - Move this TODO list to a case tracker or similar
 - Move README.txt to on-line documentation
 - Use hook:bootstrap to allow modules call its dependencies when needed
@@ -9,3 +10,5 @@
 - Implement lazy loading API: load things only when they are called
 - HTML5 by default (Websockets and all the fireworks yay!)
 - Flush output buffer on errors
+- Include HTTP headers parser written by daurnimator https://gist.github.com/3480374
+

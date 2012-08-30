@@ -2,6 +2,7 @@ local print, echo, settings, _GET = print, echo, settings, _GET
 local output_clean, output_get_clean = output_clean, output_get_clean
 local io, os, fs, lfs = io, os, seawolf.fs, require [[lfs]]
 local print_r, require = seawolf.variable.print_r, require
+local session_write_close = session_write_close
 
 module [[ophal.modules.lorem_ipsum]]
 

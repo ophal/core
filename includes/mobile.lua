@@ -1,7 +1,8 @@
 local _SERVER, pairs, rawget = _SERVER, pairs, rawget
 local strpos, empty = seawolf.text.strpos, seawolf.variable.empty
-local preg_match, substr = seawolf.text.preg_match, seawolf.text.substr
+local substr = seawolf.text.substr
 local tconcat, tinsert = table.concat, table.insert
+local preg = require [[seawolf.text.preg]]
 
 --[[
   Ophal mobile detect library.
@@ -106,7 +107,7 @@ local function detect_(key)
     -- Begin general search
     for _, _regex in pairs(detectionRules) do
       if not empty(_regex) then
-        if not empty(preg_match(_regex, userAgent, nil, nil, nil, [[is]])) then
+        if not empty(preg.match(_regex, userAgent, nil, nil, nil, [[is]])) then
           isMobile_ = true
           return true
         end
@@ -125,7 +126,7 @@ local function detect_(key)
       if empty(_rules[key]) then
         return nil
       end
-      if not empty(preg_match(_rules[key], userAgent, nil, nil, nil, [[is]])) then
+      if not empty(preg.match(_rules[key], userAgent, nil, nil, nil, [[is]])) then
         isMobile_ = true
         return true
       else
@@ -155,7 +156,7 @@ end
 ]]
 function detect.isTablet()
   for _, _regex in pairs(tabletDevices) do
-    if not empty(preg_match(_regex, userAgent, nil, nil, nil, [[is]])) then
+    if not empty(preg.match(_regex, userAgent, nil, nil, nil, [[is]])) then
       isTablet_ = true
       return true
     end

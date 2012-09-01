@@ -1,25 +1,42 @@
-All Ophal code is Copyright 2011 - 2012 by Fernando Paredes Garcia <fernando@develcuy.com>
+Ophal - Highly scalable web platform written in Lua
+Copyright (C) 2011 - 2012  Fernando Paredes García <fernando@develcuy.com>
 
-Some portions of source code has been copied or adapted from following software:
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
 
-Drupal
-------
-All Drupal code is Copyright 2001 - 2010 by the original authors.
-Ophal is inspired on Drupal API.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
 
-Nutria Nemo
------------
-All Nutria code is Copyright 2010 - 2011 Fernando Paredes Garcia
-Ophal reuses portions of Nutria Nemo's source code.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+Some portions of source code have been copied or adapted from following
+software:
+
+    Drupal
+    ------
+    All Drupal code is Copyright 2001 - 2010 by the original authors.
+    Ophal is inspired on Drupal API.
+
+    Nutria Nemo
+    -----------
+    All Nutria code is Copyright 2010 - 2011 Fernando Paredes Garcia
+    Ophal reuses portions of Nutria Nemo's source code.
 
 
 Other software compatible with GPL license is included:
 
-jQuery
-------
-Copyright (c) 2008 - 2011 John Resig
+    jQuery
+    ------
+    Copyright (c) 2008 - 2011 John Resig
 
-Mobile_Detect
--------------
-Copyright (c) 2009 - 2012 Serban Ghita
-http://code.google.com/p/php-mobile-detect/ - MIT License
+    Mobile_Detect
+    -------------
+    Copyright (c) 2009 - 2012 Serban Ghita
+    http://code.google.com/p/php-mobile-detect/ - MIT License
+

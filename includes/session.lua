@@ -66,7 +66,7 @@ end
 local function session_close()
   safe_close(session.file.name, session.file.sign)
   session.open = false
-  _SESSION = {}
+  _SESSION = nil
 end
 
 -- Write session data and end session

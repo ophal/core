@@ -4,7 +4,7 @@ local io, os, fs, lfs = io, os, seawolf.fs, require [[lfs]]
 local print_r, require = seawolf.variable.print_r, require
 local _SESSION, session_write_close = _SESSION, session_write_close
 
-module [[ophal.modules.lorem_ipsum]]
+module [[ophal.modules.boost]]
 
 --[[
   Return cache file path for current page.

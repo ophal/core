@@ -101,9 +101,11 @@ end
 -- Redirect to mobile domain name
 if settings.mobile then
   local domain_name = settings.mobile.domain_name
+  local uri = _SERVER [[REQUEST_URI]]
   if settings.mobile.redirect and mobile.detect.isMobile() and _SERVER [[HTTP_HOST]] ~= domain_name then
-    header([[Location]], [[http://]] .. domain_name)
-    print(([[Redirecting to <a href="http://%s">http://%s</a>.]]):format(domain_name, domain_name))
+    local redirect_url = domain_name .. (_SERVER [[REQUEST_URI]] or [[]])
+    header([[Location]], [[http://]] .. redirect_url)
+    print(([[Redirecting to <a href="http://%s">http://%s</a>.]]):format(redirect_url, redirect_url))
     os.exit()
   end
 end

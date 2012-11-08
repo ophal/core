@@ -49,8 +49,8 @@ The reason for its name is a secret.
 
 == III. Dependencies
 Ophal has the following dependencies:
-- Seawolf (http://gitorious.org/ophal/seawolf)
-- Lua-CGIC (http://gitorious.org/ophal/cgic)
+- Seawolf (http://github.com/ophal/seawolf)
+- Lua-CGIC (http://github.com/ophal/cgic)
 - LuaSocket
 - LPEG
 - LuaFilesystem

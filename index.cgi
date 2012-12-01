@@ -2,6 +2,6 @@
 
 require [[includes.bootstrap]]
 
-ophal.bootstrap(function ()
+ophal.bootstrap(nil, function ()
   menu_execute_active_handler()
 end)

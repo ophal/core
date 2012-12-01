@@ -55,14 +55,15 @@ env = {
 
 -- Load settings
 settings = {modules = {}}
-require [[settings]]
+pcall(require, [[settings]])
 env.settings = settings
 
 -- The actual module
 local setfenv, type, env = setfenv, type, env
 module [[ophal]]
 
-function bootstrap(main)
+function bootstrap(phase, main)
+  if phase == nil then phase = 15 end
   if type(main) ~= [[function]] then main = function() end end
 
   -- Jail
@@ -72,100 +73,154 @@ function bootstrap(main)
   env._G = env
   env.env = env
 
-  -- load Seawolf
-  require [[seawolf.variable]]
-  require [[seawolf.fs]]
-  require [[seawolf.text]]
-  require [[seawolf.behaviour]]
-  require [[seawolf.contrib]]
+  local phases = {
+    -- 1. Seawolf libraries
+    function ()      
+      require [[seawolf.variable]]
+      require [[seawolf.fs]]
+      require [[seawolf.text]]
+      require [[seawolf.behaviour]]
+      require [[seawolf.contrib]]
+    end,
 
-  -- Load debug API
-  if settings.debugapi then
-    require [[includes.debug]]
-  end
-
-  -- Mobile init
-  if settings.mobile then
-    require [[includes.mobile]]
-  end
-
-  -- Create base URL
-  base_root = (_SERVER [[HTTPS]] ~= nil and _SERVER [[HTTPS]] == [[on]]) and [[https]] or [[http]]
-  base_root = base_root .. '://' .. (_SERVER [[HTTP_HOST]] or [[]])
-  base_url = base_root
-
-  local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER [[SCRIPT_NAME]] or [[]]), [[\,/]])
-  if dir ~= [[]] then
-    base_path = [[/]] .. dir
-    base_url = base_url .. base_path
-    base_path = base_path .. [[/]]
-  end
-
-  -- CGI init
-  cgic.init()
-  require [[includes.cgi]]
-
-  -- load session (phase 1)
-  if settings.sessionapi then
-    require [[includes.session]]
-    session_start()
-  end
-
-  -- Prepare path
-  if seawolf.variable.empty(_GET.q) then
-    _GET.q = settings.site.frontpage
-  end
-  require [[includes.path]]
-
-  -- load core (phase 2)
-  require [[includes.common]]
-  require [[includes.module]]
-  require [[includes.theme]]
-
-  local status, err
-
-  -- load modules
-  for k, v in pairs(settings.modules) do
-    if v then
-      status, err = pcall(require, [[modules.]] .. k .. [[.init]])
-      if not status then
-        print([[bootstrap: ]] .. err)
+    -- 2. Debug API
+    function ()      
+      if settings.debugapi then
+        require [[includes.debug]]
       end
+    end,
+
+    -- 3. Build base URL
+    function ()    
+      base_root = (_SERVER [[HTTPS]] ~= nil and _SERVER [[HTTPS]] == [[on]]) and [[https]] or [[http]]
+      base_root = base_root .. '://' .. (_SERVER [[HTTP_HOST]] or [[default]])
+      base_url = base_root
+
+      local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER [[SCRIPT_NAME]] or [[/index.cgi]]), [[\,/]])
+      if dir ~= [[]] then
+        base_path = [[/]] .. dir
+        base_url = base_url .. base_path
+        base_path = base_path .. [[/]]
+      end
+    end,
+
+    -- 4. Mobile API,
+    function ()    
+      if settings.mobile then
+        require [[includes.mobile]]
+      end
+    end,
+
+    -- 5. CGI API,
+    function ()
+      cgic.init()
+      require [[includes.cgi]]
+    end,
+
+    -- 6. Check installer
+    function ()
+      if (_SERVER [[SCRIPT_NAME]] or [[/index.cgi]]) == base_path .. [[index.cgi]] and not seawolf.fs.is_file [[settings.lua]] then
+        header('location', ('%s%sinstall.cgi'):format(base_root, base_path))
+        header('connection', 'close')
+        io.write ''
+        return -1
+      end
+    end,
+
+    -- 7. Session API,
+    function ()    
+      if settings.sessionapi then
+        require [[includes.session]]
+        session_start()
+      end
+    end,
+
+    -- 8. Path API,
+    function ()    
+      if seawolf.variable.empty(_GET.q) and settings.site then
+        _GET.q = settings.site.frontpage
+      end
+      require [[includes.path]]
+    end,
+
+    -- 9. Core API,
+    function ()
+      require [[includes.common]]
+      require [[includes.module]]
+      require [[includes.theme]]
+    end,
+    
+    -- 10. Modules,
+    function ()
+      local status, err
+
+      for k, v in pairs(settings.modules) do
+        if v then
+          status, err = pcall(require, [[modules.]] .. k .. [[.init]])
+          if not status then
+            print([[bootstrap: ]] .. err)
+          end
+        end
+      end
+    end,
+
+    -- 11. Boot,
+    function ()
+      module_invoke_all [[boot]]
+    end,
+
+    -- 12. Menu API,
+    function ()
+      require [[includes.menu]]
+    end,
+
+    -- 13. Database API,
+    function ()
+      if settings.db ~= nil then
+        require [[includes.database]]
+        if settings.db.default ~= nil then
+          db_connect()
+        end
+      end
+    end,
+
+    -- 14. Init,
+    function ()
+      module_invoke_all [[init]]
+    end,
+
+    -- 15. Full,
+    function ()
+      -- call hook menu to load path handlers
+      -- TODO: implement path cache
+      ophal.paths = module_invoke_all [[menu]]
+
+      -- process current path
+      init_path()
+    end,
+  }
+
+  -- Loop over phase
+  local exit_bootstrap
+  for p = 1, phase do
+    if phases[p]() == -1 then
+      exit_bootstrap = true
+      break;
     end
   end
-
-  -- call hook boot
-  module_invoke_all [[boot]]
-
-  -- load menu sub-system
-  require [[includes.menu]]
-
-  -- database connection (phase 3)
-  if settings.db ~= nil then
-    require [[includes.database]]
-    if settings.db.default ~= nil then
-      db_connect()
-    end
-  end
-
-  -- call hook init
-  module_invoke_all [[init]]
-
-  -- call hook menu to load path handlers
-  -- TODO: implement path cache
-  ophal.paths = module_invoke_all [[menu]]
-
-  -- process current path
-  init_path()
 
   -- execute script
-  status, err = pcall(main)
-  if not status then
-    print([[bootstrap: ]] .. err)
+  if not exit_bootstrap then
+    status, err = pcall(main)
+    if not status then
+      print([[bootstrap: ]] .. (err or ''))
+    end
   end
 
   -- call hook exit
-  module_invoke_all [[exit]]
+  if module_invoke_all then
+    module_invoke_all [[exit]]
+  end
 
   -- destroy session (phase end)
   if settings.sessionapi then

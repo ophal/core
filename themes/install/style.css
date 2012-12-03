@@ -1,0 +1,37 @@
+body {
+}
+
+#header {
+  position: absolute;
+  top: 0;
+}
+  #header #logo {
+    float: left;
+  }
+  #header .title {
+    float: right;
+  }
+
+#sidebar {
+  width: 160px;
+  float: left;
+}
+
+#content {
+  margin-top: 80px;
+  margin-left: 170px; /* left sidebar*/
+}
+
+h1 {
+  margin-bottom: 5px;
+}
+
+#footer {
+  clear: both;
+}
+
+.powered-by {
+  margin: 10px 0;
+  font-size: 12px;
+  text-align: right;
+}

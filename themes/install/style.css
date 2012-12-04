@@ -1,4 +1,7 @@
 body {
+  font-family: "lucida grande",lucida,tahoma,helvetica,arial,sans-serif;
+  margin-top: 0;
+  padding-top: 0;
 }
 
 #header {
@@ -20,6 +23,7 @@ body {
 #content {
   margin-top: 80px;
   margin-left: 170px; /* left sidebar*/
+  font-size: 90%;
 }
 
 h1 {
@@ -35,3 +39,9 @@ h1 {
   font-size: 12px;
   text-align: right;
 }
+
+table th {
+  text-align: left;
+}
+
+p {}

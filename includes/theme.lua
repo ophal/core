@@ -101,8 +101,19 @@ setmetatable(theme, {
 --[[
   Translate given table key-value pairs to attr="value". 
 ]]
-function render_attributes(options)
-  if type(options) ~= [[table]] then return [[]] end
+function render_attributes(options, default_options)
+  if default_options == nil then default_options = {} end
+
+  -- Merge default_options into options
+  if type(options) ~= [[table]] then
+    options = default_options
+  else
+    for k, v in pairs(default_options) do
+      if options[k] == nil then
+        options[k] = default_options[k]
+      end
+    end
+  end
 
   local attr = {}
 

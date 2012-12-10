@@ -1,4 +1,4 @@
-#!/usr/bin/env luajit
+#!/usr/bin/env lua
 
 require [[includes.bootstrap]]
 

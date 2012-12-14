@@ -24,6 +24,22 @@ ophal.bootstrap(5, function ()
   require 'includes.common'
   require 'includes.theme'
 
+  -- Pager
+  theme.install_pager = function (options)
+    local previous = ''
+
+    if phase > 1 then
+      previous = ('<p><a href="%s%sinstall.cgi?phase=%s"><< Previous</a> '):format(base_root, base_path, phase - 1)
+    end
+
+    return table.concat{
+      ('<div %s id="install_pager">'):format(render_attributes(options)),
+      previous,
+      ('<a href="%s%sinstall.cgi?phase=%s">Next >></a></p>'):format(base_root, base_path, phase + 1),
+      '</div>'
+    }
+  end
+
   -- phases
   local content = ''
   local phases = {
@@ -39,6 +55,7 @@ ophal.bootstrap(5, function ()
       end
 
       page_set_title 'Install: Welcome!'
+
       content = ([[<h3>Welcome to the Ophal installation process.</h3>
 <p>Before you proceed, please consider the following</p>
 <p><ol>
@@ -47,8 +64,7 @@ ophal.bootstrap(5, function ()
 <li>No dabatase is created by this installer, you need to create one in advance.</li>
 </ol>
 </p>
-<p><a href="%s%sinstall.cgi?phase=%s">Next step >></a></p>
-]]):format(base_root, base_path, 2)
+]] .. theme{'install_pager'}):format(base_root, base_path, 2)
     end,
 
     -- Verify pre-requisites
@@ -112,15 +128,14 @@ ophal.bootstrap(5, function ()
           tinsert(output, '<td>OK</td>')
         else
           continue = false
-          tinsert(output, ('<td>Missing</td><td>%s</td>'):format(err))
+          tinsert(output, ('<td>Missing</td><td><pre>"%s"</pre></td>'):format(err))
         end
         tinsert(output, '</tr>')
       end
       tinsert(output, '</table>')
         -- Say: All requirements are OK
       if continue then
-        tinsert(output, ('<p><a href="%s%sinstall.cgi?phase=%s"><< Previous</a> '):format(base_root, base_path, 1))
-        tinsert(output, ('<a href="%s%sinstall.cgi?phase=%s">Next >></a></p>'):format(base_root, base_path, 3))
+        tinsert(output, theme{'install_pager'})
       else
         tinsert(output, '<p>Please install any missing library. Read the <a href="http://ophal.org/manual/--version--/install#libraries">documentation</a> for details.</p>')
       end
@@ -141,6 +156,8 @@ $(document).ready(function() {
       .replace('!site_name', $('#sitename').val())
       .replace('!db_filepath', $('#filepath').val())
     );
+    $('#check_settings').show();
+    $('#install_pager').show();
   });
 });
 </script>]],
@@ -148,6 +165,7 @@ $(document).ready(function() {
       page_set_title 'Configuration file: settings.lua'
 
       local elements = {
+        '<h3>1. Configure your site</h3>',
         '<table>',
         '<tr><td>',
         theme{'label', {title = 'Site name', attributes = {['for'] = 'sitename'}}},
@@ -155,15 +173,16 @@ $(document).ready(function() {
         theme{'textfield', {value = 'Ophal', attributes = {id = 'sitename'}}},
         '</td></tr>',
         '<tr><td>',
-        theme{'label', {title = 'File path', attributes = {['for'] = 'filepath'}}},
+        theme{'label', {title = 'Database file path', attributes = {['for'] = 'filepath'}}},
         '</td><td>',
         theme{'textfield', {attributes = {id = 'filepath'}}},
         '</td></tr>',
         '</table>',
         theme{'button', {value = 'Generate', attributes = {id = 'generate'}}},
         '<div id="settings"></div>',
-        [==[<div id="settings_template" style="display:none">
-<h3>settings.lua</h3>
+        [[<div id="settings_template" style="display:none">
+<h3>2. Create file settings.lua</h3>
+<p>Copy the following text into the file <i>settings.lua</i> and put it right in the exact same folder of file <i>index.cgi</i>:</p>
 <textarea cols="100" rows="15">
 settings.slash = string.sub(package.config,1,1)
 settings.theme = 'basic'
@@ -256,13 +275,12 @@ settings.db = {
     date_format = '!%Y-%m-%d %T UTC',
   }
 ]=]
-</textarea></div>]==],
+</textarea></div>]],
       }
 
       content = tconcat{
         js, theme{'form', {action = 'install.cgi', elements = tconcat(elements)}},
-        ('<p><a href="%s%sinstall.cgi?phase=%s"><< Previous</a> '):format(base_root, base_path, 2),
-        ('<a href="%s%sinstall.cgi?phase=%s">Next >></a></p>'):format(base_root, base_path, 4)
+        theme{'install_pager', {style = 'display: none;'}}
       }
     end,
 

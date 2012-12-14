@@ -30,10 +30,10 @@ env = {
   select = select,
   _SERVER = os.getenv,
   _SESSION = nil,
-  lfs = require [[lfs]],
-  lpeg = require [[lpeg]],
-  cgic = require [[cgic]],
-  uuid = require [[uuid]],
+  lfs = nil,
+  lpeg = nil,
+  cgic = nil,
+  uuid = nil,
   theme = {},
   mobile = {},
   base_root = [[]],
@@ -74,8 +74,13 @@ function bootstrap(phase, main)
   env.env = env
 
   local phases = {
-    -- 1. Seawolf libraries
-    function ()      
+    -- 1. Lua and Seawolf libraries
+    function ()
+      env.lfs = require [[lfs]]
+      env.lpeg = require [[lpeg]]
+      env.cgic = require [[cgic]]
+      env.uuid = require [[uuid]]
+
       require [[seawolf.variable]]
       require [[seawolf.fs]]
       require [[seawolf.text]]

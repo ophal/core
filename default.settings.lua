@@ -13,6 +13,7 @@ settings.debugapi = true
 settings.maintenance_mode = false
 settings.output_buffering = false
 settings.sessionapi = true
+settings.formapi = false
 
 --[=[ Active/Disabled modules
   List of Ophal modules to load on bootstrap.

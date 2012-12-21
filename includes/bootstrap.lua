@@ -133,7 +133,7 @@ function bootstrap(phase, main)
     end,
 
     -- 7. Session API,
-    function ()    
+    function ()
       if settings.sessionapi then
         require [[includes.session]]
         session_start()
@@ -153,6 +153,9 @@ function bootstrap(phase, main)
       require [[includes.common]]
       require [[includes.module]]
       require [[includes.theme]]
+      if settings.formapi then
+        require [[includes.form]]
+      end
     end,
     
     -- 10. Modules,

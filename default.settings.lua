@@ -1,12 +1,12 @@
 settings.slash = string.sub(package.config,1,1)
-settings.theme = [[basic]]
-settings.language = [[en]]
-settings.language_dir = [[ltr]]
+settings.theme = 'basic'
+settings.language = 'en'
+settings.language_dir = 'ltr'
 settings.site = {
-  frontpage = [[lorem_ipsum]],
-  name = [[Ophal]],
-  logo_title = [[The Ophal Project]],
-  logo_path = [[images/ophalproject.png]],
+  frontpage = 'lorem_ipsum',
+  name = 'Ophal',
+  logo_title = 'The Ophal Project',
+  logo_path = 'images/ophalproject.png',
 }
 settings.cache = false
 settings.debugapi = true
@@ -15,7 +15,7 @@ settings.output_buffering = false
 settings.sessionapi = true
 settings.formapi = false
 
---[=[ Active/Disabled modules
+--[[ Active/Disabled modules
   List of Ophal modules to load on bootstrap.
 
   Example:
@@ -24,12 +24,12 @@ settings.formapi = false
     mymodule = true,
     othermodule = false, -- disabled module
   }
-]=]
+]]
 settings.modules = {
   lorem_ipsum = true,
 }
 
---[=[ Database connection settings
+--[[ Database connection settings
   Ophal automatically connects on bootstrap to a database if a the key
   'db' is set with connection settings.
 
@@ -37,27 +37,27 @@ settings.modules = {
 
   settings.db = {
     default = {
-      driver = [[PostgreSQL]],
-      database = [[database]],
-      username = [[username]],
-      password = [[password]],
-      host = [[localhost]],
-      port = [[5432]],
+      driver = 'PostgreSQL',
+      database = 'database',
+      username = 'username',
+      password = 'password',
+      host = 'localhost',
+      port = '5432',
     }
   }
-]=]
+]]
 
---[=[ Extend jailed environment
+--[[ Extend jailed environment
   Ophal code is jailed into an environment with few functions. Use the
   global variable 'env' to add external functions and lua modules.
 
   Example:
 
-  require [[external.library]]
+  require 'external.library'
   env.myfunction = external.library.function
-]=]
+]]
 
---[=[ Mobile support settings
+--[[ Mobile support settings
   The mobile_detect library is a helper for mobile web development.
   Set settings.mobile to nil to turn off mobile support.
   Always make sure to set settings.domain_name if settings.redirect is
@@ -65,22 +65,22 @@ settings.modules = {
 
   Example:
   settings.mobile = {
-    theme = [[mobile]],
-    domain_name = [[mobile.mydomain.com]],
+    theme = 'mobile',
+    domain_name = 'mobile.mydomain.com',
     redirect = true,
   }
-]=]
+]]
 
---[=[
+--[[
   Boost provides static cache by saving all the output to files.
 
   Example:
 
   settings.modules.boost = true
   settings.boost = {
-    path = [[files/boost/]],
+    path = 'files/boost/',
     lifetime = 3600, -- seconds
-    signature = [[<!-- Page cached by Boost @ %s, expires @ %s -->]],
-    date_format = [[!%Y-%m-%d %T UTC]],
+    signature = '<!-- Page cached by Boost @ %s, expires @ %s -->',
+    date_format = '!%Y-%m-%d %T UTC',
   }
-]=]
+]]

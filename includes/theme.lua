@@ -167,5 +167,5 @@ end
 function theme.logo()
   local site = settings.site
   local logo_path = ([[%s/%s]]):format(path_to_theme(), site.logo_path)
-  return l(theme{[[img]], logo_path, {alt = site.logo_title, title = site.logo_title}}, [[]], {attributes = {id = [[logo]]}})
+  return l(theme{[[img]], logo_path, {alt = site.logo_title, title = site.logo_title, border = 0}}, [[]], {attributes = {id = [[logo]]}})
 end

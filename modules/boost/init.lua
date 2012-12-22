@@ -1,16 +1,16 @@
 local print, echo, settings, _GET = print, echo, settings, _GET
 local output_clean, output_get_clean = output_clean, output_get_clean
-local io, os, fs, lfs = io, os, seawolf.fs, require [[lfs]]
+local io, os, fs, lfs = io, os, seawolf.fs, require 'lfs'
 local print_r, require = seawolf.variable.print_r, require
 local _SESSION, session_write_close = _SESSION, session_write_close
 
-module [[ophal.modules.boost]]
+module 'ophal.modules.boost'
 
 --[[
   Return cache file path for current page.
 ]]
 local function filepath()
-  return ([[%s%s.html]]):format(settings.boost.path, _GET.q:gsub([[/]], [[_]]):gsub([[\.]], [[_]]))
+  return ('%s%s.html'):format(settings.boost.path, _GET.q:gsub('/', '_'):gsub('\.', '_'))
 end
 
 --[[
@@ -27,7 +27,7 @@ function boot()
         session_write_close()
       end
       io.input(file)
-      print(io.read([[*all]]))
+      print(io.read('*all'))
       os.exit()
     end
   end
@@ -54,7 +54,7 @@ end
   Given a file path, return cache expiration status.
 ]]
 function has_expired(file)
-  local ts = lfs.attributes(file, [[modification]])
+  local ts = lfs.attributes(file, 'modification')
 
   if ts + settings.boost.lifetime <= os.time() then
     os.remove(file)
@@ -75,7 +75,7 @@ function exit()
       output = output_get_clean()
       if fs.is_dir(settings.boost.path) then
         -- Store output to cache
-        fh = io.open(file, [[w+]])
+        fh = io.open(file, 'w+')
         fh:write(output)
         -- Append signature
         if settings.boost.signature ~= nil then

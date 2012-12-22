@@ -1,6 +1,6 @@
 #!/usr/bin/env lua
 
-require [[includes.bootstrap]]
+require 'includes.bootstrap'
 
 settings.output_buffering = false
 
@@ -73,7 +73,7 @@ ophal.bootstrap(5, function ()
       local tinsert, tconcat = table.insert, table.concat
 
       -- Look for settings.lua
-      if seawolf.fs.is_file [[settings.lua]] then
+      if seawolf.fs.is_file 'settings.lua' then
         -- Redirect to next phase
         header('location', ('%s%sinstall.cgi?phase=3'):format(base_root, base_path))
         header('connection', 'close')

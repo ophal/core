@@ -1,4 +1,4 @@
-local version = [[Ophal/0.1-alpha9 (]] .. _VERSION .. [[)]]
+local version = ('Ophal/0.1-alpha9 (%s)'):format(_VERSION)
 
 -- Jailed environment functions and modules
 env = {
@@ -36,17 +36,17 @@ env = {
   uuid = nil,
   theme = {},
   mobile = {},
-  base_root = [[]],
-  base_path = [[/]],
-  base_url = [[]],
+  base_root = '',
+  base_path = '/',
+  base_url = '',
   output_buffer = {},
   ophal = {
     version = version,
     modules = {},
     paths = {},
     aliases = {},
-    title = [[]],
-    header_title = [[]],
+    title = '',
+    header_title = '',
     cookies = {},
     header = nil,
     session = nil,
@@ -55,16 +55,16 @@ env = {
 
 -- Load settings
 settings = {modules = {}}
-pcall(require, [[settings]])
+pcall(require, 'settings')
 env.settings = settings
 
 -- The actual module
 local setfenv, type, env = setfenv, type, env
-module [[ophal]]
+module 'ophal'
 
 function bootstrap(phase, main)
   if phase == nil then phase = 15 end
-  if type(main) ~= [[function]] then main = function() end end
+  if type(main) ~= 'function' then main = function() end end
 
   -- Jail
   setfenv(0, env) -- global environment
@@ -76,55 +76,55 @@ function bootstrap(phase, main)
   local phases = {
     -- 1. Lua and Seawolf libraries
     function ()
-      env.lfs = require [[lfs]]
-      env.lpeg = require [[lpeg]]
-      env.cgic = require [[cgic]]
-      env.uuid = require [[uuid]]
+      env.lfs = require 'lfs'
+      env.lpeg = require 'lpeg'
+      env.cgic = require 'cgic'
+      env.uuid = require 'uuid'
 
-      require [[seawolf.variable]]
-      require [[seawolf.fs]]
-      require [[seawolf.text]]
-      require [[seawolf.behaviour]]
-      require [[seawolf.contrib]]
+      require 'seawolf.variable'
+      require 'seawolf.fs'
+      require 'seawolf.text'
+      require 'seawolf.behaviour'
+      require 'seawolf.contrib'
     end,
 
     -- 2. Debug API
     function ()      
       if settings.debugapi then
-        require [[includes.debug]]
+        require 'includes.debug'
       end
     end,
 
     -- 3. Build base URL
     function ()    
-      base_root = (_SERVER [[HTTPS]] ~= nil and _SERVER [[HTTPS]] == [[on]]) and [[https]] or [[http]]
-      base_root = base_root .. '://' .. (_SERVER [[HTTP_HOST]] or [[default]])
+      base_root = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
+      base_root = base_root .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
       base_url = base_root
 
-      local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER [[SCRIPT_NAME]] or [[/index.cgi]]), [[\,/]])
-      if dir ~= [[]] then
-        base_path = [[/]] .. dir
+      local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER 'SCRIPT_NAME' or '/index.cgi'), [[\,/]])
+      if dir ~= '' then
+        base_path = '/' .. dir
         base_url = base_url .. base_path
-        base_path = base_path .. [[/]]
+        base_path = base_path .. '/'
       end
     end,
 
     -- 4. Mobile API,
     function ()    
       if settings.mobile then
-        require [[includes.mobile]]
+        require 'includes.mobile'
       end
     end,
 
     -- 5. CGI API,
     function ()
       cgic.init()
-      require [[includes.cgi]]
+      require 'includes.cgi'
     end,
 
     -- 6. Check installer
     function ()
-      if (_SERVER [[SCRIPT_NAME]] or [[/index.cgi]]) == base_path .. [[index.cgi]] and not seawolf.fs.is_file [[settings.lua]] then
+      if (_SERVER 'SCRIPT_NAME' or '/index.cgi') == base_path .. 'index.cgi' and not seawolf.fs.is_file 'settings.lua' then
         header('location', ('%s%sinstall.cgi'):format(base_root, base_path))
         header('connection', 'close')
         io.write ''
@@ -135,7 +135,7 @@ function bootstrap(phase, main)
     -- 7. Session API,
     function ()
       if settings.sessionapi then
-        require [[includes.session]]
+        require 'includes.session'
         session_start()
       end
     end,
@@ -145,16 +145,16 @@ function bootstrap(phase, main)
       if seawolf.variable.empty(_GET.q) and settings.site then
         _GET.q = settings.site.frontpage
       end
-      require [[includes.path]]
+      require 'includes.path'
     end,
 
     -- 9. Core API,
     function ()
-      require [[includes.common]]
-      require [[includes.module]]
-      require [[includes.theme]]
+      require 'includes.common'
+      require 'includes.module'
+      require 'includes.theme'
       if settings.formapi then
-        require [[includes.form]]
+        require 'includes.form'
       end
     end,
     
@@ -164,9 +164,9 @@ function bootstrap(phase, main)
 
       for k, v in pairs(settings.modules) do
         if v then
-          status, err = pcall(require, [[modules.]] .. k .. [[.init]])
+          status, err = pcall(require, 'modules.' .. k .. '.init')
           if not status then
-            print([[bootstrap: ]] .. err)
+            print('bootstrap: ' .. err)
           end
         end
       end
@@ -174,18 +174,18 @@ function bootstrap(phase, main)
 
     -- 11. Boot,
     function ()
-      module_invoke_all [[boot]]
+      module_invoke_all 'boot'
     end,
 
     -- 12. Menu API,
     function ()
-      require [[includes.menu]]
+      require 'includes.menu'
     end,
 
     -- 13. Database API,
     function ()
       if settings.db ~= nil then
-        require [[includes.database]]
+        require 'includes.database'
         if settings.db.default ~= nil then
           db_connect()
         end
@@ -194,14 +194,14 @@ function bootstrap(phase, main)
 
     -- 14. Init,
     function ()
-      module_invoke_all [[init]]
+      module_invoke_all 'init'
     end,
 
     -- 15. Full,
     function ()
       -- call hook menu to load path handlers
       -- TODO: implement path cache
-      ophal.paths = module_invoke_all [[menu]]
+      ophal.paths = module_invoke_all 'menu'
 
       -- process current path
       init_path()
@@ -221,13 +221,13 @@ function bootstrap(phase, main)
   if not exit_bootstrap then
     status, err = pcall(main)
     if not status then
-      print([[bootstrap: ]] .. (err or ''))
+      print('bootstrap: ' .. (err or ''))
     end
   end
 
   -- call hook exit
   if module_invoke_all then
-    module_invoke_all [[exit]]
+    module_invoke_all 'exit'
   end
 
   -- destroy session (phase end)

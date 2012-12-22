@@ -6,11 +6,11 @@ function theme.form(variables)
   if variables == nil then variables = {} end
 
   local default_options = {
-    ['accept-charset'] = [[UTF-8]],
-    method = [[get]],
+    ['accept-charset'] = 'UTF-8',
+    method = 'get',
   }
 
-  return ([[<form %s action="%s">%s</form>]]):format(
+  return ('<form %s action="%s">%s</form>'):format(
     render_attributes(variables.attributes, default_options),
     variables.action,
     variables.elements

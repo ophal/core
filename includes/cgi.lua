@@ -45,8 +45,8 @@ ophal.header = {
   sent = false,
   data = {
     -- Default headers
-    [ [[content-type]]] = {[[text/html; charset=utf-8]]},
-    [ [[x-powered-by]]] = {ophal.version},
+    ['content-type'] = {'text/html; charset=utf-8'},
+    ['x-powered-by'] = {ophal.version},
   },
   set = function (t, header)
     local name = header[1]
@@ -59,9 +59,9 @@ ophal.header = {
 
     local headers = t.data
 
-    if not empty(name) and type(value) == [[string]]  and type(name) == [[string]] then
+    if not empty(name) and type(value) == 'string'  and type(name) == 'string' then
       name = lower(name)
-      if name == [[status]] then
+      if name == 'status' then
         replace = true -- always replace status header
       end
       if replace then
@@ -92,20 +92,20 @@ function header(...)
 end
 
 -- Browser cache control
-if settings.cache and _SERVER [[HTTP_IF_MODIFIED_SINCE]] ~= nil then
-  header([[status]], [[304 Not Modified]])
-  header([[cache-control]], [[must-revalidate]])
+if settings.cache and _SERVER 'HTTP_IF_MODIFIED_SINCE' ~= nil then
+  header('status', '304 Not Modified')
+  header('cache-control', 'must-revalidate')
   exit()
 end
 
 -- Redirect to mobile domain name
 if settings.mobile then
   local domain_name = settings.mobile.domain_name
-  local uri = _SERVER [[REQUEST_URI]]
-  if settings.mobile.redirect and mobile.detect.isMobile() and _SERVER [[HTTP_HOST]] ~= domain_name then
-    local redirect_url = domain_name .. (_SERVER [[REQUEST_URI]] or [[]])
-    header([[Location]], [[http://]] .. redirect_url)
-    print(([[Redirecting to <a href="http://%s">http://%s</a>.]]):format(redirect_url, redirect_url))
+  local uri = _SERVER 'REQUEST_URI'
+  if settings.mobile.redirect and mobile.detect.isMobile() and _SERVER 'HTTP_HOST' ~= domain_name then
+    local redirect_url = domain_name .. (_SERVER 'REQUEST_URI' or '')
+    header('Location', 'http://' .. redirect_url)
+    print(('Redirecting to <a href="http://%s">http://%s</a>.'):format(redirect_url, redirect_url))
     os.exit()
   end
 end
@@ -114,23 +114,23 @@ end
 cgic.cookies(ophal.cookies)
 
 -- Set headers for dynamic content
-header([[expires]], [[Sun, 19 Nov 1978 05:00:00 GMT]])
-header([[last-modified]], date([[!%a, %d %b %Y %X GMT]], time(date([[*t]])) - 15*60))
-header([[cache-control]], [[store, no-cache, must-revalidate, post-check=0, pre-check=0]])
-header([[Keep-Alive]], [[timeout=15, max=90]])
+header('expires', 'Sun, 19 Nov 1978 05:00:00 GMT')
+header('last-modified', date('!%a, %d %b %Y %X GMT', time(date('*t')) - 15*60))
+header('cache-control', 'store, no-cache, must-revalidate, post-check=0, pre-check=0')
+header('Keep-Alive', 'timeout=15, max=90')
 
 -- Parse query string
-require [[socket.url]]
+require 'socket.url'
 local unescape = socket.url.unescape
-local list = explode([[&]], _SERVER [[QUERY_STRING]] or [[]])
+local list = explode('&', _SERVER 'QUERY_STRING' or '')
 local parsed = {}
 if list then
   local tmp, key, value
   for _, v in pairs(list) do
     if #v > 0 then
-      tmp = explode([[=]], v)
-      key = unescape((tmp[1] or [[]]):gsub([[+]], [[ ]]))
-      value = unescape((tmp[2] or [[]]):gsub([[+]], [[ ]]))
+      tmp = explode('=', v)
+      key = unescape((tmp[1] or ''):gsub('+', ' '))
+      value = unescape((tmp[2] or ''):gsub('+', ' '))
       parsed[key] = value
     end
   end
@@ -144,8 +144,8 @@ do
   if settings.output_buffering then
     write = function (s)
       local type_ = type(s)
-      if type_ ~= [[string]] then
-        s = ([[(%s)]]):format(type_)
+      if type_ ~= 'string' then
+        s = ('(%s)'):format(type_)
       end
       tinsert(buffer, #buffer + 1, s)
     end

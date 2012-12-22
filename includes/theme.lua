@@ -7,7 +7,7 @@ local base_path, l = base_path, l
 
 if
   settings.mobile and
-  (mobile.detect.isMobile() or _SERVER [[HTTP_HOST]] == settings.mobile.domain_name)
+  (mobile.detect.isMobile() or _SERVER 'HTTP_HOST' == settings.mobile.domain_name)
 then
   theme_name = settings.mobile.theme
 else
@@ -18,26 +18,26 @@ end
   Render theme template.
 ]]
 local function theme_render(f, arg)
-  file = ([[%sthemes%s%s%s%s.tpl.html]]):format(currentdir, slash, theme_name, slash, f)
+  file = ('%sthemes%s%s%s%s.tpl.html'):format(currentdir, slash, theme_name, slash, f)
 
   local attr, err = lfs.attributes(file)
   if err then
-    return ([[template '%s': %s]]):format(file, err)
+    return ("template '%s': %s"):format(file, err)
   end
 
-  if attr ~= nil and attr.mode == [[file]] then
+  if attr ~= nil and attr.mode == 'file' then
     -- read file contents
     local fh = assert(io.open(file))
-    local src = ('print [[%s]]'):format(fh:read([[*a]]))
+    local src = ('print [[%s]]'):format(fh:read('*a'))
     fh:close()
 
     -- translate lua template tag
-    src = src:gsub([[(<%?lua)(.-)(%?>)]], "]]; %2print[[")
+    src = src:gsub('(<%?lua)(.-)(%?>)', "]]; %2print[[")
 
     -- load source code
     local prog, err = loadstring(src, file)
     if not prog then
-      return ([[template '%s': %s]]):format(file, err)
+      return ("template '%s': %s"):format(file, err)
     end
 
     -- jail
@@ -59,9 +59,9 @@ local function theme_render(f, arg)
     -- execute
     local status, result = pcall(prog)
     if status then
-      return [[]] -- TODO: return a buffered output of the template
+      return '' -- TODO: return a buffered output of the template
     else
-      return ([[template '%s': %s]]):format(file, result)
+      return ("template '%s': %s"):format(file, result)
     end
   end
 end
@@ -76,7 +76,7 @@ local function theme_execute(f, ...)
   if status then
     return result
   else
-    return ([[theme function %s: '%s']]):format(f, result)
+    return ("theme function %s: '%s'"):format(f, result)
   end
 end
 
@@ -105,7 +105,7 @@ function render_attributes(options, default_options)
   if default_options == nil then default_options = {} end
 
   -- Merge default_options into options
-  if type(options) ~= [[table]] then
+  if type(options) ~= 'table' then
     options = default_options
   else
     for k, v in pairs(default_options) do
@@ -118,7 +118,7 @@ function render_attributes(options, default_options)
   local attr = {}
 
   for k, v in pairs(options) do
-    table.insert(attr, ([[%s="%s"]]):format(k, v))
+    table.insert(attr, ('%s="%s"'):format(k, v))
   end
   return table.concat(attr, " ")
 end
@@ -138,27 +138,27 @@ function print_f(text, ...)
 end
 
 function path_to_theme()
-  return ([[themes/%s]]):format(theme_name)
+  return ('themes/%s'):format(theme_name)
 end
 
 --[[
   Anchor theme function.
 ]]
 function theme.a(variables)
-  return ([[<a href="%s" %s>%s</a>]]):format(variables.path, render_attributes(variables.attributes), variables.text)
+  return ('<a href="%s" %s>%s</a>'):format(variables.path, render_attributes(variables.attributes), variables.text)
 end
 
 --[[
   Image theme function.
 ]]
 function theme.img(path, options)
-  path = path or [[]]
+  path = path or ''
   if options and options.external then
     options.external = nil
   else
     path = base_path .. path
   end
-  return ([[<img src="%s" %s />]]):format(path, render_attributes(options))
+  return ('<img src="%s" %s />'):format(path, render_attributes(options))
 end
 
 --[[
@@ -166,6 +166,6 @@ end
 ]]
 function theme.logo()
   local site = settings.site
-  local logo_path = ([[%s/%s]]):format(path_to_theme(), site.logo_path)
-  return l(theme{[[img]], logo_path, {alt = site.logo_title, title = site.logo_title, border = 0}}, [[]], {attributes = {id = [[logo]]}})
+  local logo_path = ('%s/%s'):format(path_to_theme(), site.logo_path)
+  return l(theme{'img', logo_path, {alt = site.logo_title, title = site.logo_title, border = 0}}, '', {attributes = {id = 'logo'}})
 end

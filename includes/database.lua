@@ -1,7 +1,7 @@
-local DBI, dbh = require [[DBI]]
+local DBI, dbh = require 'DBI'
 
 function db_connect(db_id)
-  if db_id == nil then db_id = [[default]] end
+  if db_id == nil then db_id = 'default' end
 
   local connection = settings.db[db_id]
 

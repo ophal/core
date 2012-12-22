@@ -18,7 +18,7 @@ do
     local arguments, q = arguments, q
 
     if arguments == nil or q ~= _GET.q then
-      arguments = explode([[/]], _GET.q)
+      arguments = explode('/', _GET.q)
       q = _GET.q
     end
 
@@ -47,15 +47,15 @@ do
       -- build path tree
       for i = 1,8 do
         a = arg(i - 1)
-        if a == nil or a == [[]] then
+        if a == nil or a == '' then
           break
         else
-          path = (path or [[]]) .. (path and slash or [[]]) .. (a or [[]])
+          path = (path or '') .. (path and slash or '') .. (a or '')
           table.insert(path_tree, path)
         end
       end
       if not #path_tree then
-        error [[Menu system error!]]
+        error 'Menu system error!'
       end
       _GET.q = path
     end
@@ -65,7 +65,7 @@ end
 
 function url(path, options)
   if options == nil then options = {} end
-  if path == nil then path = [[]] end
+  if path == nil then path = '' end
 
   if not (options.alias or options.external) then
     alias = aliases.source[path]
@@ -93,6 +93,6 @@ function l(text, path, options)
     attributes = attributes,
   }
 
-  return theme{[[a]], variables}
+  return theme{'a', variables}
 end
 

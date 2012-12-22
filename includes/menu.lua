@@ -8,7 +8,7 @@ function menu_get_handler()
   local a, path, aliased
   local paths, handler = ophal.paths
   local path_tree = init_path()
-  for i = 1,#path_tree do
+  for i = 1, #path_tree do
     a = #path_tree - (i - 1) -- start from bottom
     path = path_tree[a] -- get path from stack
     handler = paths[path] -- lookup handler
@@ -32,7 +32,7 @@ function menu_execute_active_handler()
     page_set_title(handler.title) -- allow later override
     status, content = pcall(ophal.modules[handler.module][handler.page_callback])
     if not status then
-      content = ('module '%s': %s'):format(handler.module, content)
+      content = ("module '%s': %s"):format(handler.module, content)
     end
   end
 

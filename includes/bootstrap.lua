@@ -211,9 +211,16 @@ function bootstrap(phase, main)
   -- Loop over phase
   local exit_bootstrap
   for p = 1, phase do
-    if phases[p]() == -1 then
+    status, err = pcall(phases[p])
+    if not status then
+      io.write(([[
+
+bootstrap[%s]: %s]]):format(p, err or ''))
       exit_bootstrap = true
-      break;
+      break
+    elseif err == -1 then
+      exit_bootstrap = true
+      break
     end
   end
 
@@ -221,7 +228,9 @@ function bootstrap(phase, main)
   if not exit_bootstrap then
     status, err = pcall(main)
     if not status then
-      print('bootstrap: ' .. (err or ''))
+      io.write([[
+
+bootstrap[main]: ]] .. (err or ''))
     end
   end
 
@@ -231,7 +240,7 @@ function bootstrap(phase, main)
   end
 
   -- destroy session (phase end)
-  if settings.sessionapi then
+  if settings.sessionapi and session_write_close then
     session_write_close()
   end
 

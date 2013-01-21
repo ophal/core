@@ -66,6 +66,8 @@ function bootstrap(phase, main)
   if phase == nil then phase = 15 end
   if type(main) ~= 'function' then main = function() end end
 
+	local status, err, exit_bootstrap
+
   -- Jail
   setfenv(0, env) -- global environment
   setfenv(1, env) -- bootstrap environment
@@ -209,7 +211,6 @@ function bootstrap(phase, main)
   }
 
   -- Loop over phase
-  local exit_bootstrap
   for p = 1, phase do
     status, err = pcall(phases[p])
     if not status then

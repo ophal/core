@@ -234,21 +234,6 @@ bootstrap[main]: ]] .. (err or ''))
     end
   end
 
-  -- call hook exit
-  if module_invoke_all then
-    module_invoke_all 'exit'
-  end
-
-  -- destroy session (phase end)
-  if settings.sessionapi and session_write_close then
-    session_write_close()
-  end
-
-  -- CGI exit
-  cgic.exit() -- free memory
-
-  -- flush output buffer
-  if settings.output_buffering then
-    output_flush()
-  end
+	-- The end
+	exit_ophal()
 end

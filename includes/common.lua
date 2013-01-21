@@ -61,9 +61,6 @@ function exit_ophal()
     session_write_close()
   end
 
-  -- CGI exit
-  cgic.exit() -- free memory
-
   -- flush output buffer
   if settings.output_buffering then
     output_flush()
@@ -109,6 +106,7 @@ function goto(path, http_response_code)
   -- Remove newlines from the URL to avoid header injection attacks.
   dest_url = base_root .. str_replace({'\n', '\r'}, '', dest_url)
 
+  header('status', http_response_code)
   header('location', dest_url)
   header('connection', 'close')
 

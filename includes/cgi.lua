@@ -10,6 +10,7 @@ write = function (s)
   io.write = io_write
   write = io_write
   ophal.header:print()
+  cgic.exit() -- free memory
   write "\n"
   write(s)
 end
@@ -21,6 +22,7 @@ do
     os.exit = exit_orig
     exit = exit_orig
     ophal.header:print()
+    cgic.exit() -- free memory
     exit_orig(code)
   end
   os.exit = exit
@@ -49,6 +51,8 @@ ophal.header = {
     ['x-powered-by'] = {ophal.version},
   },
   set = function (t, header)
+    local replace
+
     local name = header[1]
     local value = header[2]
     if header[3] ~= nil then
@@ -59,7 +63,9 @@ ophal.header = {
 
     local headers = t.data
 
-    if not empty(name) and type(value) == 'string'  and type(name) == 'string' then
+    if not empty(name) and type(name) == 'string' and
+      (type(value) == 'string' or type(value) == 'number' or type(value) == 'function')
+    then
       name = lower(name)
       if name == 'status' then
         replace = true -- always replace status header
@@ -78,8 +84,12 @@ ophal.header = {
     if not t.sent then
       for n, d in pairs(t.data) do
         for _, v in pairs(d) do
-          io_write(([[%s: %s
+          if type(v) == 'function' then
+            v()
+          else
+            io_write(([[%s: %s
 ]]):format(n, v))
+					end
         end
       end
       t.sent = true

@@ -44,4 +44,3 @@ function theme.lorem_ipsum()
 <p>Morbi placerat viverra dui, vitae malesuada enim varius at. Donec hendrerit nisl sed ligula iaculis ornare. Donec fringilla vestibulum tristique. Pellentesque eget dui lorem, bibendum consectetur enim. Quisque consequat libero quis enim laoreet condimentum. Etiam sem felis, accumsan at accumsan eget, ultrices ac nulla. Etiam in mollis dolor. Ut a leo nibh. Praesent quis odio et dolor pulvinar adipiscing. Praesent ut sapien sit amet sem pulvinar interdum. Nullam accumsan imperdiet nisi. Pellentesque sodales magna vel tortor eleifend ac molestie dolor mollis. Praesent viverra mollis urna, eget pretium nulla congue nec. Curabitur neque elit, porttitor sit amet pharetra ac, vehicula rutrum lacus.</p>]] ..
   counter
 end
-

@@ -95,4 +95,3 @@ function l(text, path, options)
 
   return theme{'a', variables}
 end
-

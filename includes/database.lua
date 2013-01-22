@@ -32,8 +32,8 @@ function db_query(query, ...)
   local sth = assert(dbh:prepare(query))
 
   -- execute select with a bind variable
-  sth:execute(...)
+  local success, err = sth:execute(...)
 
-  return sth
+  return sth, err
 end
 

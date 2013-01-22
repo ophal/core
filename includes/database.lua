@@ -37,3 +37,14 @@ function db_query(query, ...)
   return sth, err
 end
 
+function db_last_insert_id()
+	local sth, err, row
+
+	sth, err = db_query('SELECT last_insert_rowid()')
+	if err then
+		return nil, err
+	else
+		row = sth:fetch()
+		return row[1]
+	end
+end

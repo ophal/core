@@ -54,6 +54,7 @@ local function theme_render(f, arg)
     arg.path_to_theme = path_to_theme
     arg.pairs = pairs
     arg._SERVER = _SERVER
+    arg.mobile = mobile
     setfenv(prog, arg)
 
     -- execute

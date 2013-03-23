@@ -17,7 +17,7 @@ end
 --[[
   Render theme template.
 ]]
-local function theme_render(f, arg)
+local function theme_render(f, env)
   file = ('%sthemes%s%s%s%s.tpl.html'):format(currentdir, slash, theme_name, slash, f)
 
   local attr, err = lfs.attributes(file)
@@ -41,21 +41,22 @@ local function theme_render(f, arg)
     end
 
     -- jail
-    arg.print = print
-    arg.settings = settings
-    arg.echo = echo
-    arg.base_path = base_path
-    arg.theme = theme
-    arg.mobile = mobile
-    arg.print_t = print_t
-    arg.print_f = print_f
-    arg.debug = debug
-    arg.l = l
-    arg.path_to_theme = path_to_theme
-    arg.pairs = pairs
-    arg._SERVER = _SERVER
-    arg.mobile = mobile
-    setfenv(prog, arg)
+    env.print = print
+    env.settings = settings
+    env.echo = echo
+    env.base_path = base_path
+    env.theme = theme
+    env.mobile = mobile
+    env.print_t = print_t
+    env.print_f = print_f
+    env.debug = debug
+    env.l = l
+    env.arg = arg
+    env.path_to_theme = path_to_theme
+    env.pairs = pairs
+    env._SERVER = _SERVER
+    env.mobile = mobile
+    setfenv(prog, env)
 
     -- execute
     local status, result = pcall(prog)

@@ -53,3 +53,14 @@ function theme.button(variables)
   )
 end
 
+--[[
+  Submit button theme function.
+]]
+function theme.submit(variables)
+  if variables == nil then variables = {} end
+
+  return ('<input %s type="submit" value="%s" />'):format(
+    render_attributes(variables.attributes),
+    variables.value
+  )
+end

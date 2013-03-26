@@ -18,7 +18,7 @@ function theme.form(variables)
 end
 
 --[[
-  Input theme function.
+  Textfield theme function.
 ]]
 function theme.textfield(variables)
   if variables == nil then variables = {} end
@@ -30,7 +30,7 @@ function theme.textfield(variables)
 end
 
 --[[
-  Input theme function.
+  Label theme function.
 ]]
 function theme.label(variables)
   if variables == nil then variables = {} end
@@ -42,7 +42,7 @@ function theme.label(variables)
 end
 
 --[[
-  Input theme function.
+  Button theme function.
 ]]
 function theme.button(variables)
   if variables == nil then variables = {} end

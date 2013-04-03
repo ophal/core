@@ -3,6 +3,7 @@ local output_clean, output_get_clean = output_clean, output_get_clean
 local io, os, fs, lfs = io, os, seawolf.fs, require 'lfs'
 local print_r, require = seawolf.variable.print_r, require
 local _SESSION, session_write_close = _SESSION, session_write_close
+local exit_ophal = exit_ophal
 
 module 'ophal.modules.boost'
 
@@ -28,6 +29,7 @@ function boot()
       end
       io.input(file)
       print(io.read('*all'))
+      exit_ophal()
       os.exit()
     end
   end

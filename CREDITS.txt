@@ -43,3 +43,8 @@ Other software compatible with GPL license is included:
     json2.js
     --------
     Public Domain.
+
+    jssha256
+    --------
+    Copyright 2006 B. Poettering
+    http://point-at-infinity.org/jssha256/

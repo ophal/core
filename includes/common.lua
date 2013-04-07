@@ -1,4 +1,4 @@
-local pairs, tcon, rawset = pairs, table.concat, rawset
+local pairs, tcon, rawset, date = pairs, table.concat, rawset, os.date
 local base_path = base_path
 local str_replace = seawolf.text.str_replace
 
@@ -111,4 +111,11 @@ function goto(path, http_response_code)
   header('connection', 'close')
 
   exit_ophal()
+end
+
+--[[
+  Format given unix timestamp by system date format.
+]]
+function format_date(uts)
+  return date(settings.date_format, uts)
 end

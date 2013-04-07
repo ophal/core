@@ -64,3 +64,27 @@ function theme.submit(variables)
     variables.value
   )
 end
+
+--[[
+  Text area theme function.
+]]
+function theme.textarea(variables)
+  if variables == nil then variables = {} end
+
+  return ('<textarea %s>%s</textarea>'):format(
+    render_attributes(variables.attributes),
+    variables.value and variables.value or ''
+  )
+end
+
+--[[
+  Hidden value theme function.
+]]
+function theme.hidden(variables)
+  if variables == nil then variables = {} end
+
+  return ('<input type="hidden" %s %s/>'):format(
+    render_attributes(variables.attributes),
+    variables.value and ('value="%s" '):format(variables.value) or ''
+  )
+end

@@ -14,6 +14,7 @@ settings.maintenance_mode = false
 settings.output_buffering = false
 settings.sessionapi = true
 settings.formapi = false
+settings.date_format = '!%Y-%m-%d %H:%M UTC'
 
 --[[ Active/Disabled modules
   List of Ophal modules to load on bootstrap.

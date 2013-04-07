@@ -40,3 +40,6 @@ Other software compatible with GPL license is included:
     Copyright (c) 2009 - 2012 Serban Ghita
     http://code.google.com/p/php-mobile-detect/ - MIT License
 
+    json2.js
+    --------
+    Public Domain.

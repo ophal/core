@@ -149,12 +149,14 @@ ophal.bootstrap(5, function ()
       require [[includes.form]]
 
       add_js 'misc/jquery.js'
+      add_js 'misc/uuid.js'
       local js = [[<script type="text/javascript">
 $(document).ready(function() {
   $('#generate').click(function() {
     $('#settings').html($('#settings_template').html()
       .replace('!site_name', $('#sitename').val())
       .replace('!db_filepath', $('#filepath').val())
+      .replace('!site_hash', uuid())
     );
     $('#check_settings').show();
     $('#install_pager').show();
@@ -191,6 +193,7 @@ settings.language_dir = 'ltr'
 settings.site = {
   frontpage = 'lorem_ipsum',
   name = '!site_name',
+  hash = '!site_hash',
   logo_title = 'The Ophal Project',
   logo_path = 'images/ophalproject.png',
 }

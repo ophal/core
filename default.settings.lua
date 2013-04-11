@@ -5,6 +5,7 @@ settings.language_dir = 'ltr'
 settings.site = {
   frontpage = 'lorem_ipsum',
   name = 'Ophal',
+  hash = nil,
   logo_title = 'The Ophal Project',
   logo_path = 'images/ophalproject.png',
 }

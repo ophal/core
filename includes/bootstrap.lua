@@ -155,6 +155,7 @@ function bootstrap(phase, main)
       require 'includes.common'
       require 'includes.module'
       require 'includes.theme'
+      require 'includes.pager'
       if settings.formapi then
         require 'includes.form'
       end

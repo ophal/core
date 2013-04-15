@@ -87,11 +87,9 @@ function l(text, path, options)
   local attributes = options.attributes or {}
   options.attributes = nil
 
-  local variables = {
+  return theme{'a', 
     text = text,
     path = url(path, options),
     attributes = attributes,
   }
-
-  return theme{'a', variables}
 end

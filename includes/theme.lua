@@ -14,6 +14,14 @@ else
   theme_name = settings.theme
 end
 
+function theme_print(v)
+  if type(v) == 'function' then
+    v()
+  else
+    return print(v)
+  end
+end
+
 --[[
   Render theme template.
 ]]
@@ -41,7 +49,7 @@ local function theme_render(f, env)
     end
 
     -- jail
-    env.print = print
+    env.print = theme_print
     env.settings = settings
     env.echo = echo
     env.base_path = base_path
@@ -71,10 +79,8 @@ end
 --[[
   Execute theme function.
 ]]
-local function theme_execute(f, ...)
-  local arg = {...}
-
-  local status, result = pcall(theme[f], unpack(arg))
+local function theme_execute(f, arg)
+  local status, result = pcall(theme[f], arg)
   if status then
     return result
   else
@@ -91,11 +97,12 @@ setmetatable(theme, {
 
     local f = arg[1]
 
+    arg[1] = nil -- clean-up theme environment
+
     if t[f] == nil then
-      arg[1] = nil -- clean-up theme environment
       return theme_render(f, arg)
     else
-      return theme_execute(unpack(arg))
+      return theme_execute(f, arg)
     end
   end
 })
@@ -153,8 +160,10 @@ end
 --[[
   Image theme function.
 ]]
-function theme.img(path, options)
-  path = path or ''
+function theme.img(variables)
+  local path = variables.path or ''
+  local options = variables.options
+
   if options and options.external then
     options.external = nil
   else
@@ -169,7 +178,7 @@ end
 function theme.logo()
   local site = settings.site
   local logo_path = ('%s/%s'):format(path_to_theme(), site.logo_path)
-  return l(theme{'img', logo_path, {alt = site.logo_title, title = site.logo_title, border = 0}}, '', {attributes = {id = 'logo'}})
+  return l(theme{'img', path = logo_path, options = {alt = site.logo_title, title = site.logo_title, border = 0}}, '', {attributes = {id = 'logo'}})
 end
 
 --[[

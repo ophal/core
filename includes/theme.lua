@@ -1,5 +1,5 @@
 local theme_name
-local slash = settings.slash
+local slash, tinsert, tconcat = settings.slash, table.insert, table.concat
 local pcall, settings = pcall, settings
 local table, assert, error, setfenv = table, assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
@@ -170,4 +170,21 @@ function theme.logo()
   local site = settings.site
   local logo_path = ('%s/%s'):format(path_to_theme(), site.logo_path)
   return l(theme{'img', logo_path, {alt = site.logo_title, title = site.logo_title, border = 0}}, '', {attributes = {id = 'logo'}})
+end
+
+--[[
+  Items list function theme function.
+]]
+function theme.item_list(variables)
+  if variables == nil then variables = {} end
+
+  local list = variables.list
+  variables.list = nil
+
+  local output = {('<ul%s>'):format(list ~= nil and ' ' .. render_attributes(variables) or '')}
+  for _, v in pairs(list) do
+    tinsert(output, ('<li>%s</li>'):format(v))
+  end
+  tinsert(output, '</ul>')
+  return tconcat(output)
 end

@@ -91,10 +91,16 @@ end
 local function theme_execute(f, arg)
   local status, result = pcall(theme[f], arg)
   if status then
-    return result
-  else
-    return ("theme function %s: '%s'"):format(f, result)
+    if type(result) == 'function' then
+      status, result = pcall(result)
+      if status then
+        return result
+      end
+    else
+      return result
+    end
   end
+  return ("theme function %s: '%s'"):format(f, result)
 end
 
 --[[
@@ -145,7 +151,7 @@ end
   Print output of given theme function and parameters.
 ]]
 function print_t(...)
-  print(theme(...))
+  print(theme(...) or '')
 end
 
 --[[

@@ -59,6 +59,20 @@ settings.modules = {
   env.myfunction = external.library.function
 ]]
 
+--[[ Extend templates environment
+  Template files (like: *.tpl.*) i.e: page.tpl.html, have a very limited
+  set of functions available. Use setting 'template_env' to add external
+  functions and lua modules.
+  NOTE: Template variables are not overridden by the ones with this setting.
+
+  Example:
+
+  settings.template_env = {}
+
+  require 'external.library'
+  settings.template_env.myfunction = external.library.function
+]]
+
 --[[ Mobile support settings
   The mobile_detect library is a helper for mobile web development.
   Set settings.mobile to nil to turn off mobile support.

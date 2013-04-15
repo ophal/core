@@ -1,6 +1,6 @@
 local theme_name
 local slash, tinsert, tconcat = settings.slash, table.insert, table.concat
-local pcall, settings = pcall, settings
+local pcall, settings, empty = pcall, settings, seawolf.variable.empty
 local assert, error, setfenv = assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
 local base_path, l = base_path, l
@@ -46,6 +46,15 @@ local function theme_render(f, env)
     local prog, err = loadstring(src, file)
     if not prog then
       return ("template '%s': %s"):format(file, err)
+    end
+
+    -- extend env
+    if not empty(settings.template_env) then
+      for k, v in pairs(settings.template_env) do
+        if env[k] == nil then
+          env[k] = v
+        end
+      end
     end
 
     -- jail

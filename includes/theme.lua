@@ -1,7 +1,7 @@
 local theme_name
 local slash, tinsert, tconcat = settings.slash, table.insert, table.concat
 local pcall, settings = pcall, settings
-local table, assert, error, setfenv = table, assert, error, setfenv
+local assert, error, setfenv = assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
 local base_path, l = base_path, l
 
@@ -120,9 +120,9 @@ function render_attributes(options, default_options)
   local attr = {}
 
   for k, v in pairs(options) do
-    table.insert(attr, ('%s="%s"'):format(k, v))
+    tinsert(attr, ('%s="%s"'):format(k, v))
   end
-  return table.concat(attr, " ")
+  return tconcat(attr, " ")
 end
 
 --[[

@@ -11,7 +11,7 @@ module 'ophal.modules.boost'
   Return cache file path for current page.
 ]]
 local function filepath()
-  return ('%s%s.html'):format(settings.boost.path, _GET.q:gsub('/', '_'):gsub('\.', '_'))
+  return ('%s%s.html'):format(settings.boost.path, _GET.q:gsub([[/]], '_'):gsub([[\.]], '_'))
 end
 
 --[[

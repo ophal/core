@@ -14,18 +14,20 @@ end
 
 do
   local javascript = {}
+  local order = {}
   function add_js(data, options)
     if options == nil then options = {} end
     if data ~= nil then
       javascript[data] = options
+      rawset(order, #order + 1, data)
     end
   end
 
   function get_js()
     local output = {}
-    for k, v in pairs(javascript) do
+    for _, v in pairs(order) do
       rawset(output, #output + 1, ([[<script type="text/javascript" src="%s%s"></script>
-]]):format(base_path, k))
+]]):format(base_path, v))
     end
     return tcon(output)
   end

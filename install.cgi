@@ -25,7 +25,10 @@ ophal.bootstrap(5, function ()
   require 'includes.theme'
 
   -- Pager
-  theme.install_pager = function (options)
+  theme.install_pager = function (variables)
+    if variables == nil then variables = {} end
+
+    local options = variables.options
     local previous = ''
 
     if phase > 1 then
@@ -64,7 +67,7 @@ ophal.bootstrap(5, function ()
 <li>No dabatase is created by this installer, you need to create one in advance.</li>
 </ol>
 </p>
-]] .. theme{'install_pager'}):format(base_root, base_path, 2)
+]] .. theme.install_pager()):format(base_root, base_path, 2)
     end,
 
     -- Verify pre-requisites
@@ -135,7 +138,7 @@ ophal.bootstrap(5, function ()
       tinsert(output, '</table>')
         -- Say: All requirements are OK
       if continue then
-        tinsert(output, theme{'install_pager'})
+        tinsert(output, theme.install_pager())
       else
         tinsert(output, '<p>Please install any missing library. Read the <a href="http://ophal.org/manual/--version--/install#libraries">documentation</a> for details.</p>')
       end
@@ -170,17 +173,17 @@ $(document).ready(function() {
         '<h3>1. Configure your site</h3>',
         '<table>',
         '<tr><td>',
-        theme{'label', {title = 'Site name', attributes = {['for'] = 'sitename'}}},
+        theme.label{title = 'Site name', attributes = {['for'] = 'sitename'}},
         '</td><td>',
-        theme{'textfield', {value = 'Ophal', attributes = {id = 'sitename'}}},
+        theme.textfield{value = 'Ophal', attributes = {id = 'sitename'}},
         '</td></tr>',
         '<tr><td>',
-        theme{'label', {title = 'Database file path', attributes = {['for'] = 'filepath'}}},
+        theme.label{title = 'Database file path', attributes = {['for'] = 'filepath'}},
         '</td><td>',
-        theme{'textfield', {attributes = {id = 'filepath'}}},
+        theme.textfield{attributes = {id = 'filepath'}},
         '</td></tr>',
         '</table>',
-        theme{'button', {value = 'Generate', attributes = {id = 'generate'}}},
+        theme.button{value = 'Generate', attributes = {id = 'generate'}},
         '<div id="settings"></div>',
         [[<div id="settings_template" style="display:none">
 <h3>2. Create file settings.lua</h3>
@@ -284,8 +287,8 @@ settings.db = {
       }
 
       content = tconcat{
-        js, theme{'form', {action = 'install.cgi', elements = tconcat(elements)}},
-        theme{'install_pager', {style = 'display: none;'}}
+        js, theme.form{action = 'install.cgi', elements = tconcat(elements)},
+        theme.install_pager{style = 'display: none;'}
       }
     end,
 

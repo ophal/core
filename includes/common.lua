@@ -116,6 +116,6 @@ end
 --[[
   Format given unix timestamp by system date format.
 ]]
-function format_date(uts)
-  return date(settings.date_format, uts)
+function format_date(uts, date_format)
+  return date(date_format and date_format or settings.date_format, uts)
 end

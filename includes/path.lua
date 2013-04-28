@@ -70,15 +70,15 @@ function url(path, options)
   if not (options.alias or options.external) then
     alias = aliases.source[path]
     if alias then
-      return alias
+      path = alias
     end
   end
 
   if options.external then
     return path
-  else
-    return options.absolute and path or base_path .. path
   end
+
+  return options.absolute and base_root .. base_path .. path or path
 end
 
 function l(text, path, options)

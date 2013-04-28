@@ -100,11 +100,11 @@ function goto(path, http_response_code)
   path = path or ''
   http_response_code = http_response_code or 302
 
-	local dest_url
+  local dest_url
 
-  dest_url = url(path)
+  dest_url = url(path, {absolute = true})
   -- Remove newlines from the URL to avoid header injection attacks.
-  dest_url = base_root .. str_replace({'\n', '\r'}, '', dest_url)
+  dest_url = str_replace({'\n', '\r'}, '', dest_url)
 
   header('status', http_response_code)
   header('location', dest_url)

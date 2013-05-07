@@ -24,10 +24,16 @@ do
   end
 
   function get_js()
-    local output = {}
+    local output, options = {}
     for _, v in pairs(order) do
-      rawset(output, #output + 1, ([[<script type="text/javascript" src="%s%s"></script>
+      options = javascript[v]
+      if options ~= nil and options.type == 'inline'then
+        rawset(output, #output + 1, ([[<script type="text/javascript">%s</script>
+]]):format(options.content))
+      else
+        rawset(output, #output + 1, ([[<script type="text/javascript" src="%s%s"></script>
 ]]):format(base_path, v))
+      end
     end
     return tcon(output)
   end

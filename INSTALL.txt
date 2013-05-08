@@ -60,14 +60,13 @@ Notice that configuration above assumes that you are using "luajit".
 
 2. Dependencies
 == LuaJIT or Lua?
-Ophal uses LuaJIT 2.x by default, but is compatible with Lua if you prefer it.
+Ophal uses Lua 5.1 by default, but is compatible with LuaJIT 2.x if you prefer it.
 You need to edit the first line of index.cgi in order to switch interpreter.
 
 == Debian
 $ sudo luarocks install lpeg
 $ sudo apt-get install uuid-dev
 $ sudo luarocks install luuid
-$ sudo luarocks install luaposix
 $ sudo luarocks install luafilesystem
 $ sudo luarocks install luasocket
 $ cd /tmp
@@ -77,10 +76,16 @@ $ cd /tmp
 $ git clone --depth=1 git://github.com/ophal/seawolf.git
 $ sudo mv seawolf /usr/local/share/lua/5.1/
 
-3. Settings file
-Copy file default.settings.lua to settings.lua, make the desired changes and
-set it to read-only.
+3. Installation wizard
+Open your Ophal installation in a web browser, you should be redirected to the Installation
+Wizard, follow the instructions. The wizard will check dependencies and ask for configuration
+parameters, then will generate a settings.lua for you, copy the text, store as settings.lua
+into the same directory of index.cgi, make the desired changes an set it to read-only.
 
-If you successfully installed ophal, please don't mind to send your feedback to
-info@ophal.org, in order to help improve installation instructions.
+4. Send feedback
+Whether you successfully installed Ophal or not, please send your feedback to info@ophal.org
+in order to help us improve the installation instructions and the installer.
+
+
+-- The Ophal Team
 

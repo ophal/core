@@ -78,7 +78,7 @@ function url(path, options)
     return path
   end
 
-  return options.absolute and base_root .. base_path .. path or path
+  return (options.absolute and base_root or '') .. base_path .. path
 end
 
 function l(text, path, options)

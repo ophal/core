@@ -23,6 +23,7 @@ env = {
   debug = debug,
   package = package,
   string = string,
+  math = math,
   next = next,
   tostring = tostring,
   setmetatable = setmetatable,

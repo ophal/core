@@ -1,4 +1,4 @@
-local version = ('Ophal/0.1-alpha9 (%s)'):format(_VERSION)
+local version = ('Ophal/0.1-alpha10 (%s)'):format(_VERSION)
 
 -- Jailed environment functions and modules
 env = {

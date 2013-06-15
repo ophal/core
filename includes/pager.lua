@@ -10,7 +10,7 @@ function pager(path, num_pages, current_page)
   for page = 1,num_pages do
     rawset(pages, page,
       page ~= current_page and
-        l(page, path .. '?page=' .. page, {external = true}) or
+        l(page, url(path) .. '?page=' .. page, {external = true}) or
         page
     )
   end

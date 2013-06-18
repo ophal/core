@@ -130,7 +130,6 @@ header('cache-control', 'store, no-cache, must-revalidate, post-check=0, pre-che
 header('Keep-Alive', 'timeout=15, max=90')
 
 -- Parse query string
-require 'socket.url'
 local unescape = socket.url.unescape
 local list = explode('&', _SERVER 'QUERY_STRING' or '')
 local parsed = {}

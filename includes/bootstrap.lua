@@ -35,6 +35,7 @@ env = {
   lpeg = nil,
   cgic = nil,
   uuid = nil,
+  socket = nil,
   theme = {},
   mobile = {},
   base_root = '',
@@ -83,6 +84,8 @@ function bootstrap(phase, main)
       env.lpeg = require 'lpeg'
       env.cgic = require 'cgic'
       env.uuid = require 'uuid'
+
+      require 'socket.url'
 
       require 'seawolf.variable'
       require 'seawolf.fs'

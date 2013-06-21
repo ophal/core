@@ -68,7 +68,7 @@ function bootstrap(phase, main)
   if phase == nil then phase = 15 end
   if type(main) ~= 'function' then main = function() end end
 
-	local status, err, exit_bootstrap
+  local status, err, exit_bootstrap
 
   -- Jail
   setfenv(0, env) -- global environment
@@ -95,14 +95,14 @@ function bootstrap(phase, main)
     end,
 
     -- 2. Debug API
-    function ()      
+    function ()
       if settings.debugapi then
         require 'includes.debug'
       end
     end,
 
     -- 3. Build base URL
-    function ()    
+    function ()
       base_root = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
       base_root = base_root .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
       base_url = base_root
@@ -116,7 +116,7 @@ function bootstrap(phase, main)
     end,
 
     -- 4. Mobile API,
-    function ()    
+    function ()
       if settings.mobile then
         require 'includes.mobile'
       end
@@ -147,7 +147,7 @@ function bootstrap(phase, main)
     end,
 
     -- 8. Path API,
-    function ()    
+    function ()
       if seawolf.variable.empty(_GET.q) and settings.site then
         _GET.q = settings.site.frontpage
       end
@@ -164,7 +164,7 @@ function bootstrap(phase, main)
         require 'includes.form'
       end
     end,
-    
+
     -- 10. Modules,
     function ()
       local status, err
@@ -240,6 +240,6 @@ bootstrap[main]: ]] .. (err or ''))
     end
   end
 
-	-- The end
-	exit_ophal()
+  -- The end
+  exit_ophal()
 end

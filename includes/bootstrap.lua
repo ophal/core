@@ -85,7 +85,8 @@ function bootstrap(phase, main)
       env.cgic = require 'cgic'
       env.uuid = require 'uuid'
 
-      require 'socket.url'
+      env.socket = require 'socket'
+      env.socket.url = require 'socket.url'
 
       require 'seawolf.variable'
       require 'seawolf.fs'

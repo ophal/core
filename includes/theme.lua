@@ -148,6 +148,30 @@ function render_attributes(options, default_options)
 end
 
 --[[
+  Translate given table key-value pairs to "val1 val2".
+]]
+function render_classes(classes, default_classes)
+  if default_classes == nil then default_classes = {} end
+
+  if type(classes) ~= 'table' then
+    classes = default_classes
+  else
+    for k, v in pairs(default_classes) do
+      if classes[k] == nil and not empty(classes[k]) then
+        classes[k] = default_classes[k]
+      end
+    end
+  end
+
+  local output = {}
+
+  for k, _ in pairs(classes) do
+    tinsert(output, k)
+  end
+  return tconcat(output, '')
+end
+
+--[[
   Print output of given theme function and parameters.
 ]]
 function print_t(...)

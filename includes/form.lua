@@ -129,7 +129,7 @@ function theme.select_options(variables)
   local selected
   for k, v in pairs(elements) do
     selected = not empty(choices[k]) and ' selected="selected"' or ''
-    tinsert(output, ('<option%s>%s</option>'):format(selected, v))
+    tinsert(output, ('<option value="%s"%s>%s</option>'):format(k, selected, v))
   end
 
   return tconcat(output)

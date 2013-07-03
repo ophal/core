@@ -11,4 +11,6 @@
 - HTML5 by default (Websockets and all the fireworks yay!)
 - Flush output buffer on errors
 - Include HTTP headers parser written by daurnimator https://gist.github.com/3480374
-
+- Rename hook_menu to hook_path, menu.inc to path.inc
+- Make clear separation between Path core component and Menu core module
+- Handling of Menus and Paths should be best easy

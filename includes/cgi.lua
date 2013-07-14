@@ -1,7 +1,10 @@
 local io_write, write, buffer = io.write, io.write, env.output_buffer
 local time, date, exit = os.time, os.date, os.exit
 local tinsert, explode = table.insert, seawolf.text.explode
-local empty = seawolf.variable.empty
+local empty, ltrim = seawolf.variable.empty, seawolf.text.ltrim
+local trim, dirname = seawolf.text.trim, seawolf.fs.dirname
+local basename = seawolf.fs.basename
+local rtrim, unescape = seawolf.text.rtrim, socket.url.unescape
 local tconcat, lower = table.concat, string.lower
 
 -- Output functions
@@ -129,8 +132,89 @@ header('last-modified', date('!%a, %d %b %Y %X GMT', time(date('*t')) - 15*60))
 header('cache-control', 'store, no-cache, must-revalidate, post-check=0, pre-check=0')
 header('Keep-Alive', 'timeout=15, max=90')
 
+--[[
+  Since _SERVER['REQUEST_URI'] is only available on Apache, we
+  generate an equivalent using other environment variables.
+
+  Copied and adapted from Drupal 8.x request_uri().
+ ]]
+function request_uri(omit_query_string)
+  local uri
+
+  if _SERVER 'REQUEST_URI' ~= nil then
+    uri = _SERVER 'REQUEST_URI'
+  else
+    if _SERVER 'QUERY_STRING' ~= nil then
+      uri = _SERVER 'SCRIPT_NAME' .. '?' .. _SERVER 'QUERY_STRING'
+    else
+      uri = _SERVER.SCRIPT_NAME
+    end
+  end
+  -- Prevent multiple slashes to avoid cross site requests via the FAPI.
+  uri = '/'.. ltrim(uri, '/')
+
+  if omit_query_string then
+    for _, v in pairs(explode('?', uri)) do
+      if v ~= '' then
+        return v
+      end
+    end
+  end
+
+  return uri
+end
+
+do
+  local path
+
+  --[[
+    Returns the requested URL path of the page being viewed.
+
+    Examples:
+    - http://example.com/article/306 returns "article/306".
+    - http://example.com/ophalfolder/article/306 returns "article/306" while
+      base_path() returns "/ophalfolder/".
+    - http://example.com/path/alias (which is a path alias for article/306)
+      returns "path/alias" as opposed to the internal path.
+    - http://example.com/index.cgi returns an empty string, meaning: front page.
+    - http://example.com/index.cgi?page=1 returns an empty string.
+
+     Copied and adapted from Drupal 8.x request_path().
+   ]]
+  function request_path()
+    local request_path, base_path_len, script
+
+    if path ~= nil then
+      return path
+    end
+
+    -- Get the part of the URI between the base path of the Drupal installation
+    -- and the query string, and unescape it.
+    request_path = request_uri(true)
+    base_path_len = rtrim(dirname(_SERVER 'SCRIPT_NAME'), '\/'):len()
+    path = unescape(request_path):sub(base_path_len + 1)
+
+    -- Depending on server configuration, the URI might or might not include the
+    -- script name. For example, the front page might be accessed as
+    -- http://example.com or as http://example.com/index.cgi, and the "user"
+    -- page might be accessed as http://example.com/user or as
+    -- http://example.com/index.cgi/user. Strip the script name from $path.
+    script = basename(_SERVER 'SCRIPT_NAME')
+    if path == script then
+      path = ''
+    elseif path:find(script .. '/') == 0 then
+      path = substr(path, strlen(script) + 1)
+    end
+
+    -- Extra slashes can appear in URLs or under some conditions, added by
+    -- the web server, so normalize.
+    path = trim(path, '/')
+
+    return path
+  end
+end
+
 -- Parse query string
-local unescape = socket.url.unescape
 local list = explode('&', _SERVER 'QUERY_STRING' or '')
 local parsed = {}
 if list then

@@ -149,9 +149,6 @@ function bootstrap(phase, main)
 
     -- 8. Path API,
     function ()
-      if seawolf.variable.empty(_GET.q) and settings.site then
-        _GET.q = settings.site.frontpage
-      end
       require 'includes.path'
     end,
 

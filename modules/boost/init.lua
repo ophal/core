@@ -1,4 +1,4 @@
-local print, echo, settings, _GET = print, echo, settings, _GET
+local print, echo, settings, request_path = print, echo, settings, request_path
 local output_clean, output_get_clean = output_clean, output_get_clean
 local io, os, fs, lfs = io, os, seawolf.fs, require 'lfs'
 local print_r, require = seawolf.variable.print_r, require
@@ -11,7 +11,7 @@ module 'ophal.modules.boost'
   Return cache file path for current page.
 ]]
 local function filepath()
-  return ('%s%s.html'):format(settings.boost.path, _GET.q:gsub([[/]], '_'):gsub([[\.]], '_'))
+  return ('%s%s.html'):format(settings.boost.path, request_path():gsub([[/]], '_'):gsub([[\.]], '_'))
 end
 
 --[[

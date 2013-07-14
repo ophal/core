@@ -10,20 +10,23 @@ function path_register_alias(path, alias)
 end
 
 do
-  local arguments, q
+  local arguments
 
   function arg(index)
+    local alias, result
+
     index = index + 1
 
-    local arguments, q = arguments, q
-
-    if arguments == nil or q ~= _GET.q then
-      arguments = explode('/', _GET.q)
-      q = _GET.q
+    if arguments == nil then
+      q = request_path()
+      arguments = explode('/', q ~= '' and q or settings.site.frontpage)
     end
 
-    if arguments[index] ~= nil then
-      return arguments[index]
+    result = arguments[index]
+
+    if result ~= nil then
+      alias = aliases.alias[result]
+      return alias and alias or result
     end
   end
 end
@@ -38,12 +41,6 @@ do
     if path_tree == nil and path == nil then
       path_tree, path = {}
 
-      -- lookup path alias
-      alias = aliases.alias[_GET.q]
-      if alias then
-        _GET.q = alias
-      end
-
       -- build path tree
       for i = 1,8 do
         a = arg(i - 1)
@@ -57,7 +54,6 @@ do
       if not #path_tree then
         error 'Menu system error!'
       end
-      _GET.q = path
     end
     return path_tree, path
   end

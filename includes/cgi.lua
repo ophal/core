@@ -147,7 +147,7 @@ function request_uri(omit_query_string)
     if _SERVER 'QUERY_STRING' ~= nil then
       uri = _SERVER 'SCRIPT_NAME' .. '?' .. _SERVER 'QUERY_STRING'
     else
-      uri = _SERVER.SCRIPT_NAME
+      uri = _SERVER 'SCRIPT_NAME' or ''
     end
   end
   -- Prevent multiple slashes to avoid cross site requests via the FAPI.

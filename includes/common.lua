@@ -114,9 +114,7 @@ function goto(path, http_response_code)
   -- Remove newlines from the URL to avoid header injection attacks.
   dest_url = str_replace({'\n', '\r'}, '', dest_url)
 
-  header('status', http_response_code)
-  header('location', dest_url)
-  header('connection', 'close')
+  redirect(dest_url, http_response_code)
 
   exit_ophal()
 end

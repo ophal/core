@@ -8,14 +8,14 @@ local session
 -- Session handler
 if settings.sessionapi then
   -- Look for session cookie
-  local session_id = cgic.cookieString('session-id', 36)
+  local session_id = ophal.cookies['session-id']
   -- if session ID is not valid then set a new ID
   if not uuid.isvalid(session_id) then
     session_id = uuid.new()
     -- Delegate cookie header to ophal.header
-    header('set-cookie', function ()
-      cgic.headerCookieSetString(
-       'session-id', session_id, 3*60*60, base_path, _SERVER 'SERVER_NAME' or ''
+    header('Set-Cookie', function ()
+      return headerCookieSetString(
+        'session-id', session_id, 3*60*60, base_path, _SERVER 'SERVER_NAME' or ''
       )
     end, false)
   end

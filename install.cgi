@@ -4,7 +4,7 @@ require 'includes.bootstrap'
 
 settings.output_buffering = false
 
-ophal.bootstrap(5, function ()
+ophal.bootstrap(4, function ()
   -- Settings
   settings.site = {
     name = 'Ophal',
@@ -51,10 +51,7 @@ ophal.bootstrap(5, function ()
       -- Look for settings.lua
       if seawolf.fs.is_file [[settings.lua]] then
         -- Redirect to next phase
-        header('location', ('%s%sinstall.cgi?phase=3'):format(base_root, base_path))
-        header('connection', 'close')
-        io.write ''
-        os.exit()
+        redirect(('%s%sinstall.cgi?phase=3'):format(base_root, base_path))
       end
 
       page_set_title 'Install: Welcome!'
@@ -78,10 +75,7 @@ ophal.bootstrap(5, function ()
       -- Look for settings.lua
       if seawolf.fs.is_file 'settings.lua' then
         -- Redirect to next phase
-        header('location', ('%s%sinstall.cgi?phase=3'):format(base_root, base_path))
-        header('connection', 'close')
-        io.write ''
-        os.exit()
+        redirect(('%s%sinstall.cgi?phase=3'):format(base_root, base_path))
       end
 
       page_set_title 'Install: Pre-requisites'

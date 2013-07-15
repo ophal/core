@@ -1,4 +1,4 @@
-local io_write, write, buffer = io.write, io.write, env.output_buffer
+local buffer = env.output_buffer
 local time, date, exit = os.time, os.date, os.exit
 local tinsert, explode = table.insert, seawolf.text.explode
 local empty, ltrim = seawolf.variable.empty, seawolf.text.ltrim
@@ -7,28 +7,16 @@ local basename = seawolf.fs.basename
 local rtrim, unescape = seawolf.text.rtrim, socket.url.unescape
 local tconcat, lower = table.concat, string.lower
 
--- Output functions
--- Make sure to print headers on the first output
-write = function (s)
-  io.write = io_write
-  write = io_write
-  ophal.header:print()
-  cgic.exit() -- free memory
-  write "\n"
-  write(s)
-end
-io.write = write
+-- Build base URL
+base_root = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
+base_root = base_root .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
+base_url = base_root
 
-do
-  local exit_orig = exit
-  exit = function (code)
-    os.exit = exit_orig
-    exit = exit_orig
-    ophal.header:print()
-    cgic.exit() -- free memory
-    exit_orig(code)
-  end
-  os.exit = exit
+local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER 'SCRIPT_NAME' or '/index.cgi'), [[\,/]])
+if dir ~= '' then
+  base_path = '/' .. dir
+  base_url = base_url .. base_path
+  base_path = base_path .. '/'
 end
 
 --[[ Ophal's print function.
@@ -43,65 +31,6 @@ function echo(...)
   for _, v in pairs({...}) do
     write(tostring(v))
   end
-end
-
--- Headers handler
-ophal.header = {
-  sent = false,
-  data = {
-    -- Default headers
-    ['content-type'] = {'text/html; charset=utf-8'},
-    ['x-powered-by'] = {ophal.version},
-  },
-  set = function (t, header)
-    local replace
-
-    local name = header[1]
-    local value = header[2]
-    if header[3] ~= nil then
-      replace = header[3]
-    else
-      replace = true
-    end
-
-    local headers = t.data
-
-    if not empty(name) and type(name) == 'string' and
-      (type(value) == 'string' or type(value) == 'number' or type(value) == 'function')
-    then
-      name = lower(name)
-      if name == 'status' then
-        replace = true -- always replace status header
-      end
-      if replace then
-        headers[name] = {value}
-      else
-        if headers[name] == nil then
-          headers[name] = {}
-        end
-        tinsert(headers[name], value)
-      end
-    end
-  end,
-  print = function (t)
-    if not t.sent then
-      for n, d in pairs(t.data) do
-        for _, v in pairs(d) do
-          if type(v) == 'function' then
-            v()
-          else
-            io_write(([[%s: %s
-]]):format(n, v))
-          end
-        end
-      end
-      t.sent = true
-    end
-  end
-}
-
-function header(...)
-  ophal.header:set{...}
 end
 
 -- Browser cache control
@@ -122,9 +51,6 @@ if settings.mobile then
     os.exit()
   end
 end
-
--- Load list of cookies
-cgic.cookies(ophal.cookies)
 
 -- Set headers for dynamic content
 header('expires', 'Sun, 19 Nov 1978 05:00:00 GMT')
@@ -216,6 +142,7 @@ end
 
 -- Parse query string
 local list = explode('&', _SERVER 'QUERY_STRING' or '')
+
 local parsed = {}
 if list then
   local tmp, key, value

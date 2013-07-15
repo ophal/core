@@ -33,7 +33,6 @@ env = {
   _SESSION = nil,
   lfs = nil,
   lpeg = nil,
-  cgic = nil,
   uuid = nil,
   socket = nil,
   theme = {},
@@ -60,12 +59,19 @@ settings = {modules = {}}
 pcall(require, 'settings')
 env.settings = settings
 
+-- Detect nginx
+if ngx then
+  env.ngx = ngx
+  for k, v in pairs(getfenv(0, ngx)) do
+    env[k] = v
+  end
+end
+
 -- The actual module
 local setfenv, type, env = setfenv, type, env
 module 'ophal'
 
 function bootstrap(phase, main)
-  if phase == nil then phase = 15 end
   if type(main) ~= 'function' then main = function() end end
 
   local status, err, exit_bootstrap
@@ -82,7 +88,6 @@ function bootstrap(phase, main)
     function ()
       env.lfs = require 'lfs'
       env.lpeg = require 'lpeg'
-      env.cgic = require 'cgic'
       env.uuid = require 'uuid'
 
       env.socket = require 'socket'
@@ -102,39 +107,31 @@ function bootstrap(phase, main)
       end
     end,
 
-    -- 3. Build base URL
+    -- 3. Load native server API
     function ()
-      base_root = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
-      base_root = base_root .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
-      base_url = base_root
-
-      local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER 'SCRIPT_NAME' or '/index.cgi'), [[\,/]])
-      if dir ~= '' then
-        base_path = '/' .. dir
-        base_url = base_url .. base_path
-        base_path = base_path .. '/'
+      if ngx then
+        require 'includes.server.nginx'
+      else
+        require 'includes.server.cgi'
       end
     end,
 
-    -- 4. Mobile API,
+    -- 4. Load Ophal server API
+    function ()
+      require 'includes.server.init'
+    end,
+
+    -- 5. Mobile API,
     function ()
       if settings.mobile then
         require 'includes.mobile'
       end
     end,
 
-    -- 5. CGI API,
-    function ()
-      cgic.init()
-      require 'includes.cgi'
-    end,
-
     -- 6. Check installer
     function ()
       if (_SERVER 'SCRIPT_NAME' or '/index.cgi') == base_path .. 'index.cgi' and not seawolf.fs.is_file 'settings.lua' then
-        header('location', ('%s%sinstall.cgi'):format(base_root, base_path))
-        header('connection', 'close')
-        io.write ''
+        redirect(('%s%sinstall.cgi'):format(base_root, base_path))
         return -1
       end
     end,
@@ -214,7 +211,7 @@ function bootstrap(phase, main)
   }
 
   -- Loop over phase
-  for p = 1, phase do
+  for p = 1, (phase or #phases) do
     status, err = pcall(phases[p])
     if not status then
       io.write(([[

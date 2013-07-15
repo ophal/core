@@ -16,7 +16,7 @@ env._SERVER = function (v)
 end
 
 local cookies, parsed, tmp, key, value = ngx_req.get_headers()['Cookie'], {}
-if type(cookies) == 'string' then
+if type(cookies) ~= 'table' then
   cookies = {cookies}
 end
 for _, v in pairs(cookies) do

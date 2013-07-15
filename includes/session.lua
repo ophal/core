@@ -8,7 +8,7 @@ local session
 -- Session handler
 if settings.sessionapi then
   -- Look for session cookie
-  local session_id = ophal.cookies['session-id']
+  local session_id = ophal.cookies['session-id'] or ''
   -- if session ID is not valid then set a new ID
   if not uuid.isvalid(session_id) then
     session_id = uuid.new()

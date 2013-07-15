@@ -6,11 +6,16 @@ WARNING! Yet incomplete, please send feedback to info@ophal.org
 1. Server configuration
 This instructions assume that you installed Ophal at /var/www/ophal.
 
+Ophal can run on native Nginx's HttpLuaModule or as a humble CGI script on
+Apache, Lighttpd and others that support CGI and URL rewriting. FastCGI support
+can be implemented with a FastCGI wrapper on Apache, Nginx, Lighttpd and several
+other web servers.
+
 == Apache
-Enable mod rewrite and use following configuration for reference:
+Enable mod_rewrite and mod_cgi, then use following configuration for reference:
 
 === Sub-directory
-	Alias /lua /var/www/ophal/
+  Alias /lua /var/www/ophal/
         <Directory "/var/www/ophal">
                 AllowOverride All
                 Options Indexes FollowSymLinks MultiViews +ExecCGI
@@ -56,6 +61,10 @@ $HTTP["host"] =~ ".+\.ophal" {
 }
 
 Notice that configuration above assumes that you are using "luajit".
+
+== Nginx
+Install HttpLuaModule and use the file nginx.ophal.conf to configure your server.
+Make sure to set 'server_name' and 'root' correctly.
 
 
 2. Dependencies

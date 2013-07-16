@@ -1,5 +1,6 @@
 local time, ngx_print, ngx_var, ngx_req = os.time, ngx.print, ngx.var, ngx.req
 local explode, unescape = seawolf.text.explode, socket.url.unescape
+local trim = seawolf.text.trim
 
 env._SERVER = function (v)
   if v == 'QUERY_STRING' then
@@ -15,11 +16,10 @@ env._SERVER = function (v)
   end
 end
 
-local cookies, parsed, tmp, key, value = ngx_req.get_headers()['Cookie'], {}
-if type(cookies) ~= 'table' then
-  cookies = {cookies}
-end
+local cookies, parsed, tmp, key, value = ngx_req.get_headers()['Cookie'] or '', {}
+cookies = explode(';', cookies)
 for _, v in pairs(cookies) do
+  v = trim(v)
   if #v > 0 then
     tmp = explode('=', v)
     key = unescape((tmp[1] or ''):gsub('+', ' '))

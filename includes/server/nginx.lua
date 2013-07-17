@@ -52,3 +52,26 @@ function redirect(dest_url, http_response_code)
   ngx.redirect(dest_url, http_response_code or 302)
 end
 
+do
+  local body
+  function request_get_body()
+    local file = {}
+
+    if body == nil then
+      ngx.req.read_body()
+      -- try from memory
+      body = ngx.req.get_body_data()
+      if body == nil then
+        file.name = ngx.req.get_body_file()
+        if file.name then
+          file.handle = io.open(file.name)
+          body = file.handle:read '*a'
+        else
+          body = ''
+        end
+      end
+    end
+    return body
+  end
+end
+

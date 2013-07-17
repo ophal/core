@@ -121,3 +121,7 @@ function headerCookieSetString(...)
   return cgic.headerCookieSetString(...)
 end
 
+function request_get_body()
+  return io.read '*a'
+end
+

@@ -134,3 +134,18 @@ function theme.select_options(variables)
 
   return tconcat(output)
 end
+
+function theme.checkbox(variables)
+  if variables == nil then variables = {} end
+  if variables.attributes == nil then variables.attributes = {} end
+
+  variables.attributes.type = 'checkbox'
+  variables.attributes.value = 1
+
+  -- Unchecked checkbox has #value of integer 0.
+  if not empty(variables.value)  then
+    variables.attributes.checked = 'checked'
+  end
+
+  return ('<input %s />'):format(render_attributes(variables.attributes))
+end

@@ -193,7 +193,21 @@ end
   Anchor theme function.
 ]]
 function theme.a(variables)
-  return ('<a href="%s" %s>%s</a>'):format(variables.path, render_attributes(variables.attributes), variables.text)
+  if variables == nil then variables = {} end
+
+  local attributes = variables.attributes
+  variables.attributes = nil
+
+  -- Support HTML5 download attribute
+  local download = attributes.download
+  attributes.download = nil
+  if download == true then
+    download = ' download'
+  elseif type(download) == 'string' then
+    download = (' download="%s"'):format(download)
+  end
+
+  return ('<a href="%s"%s %s>%s</a>'):format(variables.path, download or '', render_attributes(attributes), variables.text)
 end
 
 --[[

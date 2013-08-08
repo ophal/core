@@ -13,21 +13,19 @@ do
   local arguments
 
   function arg(index)
-    local alias, result
+    local source, rp
 
     index = index + 1
-
     if arguments == nil then
-      q = request_path()
-      arguments = explode('/', q ~= '' and q or settings.site.frontpage)
+      rp = request_path()
+      source = aliases.alias[rp]
+      if source then
+        rp = source
+      end
+      arguments = explode('/', rp ~= '' and rp or settings.site.frontpage)
     end
 
-    result = arguments[index]
-
-    if result ~= nil then
-      alias = aliases.alias[result]
-      return alias and alias or result
-    end
+    return arguments[index]
   end
 end
 

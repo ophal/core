@@ -116,16 +116,16 @@ function bootstrap(phase, main)
       end
     end,
 
-    -- 4. Load Ophal server API
-    function ()
-      require 'includes.server.init'
-    end,
-
-    -- 5. Mobile API,
+    -- 4. Mobile API,
     function ()
       if settings.mobile then
         require 'includes.mobile'
       end
+    end,
+
+    -- 5. Load Ophal server API
+    function ()
+      require 'includes.server.init'
     end,
 
     -- 6. Check installer

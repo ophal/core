@@ -4,7 +4,7 @@ require 'includes.bootstrap'
 
 settings.output_buffering = false
 
-ophal.bootstrap(4, function ()
+ophal.bootstrap(5, function ()
   -- Settings
   settings.site = {
     name = 'Ophal',

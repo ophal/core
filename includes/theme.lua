@@ -40,7 +40,7 @@ local function theme_render(f, env)
     fh:close()
 
     -- translate lua template tag
-    src = src:gsub('(<%?lua)(.-)(%?>)', "]]; %2print[[")
+    src = src:gsub('(<%?lua)(.-)(%?>)', "]]; %2 print[[")
 
     -- load source code
     local prog, err = loadstring(src, file)

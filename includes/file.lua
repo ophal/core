@@ -12,9 +12,9 @@ function theme.file(variables)
   end
 
   return tconcat{
-    ('<div class="form-upload-field" id="%s_file">'):format(id),
+    ('<div class="form-upload-field" id="%s_field">'):format(id),
     ('<input %s type="file" class="form-upload-file">'):format(id, id, render_attributes(variables.attributes)),
-    theme{'button', value = 'upload', attributes = {id = id .. '_btn', class = 'form-upload-button'}}, '<br />',
+    theme{'button', value = 'upload', attributes = {class = 'form-upload-button'}}, '<br />',
     '<progress class="form-upload-progress" value="0" max="100"></progress>',
     '<div class="form-upload-percent">Waiting...</div>',
     '</div>'

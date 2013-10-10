@@ -1,0 +1,24 @@
+local theme, add_js = theme, add_js
+
+module 'ophal.modules.test'
+
+function menu()
+  local items = {}
+
+  items['upload-test'] = {
+    title = 'Upload a file',
+    page_callback = 'upload_test_page',
+  }
+
+  return items
+end
+
+function upload_test_page()
+  add_js 'misc/jquery.js'
+  add_js 'misc/uuid.js'
+  add_js 'misc/filereader.js'
+  return
+    '<div>' ..
+      theme{'file'} ..
+    '</div>'
+end

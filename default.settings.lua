@@ -8,6 +8,7 @@ settings.site = {
   hash = nil,
   logo_title = 'The Ophal Project',
   logo_path = 'images/ophalproject.png',
+  files_path = 'files',
 }
 settings.cache = false
 settings.debugapi = true

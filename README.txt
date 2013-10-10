@@ -1,4 +1,3 @@
-
     Copyright (C) 2011-2013  Fernando Paredes García
 
     This program is free software: you can redistribute it and/or modify
@@ -56,4 +55,5 @@ Ophal has the following dependencies:
 - LuaFilesystem
 - LuaDBI
 - luuid
+- dkjson
 

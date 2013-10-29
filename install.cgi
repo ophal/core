@@ -6,15 +6,25 @@ settings.output_buffering = false
 
 ophal.bootstrap(5, function ()
   -- Settings
-  settings.site = {
-    name = 'Ophal',
-    logo_title = 'The Ophal Project',
-    logo_path = 'images/ophalproject.png',
+  local default_settings = {
+    site = {
+      name = 'Ophal',
+      logo_title = 'The Ophal Project',
+      logo_path = 'images/ophalproject.png',
+    },
+    slash = string.sub(package.config,1,1),
+    language = 'en',
+    language_dir = 'ltr',
   }
-  settings.slash = string.sub(package.config,1,1)
+
+  for k, v in pairs(default_settings) do
+    if settings[k] == nil then
+      settings[k] = v
+    end
+  end
+
+  -- Force settings
   settings.theme = 'install'
-  settings.language = 'en'
-  settings.language_dir = 'ltr'
 
   -- Detect phase
   local phase = tonumber(_GET.phase) or 1
@@ -79,7 +89,6 @@ ophal.bootstrap(5, function ()
       end
 
       page_set_title 'Phase 2: Pre-requisites'
-      -- Check 'files' directory permissions
 
       -- Library checker
       libraries = {
@@ -168,6 +177,12 @@ ophal.bootstrap(5, function ()
     function ()
       local tinsert, tconcat = table.insert, table.concat
 
+      -- Look for settings.lua
+      if seawolf.fs.is_file 'settings.lua' then
+        -- Redirect to next phase
+        redirect(('%s%sinstall.cgi?phase=4'):format(base_root, base_path))
+      end
+
       require [[includes.form]]
 
       add_js 'misc/jquery.js'
@@ -177,8 +192,9 @@ $(document).ready(function() {
   $('#generate').click(function() {
     $('#settings').html($('#settings_template').html()
       .replace('!site_name', $('#sitename').val())
-      .replace('!db_filepath', $('#filepath').val())
+      .replace('!db_filepath', $('#db_filepath').val())
       .replace('!site_hash', uuid())
+      .replace('!files_path', $('#files_path').val())
     );
     $('#check_settings').show();
     $('#install_pager').show();
@@ -197,9 +213,14 @@ $(document).ready(function() {
         theme.textfield{value = 'Ophal', attributes = {id = 'sitename'}},
         '</td></tr>',
         '<tr><td>',
-        theme.label{title = 'Database file path', attributes = {['for'] = 'filepath'}},
+        theme.label{title = 'Database file path', attributes = {['for'] = 'db_filepath'}},
         '</td><td>',
-        theme.textfield{attributes = {id = 'filepath'}},
+        theme.textfield{attributes = {id = 'db_filepath'}},
+        '</td></tr>',
+        '<tr><td>',
+        theme.label{title = 'File directory', attributes = {['for'] = 'files_path'}},
+        '</td><td>',
+        theme.textfield{value = 'files', attributes = {id = 'files_path'}},
         '</td></tr>',
         '</table>',
         theme.button{value = 'Generate', attributes = {id = 'generate'}},
@@ -218,6 +239,7 @@ settings.site = {
   hash = '!site_hash',
   logo_title = 'The Ophal Project',
   logo_path = 'images/ophalproject.png',
+  files_path = '!files_path',
 }
 settings.cache = false
 settings.debugapi = true
@@ -313,8 +335,52 @@ settings.db = {
 
     -- Do install
     function ()
+      local status, err, file_directory, fh
+      local tconcat = table.concat
+      local output = ''
+
+      -- Load settings
+      local status, err = pcall(require, 'settings')
+
+      if not status then
+        err = "Missing file or error when trying to load 'settings.lua'"
+      else
+        err = nil
+
+        -- Check 'files' directory permissions
+        if not (settings.site and settings.site.files_path) then
+          err = 'settings.site.files_path is not set!'
+        else
+          files_path = settings.site.files_path
+
+          if seawolf.fs.is_file(files_path) then
+            err = ("Created file directory: '%s' is an actual file, not a directory! Please fix and try again."):format(files_path)
+          elseif seawolf.fs.is_dir(files_path) then
+            if not seawolf.fs.is_writable(files_path) then
+              err = ("File directory: '%s' is not writable!"):format(files_path)
+            else
+              fh = io.open(files_path .. '/.htaccess', 'w')
+              fh:write([[SetHandler Ophal_Security_Do_Not_Remove
+Options None
+Options +FollowSymLinks
+
+]])
+              output =
+                '<p>Installation complete!</p>' ..
+                ('<p>Your new site is available <a href="%s">here</a></p>'):format(base_path)
+              fh:close()
+            end
+          else
+            err = ("File directory not found! Please create directory '%s'."):format(files_path)
+          end
+        end
+      end
+
       page_set_title 'Installing...'
-      content = 'Pre-requisites'
+      content = tconcat{
+        err and ('<strong>Error</strong>: %s'):format(err) or '',
+        output,
+      }
     end
   }
 

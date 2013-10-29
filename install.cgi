@@ -111,6 +111,26 @@ ophal.bootstrap(5, function ()
           name = "David Kolf's JSON",
           required = true,
         },
+        ['seawolf.variable'] = {
+          name = 'Seawolf: variable',
+          required = true,
+        },
+        ['seawolf.fs'] = {
+          name = 'Seawolf: filesystem',
+          required = true,
+        },
+        ['seawolf.text'] = {
+          name = 'Seawolf: text',
+          required = true,
+        },
+        ['seawolf.behaviour'] = {
+          name = 'Seawolf: behaviour',
+          required = true,
+        },
+        ['seawolf.contrib'] = {
+          name = 'Seawolf: contrib',
+          required = true,
+        },
       }
       output = {
         '<table>',

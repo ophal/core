@@ -81,7 +81,7 @@ ophal.bootstrap(5, function ()
       page_set_title 'Install: Pre-requisites'
       -- Check 'files' directory permissions
 
-      -- Libraries
+      -- Library checker
       libraries = {
         cgic = {
           name = 'Lua-CGIC',
@@ -105,12 +105,16 @@ ophal.bootstrap(5, function ()
         },
         lpeg = {
           name = 'LPEG',
-          required = false,
+          required = true,
+        },
+        dkjson = {
+          name = "David Kolf's JSON",
+          required = true,
         },
       }
       output = {
         '<table>',
-        '<thead><th>Library</th><th>Machine name</th><th>Status</th><th>Error</th></thead>'
+        '<thead><th>Library</th><th>Machine name</th><th>Required?</th><th>Status</th><th>Error</th></thead>'
       }
 
       -- Find required libraries, both optional and required
@@ -119,10 +123,11 @@ ophal.bootstrap(5, function ()
         tinsert(output, '<tr>')
         tinsert(output, ('<td>%s</td>'):format(library.name))
         tinsert(output, ('<td>"%s"</td>'):format(machine_name))
+        tinsert(output, ('<td>%s</td>'):format(library.required and 'Required' or 'Optional'))
         -- Status
         status, err = pcall(require, machine_name)
         if status then
-          tinsert(output, '<td>OK</td>')
+          tinsert(output, '<td>Found</td>')
         else
           continue = false
           tinsert(output, ('<td>Missing</td><td><pre>"%s"</pre></td>'):format(err))

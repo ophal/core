@@ -54,7 +54,7 @@ ophal.bootstrap(5, function ()
         redirect(('%s%sinstall.cgi?phase=3'):format(base_root, base_path))
       end
 
-      page_set_title 'Install: Welcome!'
+      page_set_title 'Phase 1: Welcome!'
 
       content = ([[<h3>Welcome to the Ophal installation process.</h3>
 <p>Before you proceed, please consider the following</p>
@@ -78,7 +78,7 @@ ophal.bootstrap(5, function ()
         redirect(('%s%sinstall.cgi?phase=3'):format(base_root, base_path))
       end
 
-      page_set_title 'Install: Pre-requisites'
+      page_set_title 'Phase 2: Pre-requisites'
       -- Check 'files' directory permissions
 
       -- Library checker
@@ -186,10 +186,10 @@ $(document).ready(function() {
 });
 </script>]],
 
-      page_set_title 'Configuration file: settings.lua'
+      page_set_title 'Phase 3: Configuration file settings.lua'
 
       local elements = {
-        '<h3>1. Configure your site</h3>',
+        '<h3>Step 1. Configure your site</h3>',
         '<table>',
         '<tr><td>',
         theme.label{title = 'Site name', attributes = {['for'] = 'sitename'}},
@@ -205,7 +205,7 @@ $(document).ready(function() {
         theme.button{value = 'Generate', attributes = {id = 'generate'}},
         '<div id="settings"></div>',
         [[<div id="settings_template" style="display:none">
-<h3>2. Create file settings.lua</h3>
+<h3>Step 2. Create file settings.lua</h3>
 <p>Copy the following text into the file <i>settings.lua</i> and put it right in the exact same folder of file <i>index.cgi</i>:</p>
 <textarea cols="100" rows="15">
 settings.slash = string.sub(package.config,1,1)

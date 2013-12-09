@@ -17,6 +17,15 @@ body {
   float: left;
 }
 
+#messages div {
+  margin: 4em 0 -4em 0;
+  padding: 1em;
+}
+  #messages .error-message {
+    background-color: lightyellow;
+    color: red;
+  }
+
 #content {
   margin-top: 80px;
   margin-left: 170px; /* left sidebar*/

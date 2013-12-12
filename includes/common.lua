@@ -1,5 +1,5 @@
 local pairs, tcon, rawset, date = pairs, table.concat, rawset, os.date
-local base_path = base_path
+local base_path, lfs = base_path, lfs
 local str_replace = seawolf.text.str_replace
 
 function page_set_title(header_title, title)
@@ -31,8 +31,8 @@ do
         rawset(output, #output + 1, ([[<script type="text/javascript">%s</script>
 ]]):format(options.content))
       else
-        rawset(output, #output + 1, ([[<script type="text/javascript" src="%s%s"></script>
-]]):format(base_path, v))
+        rawset(output, #output + 1, ([[<script type="text/javascript" src="%s%s?%s"></script>
+]]):format(base_path, v, lfs.attributes(v, 'modification')))
       end
     end
     return tcon(output)
@@ -51,8 +51,8 @@ do
   function get_css()
     local output = {}
     for k, v in pairs(css) do
-      rawset(output, #output + 1, ([[<link type="text/css" rel="stylesheet" media="all" href="%s%s" />
-]]):format(base_path, k))
+      rawset(output, #output + 1, ([[<link type="text/css" rel="stylesheet" media="all" href="%s%s?%s" />
+]]):format(base_path, k, lfs.attributes(k, 'modification')))
     end
     return tcon(output)
   end

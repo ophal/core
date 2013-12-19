@@ -14,3 +14,4 @@
 - Rename hook_menu to hook_path, menu.inc to path.inc
 - Make clear separation between Path core component and Menu core module
 - Handling of Menus and Paths should be best easy
+- Use lua states instead of empty ENV tables: https://github.com/mbalmer/luaproxy

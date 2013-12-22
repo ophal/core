@@ -1,6 +1,6 @@
 local pairs, tcon, rawset, date = pairs, table.concat, rawset, os.date
 local base_path, lfs = base_path, lfs
-local str_replace = seawolf.text.str_replace
+local str_replace, is_file = seawolf.text.str_replace, seawolf.fs.is_file
 
 function page_set_title(header_title, title)
   if header_title then
@@ -30,7 +30,7 @@ do
       if options ~= nil and options.type == 'inline'then
         rawset(output, #output + 1, ([[<script type="text/javascript">%s</script>
 ]]):format(options.content))
-      else
+      elseif is_file(v) then
         rawset(output, #output + 1, ([[<script type="text/javascript" src="%s%s?%s"></script>
 ]]):format(base_path, v, lfs.attributes(v, 'modification')))
       end
@@ -53,8 +53,10 @@ do
   function get_css()
     local output = {}
     for k, v in pairs(css) do
-      rawset(output, #output + 1, ([[<link type="text/css" rel="stylesheet" media="all" href="%s%s?%s" />
+      if is_file(k) then
+        rawset(output, #output + 1, ([[<link type="text/css" rel="stylesheet" media="all" href="%s%s?%s" />
 ]]):format(base_path, k, lfs.attributes(k, 'modification')))
+      end
     end
     return tcon(output)
   end

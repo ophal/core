@@ -129,3 +129,11 @@ end
 function format_date(uts, date_format)
   return date(date_format and date_format or settings.date_format, uts)
 end
+
+function get_global(key)
+  return env[key]
+end
+
+function set_global(key, value)
+  env[key] = value
+end

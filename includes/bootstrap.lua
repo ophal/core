@@ -39,6 +39,7 @@ env = {
   mobile = {},
   base_root = '',
   base_path = '/',
+  language = 'en',
   base_url = '',
   output_buffer = {},
   ophal = {
@@ -58,6 +59,9 @@ env = {
 settings = {modules = {}}
 pcall(require, 'settings')
 env.settings = settings
+if settings.language then
+  env.language = settings.language
+end
 
 -- Detect nginx
 if ngx then

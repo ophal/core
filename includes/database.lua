@@ -1,35 +1,46 @@
-local DBI, dbh = require 'DBI'
+dbh = {} -- Database handlers
 
-function db_connect(db_id)
-  if db_id == nil then db_id = 'default' end
+local DBI, db_id = require 'DBI', 'default'
 
+function db_set_db_id(id)
+  db_id = id
+end
+
+function db_connect()
+  local err
   local connection = settings.db[db_id]
 
   if connection == nil then return end
 
   if not connection.autocommit then connection.autocommit = true end
 
-  dbh = assert(DBI.Connect(
+  dbh[db_id], err = DBI.Connect(
     connection.driver,
     connection.database,
     connection.username,
     connection.password,
     connection.host,
     connection.port
-  ))
+  )
+
+  if err then
+    return nil, err
+  end
 
   -- commit the transaction
-  dbh:autocommit(connection.autocommit)
+  dbh[db_id]:autocommit(connection.autocommit)
 
   -- check status of the connection
-  return dbh:ping()
+  return dbh[db_id]:ping()
 end
 
 function db_query(query, ...)
-  if dbh == nil then return end
+  if dbh[db_id] == nil then
+    return nil, 'No database connection'
+  end
 
   -- prepare a query
-  local sth = assert(dbh:prepare(query))
+  local sth = assert(dbh[db_id]:prepare(query))
 
   -- execute select with a bind variable
   local success, err = sth:execute(...)
@@ -38,13 +49,13 @@ function db_query(query, ...)
 end
 
 function db_last_insert_id()
-	local sth, err, row
+  local sth, err, row
 
-	sth, err = db_query('SELECT last_insert_rowid()')
-	if err then
-		return nil, err
-	else
-		row = sth:fetch()
-		return row[1]
-	end
+  sth, err = db_query('SELECT last_insert_rowid()')
+  if err then
+    return nil, err
+  else
+    row = sth:fetch()
+    return row[1]
+  end
 end

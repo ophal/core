@@ -2,13 +2,9 @@
  * Ophal jQuery library.
  */
 
-(function($) {
+(function($) {window.Ophal = new function(namespace, func) {
 
-var Ophal = {};
-
-window.Ophal = Ophal;
-
-Ophal.set_message = function(message) {
+this.set_message = function(message) {
   var message = $('<div class="error-message">' + message + '</div>');
   $(message).click(function () {
     if (confirm('Do you wish to hide this message?')) {
@@ -18,4 +14,8 @@ Ophal.set_message = function(message) {
   $('#messages').append(message);
 };
 
-})(jQuery);
+this.extend = function (namespace, func) {
+  (this[namespace] = func)($);
+};
+
+}})(jQuery);

@@ -12,10 +12,9 @@ function theme.form(variables)
     method = 'get',
   }
 
-  return ('<form %s action="%s">%s</form>'):format(
+  return ('<form %s>%s</form>'):format(
     render_attributes(variables.attributes, default_options),
-    variables.action,
-    variables.elements
+    theme{'elements', elements = variables.elements}
   )
 end
 

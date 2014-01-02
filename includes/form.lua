@@ -13,6 +13,8 @@ function theme.form(variables)
     action = variables.action,
   }
 
+  module_invoke_all('form_alter', variables)
+
   return ('<form %s>%s</form>'):format(
     render_attributes(variables.attributes, default_options),
     theme{'elements', elements = variables.elements}

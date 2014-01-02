@@ -1,4 +1,5 @@
-local empty, tinsert, tconcat = seawolf.variable.empty, table.insert, table.concat
+local empty, tinsert = seawolf.variable.empty, table.insert
+local tsort, tconcat = table.sort, table.concat
 
 --[[
   Form theme function.
@@ -16,6 +17,37 @@ function theme.form(variables)
     variables.action,
     variables.elements
   )
+end
+
+--[[
+  Form elements theme function.
+]]
+function theme.elements(variables)
+  if variables == nil then variables = {} end
+
+  local elements
+  local output = {'<table>'}
+  local row = '<tr><td class="field-name" valign="top">%s:</td><td>%s</td></tr>'
+  local row_nl = '<tr><td colspan="2" align="right">%s</td></tr>'
+
+  elements = variables.elements or {}
+  variables.elements = nil
+
+  tsort(elements, function(a, b) return (b.weight or 10) > (a.weight or 10) end)
+
+  for _, v in pairs(elements) do
+    if v[1] == 'hidden' then
+      tinsert(output, theme(v))
+    elseif v.title then
+      tinsert(output, row:format(v.title or '', theme(v)))
+    else
+      tinsert(output, row_nl:format(theme(v)))
+    end
+  end
+
+  tinsert(output, '</table>')
+
+  return tconcat(output)
 end
 
 --[[
@@ -148,4 +180,10 @@ function theme.checkbox(variables)
   end
 
   return ('<input %s />'):format(render_attributes(variables.attributes))
+end
+
+function theme.markup(variables)
+  if variables == nil then variables = {} end
+
+  return variables.value
 end

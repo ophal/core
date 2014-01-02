@@ -10,6 +10,7 @@ function theme.form(variables)
   local default_options = {
     ['accept-charset'] = 'UTF-8',
     method = 'get',
+    action = variables.action,
   }
 
   return ('<form %s>%s</form>'):format(

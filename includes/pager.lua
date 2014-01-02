@@ -38,8 +38,12 @@ function pager(path, num_pages, current_page)
   return pages
 end
 
-function theme.pager(pages)
+function theme.pager(variables)
+  if variables == nil then variables = {} end
+
+  local pages = variables.pages ~= nil and variables.pages or {}
+
   if #pages > 0 then
-    return '<nav role="navigation" class="pager">' .. tconcat(pages, ' ') .. '</nav>'
+    return '<nav role="navigation" class="pager">' .. tconcat(pages or {}, ' ') .. '</nav>'
   end
 end

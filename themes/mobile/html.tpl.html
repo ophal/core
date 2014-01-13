@@ -33,6 +33,7 @@ a:hover {
 .mobile,.true { background-color:green; color:white; }
 .randomcrap { background:#eee; color:#666; }
 </style>
+<?lua if javascript.header then print(javascript.header) end ?>
 </head>
 <body>
 <div id="header">
@@ -104,6 +105,9 @@ a:hover {
 </section>
 
 </div>
-<div id="footer"><?lua print_t{'footer'} ?></div>
+<div id="footer">
+<?lua print_t{'footer'} ?>
+<?lua if javascript.footer then print(javascript.footer) end ?>
+</div>
 </body>
 </html>

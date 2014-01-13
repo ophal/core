@@ -15,27 +15,51 @@ end
 do
   local javascript = {}
   local order = {}
-  function add_js(data, options)
-    if options == nil then options = {} end
-    if data ~= nil then
-      javascript[data] = options
-      rawset(order, #order + 1, data)
-    end
-  end
+  add_js = {}
+  setmetatable(add_js, {
+    __call = function(t, options)
+      if options == nil then
+        options = {}
+      elseif type(options) == 'string' then
+        options = {data = options}
+      elseif type(options) == 'table' then
+        options.data = options[1]
+        options[1] = nil
+      end
 
-  function get_js()
-    local output, options = {}
-    for _, v in pairs(order) do
-      options = javascript[v]
-      if options ~= nil and options.type == 'inline'then
-        rawset(output, #output + 1, ([[<script type="text/javascript">%s</script>
-]]):format(options.content))
-      elseif is_file(v) then
-        rawset(output, #output + 1, ([[<script type="text/javascript" src="%s%s?%s"></script>
-]]):format(base_path, v, lfs.attributes(v, 'modification')))
+      local data = options.data
+      options.data = nil
+
+      local scope = options.scope and options.scope or 'header'
+
+      if javascript[scope] == nil then javascript[scope] = {} end
+      if order[scope] == nil then order[scope] = {} end
+
+      if data ~= nil then
+        javascript[scope][data] = options
+        order[scope][#order[scope] + 1] = data
       end
     end
-    return tcon(output)
+  })
+
+  function get_js()
+    local output = {}
+
+    for scope, v in pairs(order) do
+      output[scope] = {}
+      for _, j in pairs(v) do
+        local options = javascript[scope][j]
+        if options ~= nil and options.type == 'inline' then
+          output[scope][#output[scope] + 1] = ([[<script type="text/javascript">%s</script>
+]]):format(j)
+        elseif is_file(j) then
+          output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s%s?%s"></script>
+]]):format(base_path, j, lfs.attributes(j, 'modification'))
+        end
+      end
+      output[scope] = tcon(output[scope])
+    end
+    return output
   end
 end
 

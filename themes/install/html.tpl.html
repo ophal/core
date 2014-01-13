@@ -5,7 +5,7 @@
 <title><?lua print(header_title) ?></title>
 <link rel="shortcut icon" href="<?lua print(path_to_theme()) ?>/images/ophal.ico" type="image/x-icon">
 <?lua if css then print(css) end ?>
-<?lua if javascript then print(javascript) end ?>
+<?lua if javascript.header then print(javascript.header) end ?>
 </head>
 <body>
 <div id="header">
@@ -14,6 +14,9 @@
 </div>
 <div id="sidebar"><?lua print_t{'sidebar_first'} ?></div>
 <div id="content"><?lua print(content) ?></div>
-<div id="footer"><?lua print_t{'footer'} ?></div>
+<div id="footer">
+<?lua print_t{'footer'} ?>
+<?lua if javascript.footer then print(javascript.footer) end ?>
+</div>
 </body>
 </html>

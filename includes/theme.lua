@@ -186,6 +186,15 @@ function print_f(text, ...)
   print(text:format(...))
 end
 
+function theme.json(variables)
+  local json = require 'dkjson'
+  local content = variables.content
+
+  header('content-type', 'application/json; charset=utf-8')
+
+  theme_print(json.encode(content))
+end
+
 function path_to_theme()
   return ('themes/%s'):format(theme_name)
 end

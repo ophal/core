@@ -70,6 +70,7 @@ local function theme_render(f, env)
     env.debug = debug
     env.l = l
     env.arg = arg
+    env.request_path = request_path
     env.path_to_theme = path_to_theme
     env.pairs = pairs
     env._SERVER = _SERVER

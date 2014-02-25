@@ -1,7 +1,8 @@
 Ophal installation instructions
 ===============================
 
-WARNING! Yet incomplete, please send feedback to info@ophal.org
+This document is just a brief. For a comprenhensive installation guide please
+refer to the online Ophal manual: http://ophal.org/manual.
 
 1. Server configuration
 This instructions assume that you installed Ophal at /var/www/ophal.
@@ -92,8 +93,9 @@ parameters, then will generate a settings.lua for you, copy the text, store as s
 into the same directory of index.cgi, make the desired changes an set it to read-only.
 
 4. Send feedback
-Whether you successfully installed Ophal or not, please send your feedback to info@ophal.org
-in order to help us improve the installation instructions and the installer.
+Whether you successfully installed Ophal or not, please file an issue with your
+feedback at https://github.com/ophal/core/issues/new in order to help us improve
+the installation instructions and the installer.
 
 
 -- The Ophal Team

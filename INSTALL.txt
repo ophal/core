@@ -116,6 +116,17 @@ CREATE TABLE field_tag(entity_type VARCHAR(255), entity_id INTEGER, tag_id INTEG
 
 NOTE: Ophal is compatible with SQLite only.
 
+== (Optional) Configure the Tag module
+Run the following SQL queries in strict order:
+
+CREATE TABLE field_tag(entity_type VARCHAR(255), entity_id INTEGER, tag_id INTEGER, PRIMARY KEY (entity_type, entity_id, tag_id));
+CREATE TABLE tag(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255));
+CREATE UNIQUE INDEX unq_idx_tag_name ON tag (name);
+
+Also, make sure to enable and configure the Content module.
+
+NOTE: Ophal is compatible with SQLite only.
+
 
 4. Send feedback
 Whether you successfully installed Ophal or not, please file an issue with your

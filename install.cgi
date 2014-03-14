@@ -198,6 +198,7 @@ $(document).ready(function() {
       .replace('!files_path', $('#files_path').val())
       .replace('!content_module', $('#content_module').is(':checked'))
       .replace('!user_module', $('#user_module').is(':checked'))
+      .replace('!tag_module', $('#tag_module').is(':checked'))
     );
     $('#check_settings').show();
     $('#install_pager').show();
@@ -216,6 +217,7 @@ $(document).ready(function() {
             {'textfield', title = 'File directory', value = 'files', attributes = {id = 'files_path'}},
             {'checkbox', title = 'Enable the Content module', value = '0', attributes = {id = 'content_module'}},
             {'checkbox', title = 'Enable the User module', value = '0', attributes = {id = 'user_module'}},
+            {'checkbox', title = 'Enable the Tag module', value = '0', attributes = {id = 'tag_module'}},
             {'button', value = 'Generate', attributes = {id = 'generate'}},
           }
         },
@@ -258,6 +260,7 @@ settings.modules = {
   lorem_ipsum = true,
   content = !content_module,
   user = !user_module,
+  tag = !tag_module,
 }
 
 --[=[ Database connection settings

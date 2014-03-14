@@ -199,6 +199,7 @@ $(document).ready(function() {
       .replace('!content_module', $('#content_module').is(':checked'))
       .replace('!user_module', $('#user_module').is(':checked'))
       .replace('!tag_module', $('#tag_module').is(':checked'))
+      .replace('!menu_module', $('#menu_module').is(':checked'))
     );
     $('#check_settings').show();
     $('#install_pager').show();
@@ -218,6 +219,7 @@ $(document).ready(function() {
             {'checkbox', title = 'Enable the Content module', value = '0', attributes = {id = 'content_module'}},
             {'checkbox', title = 'Enable the User module', value = '0', attributes = {id = 'user_module'}},
             {'checkbox', title = 'Enable the Tag module', value = '0', attributes = {id = 'tag_module'}},
+            {'checkbox', title = 'Enable the Menu module', value = '0', attributes = {id = 'menu_module'}},
             {'button', value = 'Generate', attributes = {id = 'generate'}},
           }
         },
@@ -261,6 +263,7 @@ settings.modules = {
   content = !content_module,
   user = !user_module,
   tag = !tag_module,
+  menu = !menu_module,
 }
 
 --[=[ Database connection settings

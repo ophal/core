@@ -74,7 +74,7 @@ ophal.bootstrap(5, function ()
 <li>No dabatase is created by this installer, you need to create one in advance.</li>
 </ol>
 </p>
-]] .. theme.install_pager()):format(base_root, base_path, 2)
+]] .. theme{'install_pager'}):format(base_root, base_path, 2)
     end,
 
     -- Verify pre-requisites
@@ -166,7 +166,7 @@ ophal.bootstrap(5, function ()
       tinsert(output, '</table>')
         -- Say: All requirements are OK
       if continue then
-        tinsert(output, theme.install_pager())
+        tinsert(output, theme{'install_pager'})
       else
         tinsert(output, '<p>Please install any missing library. Read the <a href="http://ophal.org/manual/--version--/install#libraries">documentation</a> for details.</p>')
       end
@@ -183,11 +183,12 @@ ophal.bootstrap(5, function ()
         redirect(('%s%sinstall.cgi?phase=4'):format(base_root, base_path))
       end
 
-      require [[includes.form]]
+      require 'includes.module'
+      require 'includes.form'
 
-      add_js 'misc/jquery.js'
-      add_js 'misc/uuid.js'
-      local js = [[<script type="text/javascript">
+      add_js 'libraries/jquery.min.js'
+      add_js 'libraries/uuid.js'
+      add_js{'install', type = 'inline', content = [[
 $(document).ready(function() {
   $('#generate').click(function() {
     $('#settings').html($('#settings_template').html()
@@ -200,30 +201,20 @@ $(document).ready(function() {
     $('#install_pager').show();
   });
 });
-</script>]],
+]]}
 
       page_set_title 'Phase 3: Configuration file settings.lua'
 
-      local elements = {
+      content = tconcat{
         '<h3>Step 1. Configure your site</h3>',
-        '<table>',
-        '<tr><td>',
-        theme.label{title = 'Site name', attributes = {['for'] = 'sitename'}},
-        '</td><td>',
-        theme.textfield{value = 'Ophal', attributes = {id = 'sitename'}},
-        '</td></tr>',
-        '<tr><td>',
-        theme.label{title = 'Database file path', attributes = {['for'] = 'db_filepath'}},
-        '</td><td>',
-        theme.textfield{attributes = {id = 'db_filepath'}},
-        '</td></tr>',
-        '<tr><td>',
-        theme.label{title = 'File directory', attributes = {['for'] = 'files_path'}},
-        '</td><td>',
-        theme.textfield{value = 'files', attributes = {id = 'files_path'}},
-        '</td></tr>',
-        '</table>',
-        theme.button{value = 'Generate', attributes = {id = 'generate'}},
+        theme{'form', action = 'install.cgi',
+          elements = {
+            {'textfield', title = 'Site name', value = 'Ophal', attributes = {id = 'sitename'}},
+            {'textfield', title = 'Database file path', attributes = {id = 'db_filepath'}},
+            {'textfield', title = 'File directory', value = 'files', attributes = {id = 'files_path'}},
+            {'button', value = 'Generate', attributes = {id = 'generate'}},
+          }
+        },
         '<div id="settings"></div>',
         [[<div id="settings_template" style="display:none">
 <h3>Step 2. Create file settings.lua</h3>
@@ -325,11 +316,7 @@ settings.db = {
   }
 ]=]
 </textarea></div>]],
-      }
-
-      content = tconcat{
-        js, theme.form{action = 'install.cgi', elements = tconcat(elements)},
-        theme.install_pager{style = 'display: none;'}
+        theme{'install_pager', style = 'display: none;'}
       }
     end,
 

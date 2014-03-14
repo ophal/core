@@ -103,16 +103,23 @@ CREATE INDEX idx_content_frontpage ON content (promote, status, sticky, created 
 CREATE INDEX idx_content_title ON content (title);
 CREATE INDEX idx_content_user ON content (user_id);
 
-Also, make sure to include enable and configure the User module.
+Also, make sure to enable and configure the User module.
 
 NOTE: Ophal is compatible with SQLite only.
 
 == (Optional) Configure the User module
 Run the following SQL queries in strict order:
 
-CREATE TABLE tag(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255));
-CREATE UNIQUE INDEX unq_idx_tag_name ON tag (name);
-CREATE TABLE field_tag(entity_type VARCHAR(255), entity_id INTEGER, tag_id INTEGER, PRIMARY KEY (entity_type, entity_id, tag_id));
+CREATE TABLE role(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255), active BOOLEAN, weight INT);
+CREATE TABLE role_permission(role_id UNSIGNED BIG INT, permission varchar(255), module varchar(255), PRIMARY KEY (role_id, permission));
+CREATE TABLE user(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255), mail VARCHAR(255), pass VARCHAR(255), active BOOLEAN, created UNSIGNED BIG INT);
+CREATE TABLE user_role(user_id UNSIGNED BIG INT, role_id UNSIGNED BIG INT, PRIMARY KEY (user_id, role_id));
+CREATE INDEX idx_permission ON role_permission (permission);
+CREATE INDEX idx_role_weight ON role (weight);
+CREATE UNIQUE INDEX unq_idx_role_name ON role (name);
+CREATE INDEX unq_idx_user_created ON user (created);
+CREATE INDEX unq_idx_user_mail ON user (mail);
+CREATE UNIQUE INDEX unq_idx_user_name ON user (name);
 
 NOTE: Ophal is compatible with SQLite only.
 

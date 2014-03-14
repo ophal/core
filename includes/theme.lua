@@ -60,7 +60,6 @@ local function theme_render(f, env)
     -- jail
     env.print = theme_print
     env.settings = settings
-    env.language = language
     env.echo = echo
     env.base_path = base_path
     env.theme = theme

@@ -138,6 +138,7 @@ function bootstrap(phase, main)
     function ()
       if (_SERVER 'SCRIPT_NAME' or '/index.cgi') == base_path .. 'index.cgi' and not seawolf.fs.is_file 'settings.lua' then
         redirect(('%s%sinstall.cgi'):format(base_root, base_path))
+        require 'includes.common'
         return -1
       end
     end,

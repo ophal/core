@@ -86,11 +86,25 @@ $ cd /tmp
 $ git clone --depth=1 git://github.com/ophal/seawolf.git
 $ sudo mv seawolf /usr/local/share/lua/5.1/
 
+
 3. Installation wizard
 Open your Ophal installation in a web browser, you should be redirected to the Installation
 Wizard, follow the instructions. The wizard will check dependencies and ask for configuration
 parameters, then will generate a settings.lua for you, copy the text, store as settings.lua
 into the same directory of index.cgi, make the desired changes an set it to read-only.
+
+== (Optional) Configure the Content module
+Run the follwing SQL queries in strict order:
+
+CREATE TABLE content(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id UNSIGNED BIG INT, language VARCHAR(12), title VARCHAR(255), teaser TEXT, body TEXT, created UNSIGNED BIG INT, changed UNSIGNED BIG INT, status BOOLEAN, sticky BOOLEAN, comment BOOLEAN, promote BOOLEAN);
+CREATE INDEX idx_content_created ON content (created DESC);
+CREATE INDEX idx_content_changed ON content (changed DESC);
+CREATE INDEX idx_content_frontpage ON content (promote, status, sticky, created DESC);
+CREATE INDEX idx_content_title ON content (title);
+CREATE INDEX idx_content_user ON content (user_id);
+
+NOTE: Ophal is compatible with SQLite only.
+
 
 4. Send feedback
 Whether you successfully installed Ophal or not, please file an issue with your

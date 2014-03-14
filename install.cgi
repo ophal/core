@@ -196,6 +196,7 @@ $(document).ready(function() {
       .replace('!db_filepath', $('#db_filepath').val())
       .replace('!site_hash', uuid())
       .replace('!files_path', $('#files_path').val())
+      .replace('!content_module', $('#content_module').is(':checked'))
     );
     $('#check_settings').show();
     $('#install_pager').show();
@@ -212,6 +213,7 @@ $(document).ready(function() {
             {'textfield', title = 'Site name', value = 'Ophal', attributes = {id = 'sitename'}},
             {'textfield', title = 'Database file path', attributes = {id = 'db_filepath'}},
             {'textfield', title = 'File directory', value = 'files', attributes = {id = 'files_path'}},
+            {'checkbox', title = 'Enable the Content module', value = '0', attributes = {id = 'content_module'}},
             {'button', value = 'Generate', attributes = {id = 'generate'}},
           }
         },
@@ -252,6 +254,7 @@ settings.date_format = '!%Y-%m-%d %H:%M UTC'
 ]=]
 settings.modules = {
   lorem_ipsum = true,
+  content = !content_module,
 }
 
 --[=[ Database connection settings

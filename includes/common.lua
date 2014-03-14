@@ -65,7 +65,7 @@ end
 
 do
   local css = {
-    [('themes/%s/style.css'):format(settings.theme)] = {},
+    [('themes/%s/style.css'):format(settings.theme or 'basic')] = {},
   }
   function add_css(data, options)
     if options == nil then options = {} end

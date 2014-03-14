@@ -61,6 +61,8 @@ pcall(require, 'settings')
 env.settings = settings
 if settings.language then
   env.language = settings.language
+else
+  env.language = 'en'
 end
 
 -- Detect nginx

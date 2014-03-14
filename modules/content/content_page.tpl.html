@@ -1,0 +1,6 @@
+<div class="content-page">
+  <div class="submitted">Submitted by <?lua print(l(account.name, 'user/' .. account.id)) ?> on <?lua print(format_date(content.created))?></div>
+  <?lua print(content.teaser) ?>
+  <?lua print(content.body) ?>
+  <?lua print(theme.content_links(content, true)) ?>
+</div>

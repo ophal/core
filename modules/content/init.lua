@@ -199,6 +199,7 @@ function router()
       if content.status or user.access 'administer content' then
         page_set_title(content.title)
         set_global('language', content.language)
+        module_invoke_all('content_render', content)
         return function ()
           print_t{'content_page',
             account = user.load{id = content.user_id} or user.load{id = 0},

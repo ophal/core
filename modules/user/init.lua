@@ -13,7 +13,7 @@ module 'ophal.modules.user'
 --[[
   Implemens hook_menu().
 ]]
-function menu()
+function route()
   items = {}
   items['user/login'] = {
     title = 'User login',

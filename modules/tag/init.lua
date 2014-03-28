@@ -44,7 +44,7 @@ function init()
   db_last_insert_id = env.db_last_insert_id
 end
 
-function menu()
+function route()
   local items = {}
 
   items.tags = {

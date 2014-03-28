@@ -5,7 +5,7 @@ module 'ophal.modules.user.admin'
 --[[
   Implemens hook_menu().
 ]]
-function menu()
+function route()
   items = {}
   items['users'] = {
     title = 'User login',

@@ -8,7 +8,7 @@ local os_remove = os.remove
 
 module 'ophal.modules.file'
 
-function menu()
+function route()
   items = {}
   items.upload = {
     page_callback = 'upload',

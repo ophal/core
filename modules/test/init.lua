@@ -2,7 +2,7 @@ local theme, add_js = theme, add_js
 
 module 'ophal.modules.test'
 
-function menu()
+function route()
   local items = {}
 
   items['upload-test'] = {

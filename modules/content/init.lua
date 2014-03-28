@@ -26,7 +26,7 @@ end
 --[[
   Implements hook_menu().
 ]]
-function menu()
+function route()
   items = {}
   items.content = {
     page_callback = 'router',

@@ -1,6 +1,6 @@
 local tconcat = table.concat
 
-function pager(path, num_pages, current_page)
+function pager(route, num_pages, current_page)
   if nil == current_page then
     current_page = 1
   elseif type(current_page) ~= 'number' then
@@ -14,7 +14,7 @@ function pager(path, num_pages, current_page)
   end
   -- Link to previous page
   if current_page > 1 then
-    pages[#pages + 1] = l('Previous', ('%s?page=%s'):format(url(path), current_page - 1), {
+    pages[#pages + 1] = l('Previous', ('%s?page=%s'):format(url(route), current_page - 1), {
       external = true,
       attributes = {rel = 'prev'},
     })
@@ -23,13 +23,13 @@ function pager(path, num_pages, current_page)
   -- Build links to all pages
   for page = 1,num_pages do
     pages[#pages + 1] = page ~= current_page and
-      l(page, url(path) .. '?page=' .. page, {external = true}) or
+      l(page, url(route) .. '?page=' .. page, {external = true}) or
       page
   end
 
   -- Link to next page
   if current_page < num_pages then
-    pages[#pages + 1] = l('Next', ('%s?page=%s'):format(url(path), current_page + 1), {
+    pages[#pages + 1] = l('Next', ('%s?page=%s'):format(url(route), current_page + 1), {
       external = true,
       attributes = {rel = 'next'},
     })

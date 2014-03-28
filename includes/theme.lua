@@ -3,7 +3,7 @@ local slash, tinsert, tconcat = settings.slash, table.insert, table.concat
 local pcall, settings, empty = pcall, settings, seawolf.variable.empty
 local assert, error, setfenv = assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
-local base_path, l = base_path, l
+local base, l = base, l
 
 if
   settings.mobile and
@@ -61,7 +61,7 @@ local function theme_render(f, env)
     env.print = theme_print
     env.settings = settings
     env.echo = echo
-    env.base_path = base_path
+    env.base = base
     env.theme = theme
     env.mobile = mobile
     env.print_t = print_t
@@ -217,7 +217,7 @@ function theme.a(variables)
     download = (' download="%s"'):format(download)
   end
 
-  return ('<a href="%s"%s %s>%s</a>'):format(variables.path, download or '', render_attributes(attributes), variables.text)
+  return ('<a href="%s"%s %s>%s</a>'):format(variables.route, download or '', render_attributes(attributes), variables.text)
 end
 
 --[[
@@ -230,7 +230,7 @@ function theme.img(variables)
   if options and options.external then
     options.external = nil
   else
-    path = base_path .. path
+    path = base.route .. path
   end
   return ('<img src="%s" %s />'):format(path, render_attributes(options))
 end

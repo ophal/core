@@ -8,15 +8,15 @@ local rtrim, unescape = seawolf.text.rtrim, socket.url.unescape
 local tconcat, lower = table.concat, string.lower
 
 -- Build base URL
-base_root = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
-base_root = base_root .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
-base_url = base_root
+base.system_root = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
+base.system_root = base.system_root .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
+base.url = base.system_root
 
 local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER 'SCRIPT_NAME' or '/index.cgi'), [[\,/]])
 if dir ~= '' then
-  base_path = '/' .. dir
-  base_url = base_url .. base_path
-  base_path = base_path .. '/'
+  base.route = '/' .. dir
+  base.url = base.url .. base.route
+  base.route = base.route .. '/'
 end
 
 --[[ Ophal's print function.
@@ -99,7 +99,7 @@ do
     Examples:
     - http://example.com/article/306 returns "article/306".
     - http://example.com/ophalfolder/article/306 returns "article/306" while
-      base_path() returns "/ophalfolder/".
+      base.route() returns "/ophalfolder/".
     - http://example.com/path/alias (which is a path alias for article/306)
       returns "path/alias" as opposed to the internal path.
     - http://example.com/index.cgi returns an empty string, meaning: front page.
@@ -108,7 +108,7 @@ do
      Copied and adapted from Drupal 8.x request_path().
    ]]
   function request_path()
-    local request_path, base_path_len, script
+    local request_path, base_route_len, script
 
     if path ~= nil then
       return path
@@ -117,8 +117,8 @@ do
     -- Get the part of the URI between the base path of the Drupal installation
     -- and the query string, and unescape it.
     request_path = request_uri(true)
-    base_path_len = rtrim(dirname(_SERVER 'SCRIPT_NAME'), '\/'):len()
-    path = unescape(request_path):sub(base_path_len + 1)
+    base_route_len = rtrim(dirname(_SERVER 'SCRIPT_NAME'), '\/'):len()
+    path = unescape(request_path):sub(base_route_len + 1)
 
     -- Depending on server configuration, the URI might or might not include the
     -- script name. For example, the front page might be accessed as

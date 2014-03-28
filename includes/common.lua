@@ -1,5 +1,5 @@
 local pairs, tcon, rawset, date = pairs, table.concat, rawset, os.date
-local base_path, lfs = base_path, lfs
+local base, lfs = base, lfs
 local str_replace, is_file = seawolf.text.str_replace, seawolf.fs.is_file
 
 function page_set_title(header_title, title)
@@ -54,7 +54,7 @@ do
 ]]):format(options.content or '')
         elseif is_file(j) then
           output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s%s?%s"></script>
-]]):format(base_path, j, lfs.attributes(j, 'modification'))
+]]):format(base.route, j, lfs.attributes(j, 'modification'))
         end
       end
       output[scope] = tcon(output[scope])
@@ -79,7 +79,7 @@ do
     for k, v in pairs(css) do
       if is_file(k) then
         rawset(output, #output + 1, ([[<link type="text/css" rel="stylesheet" media="all" href="%s%s?%s" />
-]]):format(base_path, k, lfs.attributes(k, 'modification')))
+]]):format(base.route, k, lfs.attributes(k, 'modification')))
       end
     end
     return tcon(output)

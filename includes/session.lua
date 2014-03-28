@@ -1,7 +1,7 @@
 local temp_dir = seawolf.behaviour.temp_dir
 local safe_open, safe_write = seawolf.fs.safe_open, seawolf.fs.safe_write
 local safe_close, table_dump = seawolf.fs.safe_close, seawolf.contrib.table_dump
-local time, base_path, rawset, tconcat = os.time, base_path, rawset, table.concat
+local time, base.route, rawset, tconcat = os.time, base.route, rawset, table.concat
 local format = string.format
 local session
 
@@ -15,7 +15,7 @@ if settings.sessionapi then
     -- Delegate cookie header to ophal.header
     header('Set-Cookie', function ()
       return headerCookieSetString(
-        'session-id', session_id, 3*60*60, base_path, _SERVER 'SERVER_NAME' or ''
+        'session-id', session_id, 3*60*60, base.route, _SERVER 'SERVER_NAME' or ''
       )
     end, false)
   end

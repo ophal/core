@@ -31,7 +31,7 @@ function theme.menu(variables)
   local menu = get_menus()[menu_id] or {}
 
   local items = {}
-  for path, v in pairs(menu) do
+  for route, v in pairs(menu) do
     if type(v) ~= 'table' then
       v = {v}
     end
@@ -44,7 +44,7 @@ function theme.menu(variables)
     v[1] = nil
     options = v
 
-    tinsert(items, {l(label, path, options), weight = v.weight})
+    tinsert(items, {l(label, route, options), weight = v.weight})
   end
 
   tsort(items, function (a, b)

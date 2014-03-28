@@ -37,14 +37,16 @@ env = {
   socket = nil,
   theme = {},
   mobile = {},
-  base_root = '',
-  base_path = '/',
-  base_url = '',
+  base = {
+    system_root = '',
+    route = '/',
+    url = '',
+  },
   output_buffer = {},
   ophal = {
     version = version,
     modules = {},
-    paths = {},
+    routes = {},
     aliases = {},
     title = '',
     header_title = '',
@@ -134,8 +136,8 @@ function bootstrap(phase, main)
 
     -- 6. Check installer
     function ()
-      if (_SERVER 'SCRIPT_NAME' or '/index.cgi') == base_path .. 'index.cgi' and not seawolf.fs.is_file 'settings.lua' then
-        redirect(('%s%sinstall.cgi'):format(base_root, base_path))
+      if (_SERVER 'SCRIPT_NAME' or '/index.cgi') == base.route .. 'index.cgi' and not seawolf.fs.is_file 'settings.lua' then
+        redirect(('%s%sinstall.cgi'):format(base.system_root, base.route))
         require 'includes.common'
         return -1
       end
@@ -149,9 +151,9 @@ function bootstrap(phase, main)
       end
     end,
 
-    -- 8. Path API,
+    -- 8. Route API,
     function ()
-      require 'includes.path'
+      require 'includes.route'
     end,
 
     -- 9. Core API,
@@ -185,12 +187,7 @@ function bootstrap(phase, main)
       module_invoke_all 'boot'
     end,
 
-    -- 12. Menu API,
-    function ()
-      require 'includes.menu'
-    end,
-
-    -- 13. Database API,
+    -- 12. Database API,
     function ()
       if settings.db ~= nil then
         require 'includes.database'
@@ -200,19 +197,19 @@ function bootstrap(phase, main)
       end
     end,
 
-    -- 14. Init,
+    -- 13. Init,
     function ()
       module_invoke_all 'init'
     end,
 
-    -- 15. Full,
+    -- 14. Full,
     function ()
-      -- call hook menu to load path handlers
-      -- TODO: implement path cache
-      ophal.paths = module_invoke_all 'menu'
+      -- call hook route to load handlers
+      -- TODO: implement route cache
+      ophal.routes = module_invoke_all 'route'
 
-      -- process current path
-      init_path()
+      -- process current route
+      init_route()
     end,
   }
 

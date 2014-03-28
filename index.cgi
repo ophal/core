@@ -3,5 +3,5 @@
 require 'includes.bootstrap'
 
 ophal.bootstrap(nil, function ()
-  menu_execute_active_handler()
+  route_execute_active_handler()
 end)

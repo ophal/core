@@ -1,4 +1,4 @@
-local path_register_alias, url, theme = path_register_alias, url, theme
+local route_register_alias, url, theme = route_register_alias, url, theme
 local page_set_title, l = page_set_title, l
 local _SESSION, format, tonumber = _SESSION, string.format, tonumber
 
@@ -8,13 +8,13 @@ module 'ophal.modules.lorem_ipsum'
   Implementation of hook_init().
 ]]
 function init()
-  path_register_alias('lorem_ipsum', 'loremipsum')
+  route_register_alias('lorem_ipsum', 'loremipsum')
 end
 
 --[[
-  Implementation of hook_menu().
+  Implementation of hook_route().
 ]]
-function menu()
+function route()
   local items = {}
   items.lorem_ipsum = {
     title = 'Lorem Ipsum',

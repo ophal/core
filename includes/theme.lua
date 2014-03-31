@@ -189,10 +189,12 @@ end
 function theme.json(variables)
   local json = require 'dkjson'
   local content = variables.content
+  local output = json.encode(content)
 
   header('content-type', 'application/json; charset=utf-8')
+  header('content-length', (output or ''):len())
 
-  theme_print(json.encode(content))
+  theme_print(output)
 end
 
 function path_to_theme()

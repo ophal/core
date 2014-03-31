@@ -106,9 +106,10 @@ end
 function theme.textarea(variables)
   if variables == nil then variables = {} end
 
-  return ('<textarea %s>%s</textarea>'):format(
+  return ('<textarea %s>%s</textarea>%s'):format(
     render_attributes(variables.attributes),
-    variables.value and variables.value or ''
+    variables.value and variables.value or '',
+    variables.description and ('<div class="form-element-description">%s</div>'):format(variables.description or '') or ''
   )
 end
 

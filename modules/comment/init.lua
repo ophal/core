@@ -55,6 +55,24 @@ function load(id)
   return content
 end
 
+function comment_access(content, action)
+  local account = _SESSION.user
+
+  if user.access 'administer comments' then
+    return true
+  end
+
+  if action == 'create' then
+    return user.access 'post comments'
+  elseif action == 'update' then
+    return user.access 'edit own comments' and content.user_id == account.id
+  elseif action == 'read' then
+    return user.access 'access comments'
+  elseif action == 'delete' then
+    return user.access 'delete own comments' and content.user_id == account.id
+  end
+end
+
 function comment_form(defaults)
   add_js 'libraries/jquery.min.js'
   add_js 'modules/comment/comment.js'
@@ -72,59 +90,54 @@ end
 
 function save_service()
   local input, parsed, pos, err, output, account, action, id
---~ 
-  --~ if not user.is_logged_in() then
-    --~ header('status', 401)
-  --~ else
-    id = tonumber(arg(2) or '')
-    action = empty(id) and 'create' or 'update'
-    output = {status = false}
+  
+  id = tonumber(arg(2) or '')
+  action = empty(id) and 'create' or 'update'
+  output = {success = false}
 
-    comment = load(id)
+  comment = load(id)
 
-    --~ if not comment_access(comment, action) then
-      --~ header('status', 401)
-    --~ else
+  if not comment_access(comment, action) then
+    header('status', 401)
+  elseif action == 'update' and empty(comment) then
+    header('status', 404)
+    output.error = 'No such comment.'
+  else
+    output.success = false
+    input = request_get_body()
+    parsed, pos, err = json.decode(input, 1, nil)
+    output.input = parsed
+    if err then
+      output.error = err
+    elseif 'table' == type(parsed) and not empty(parsed) then
+      parsed.id = id
+      parsed.type = 'comment'
 
-    --~ if action == 'update' and empty(comment) then
-      --~ header('status', 404)
-      --~ output.error = 'No such comment.'
-    --~ else
-      output.success = false
-      input = request_get_body()
-      parsed, pos, err = json.decode(input, 1, nil)
-      output.input = parsed
-      if err then
-        output.error = err
-      elseif 'table' == type(parsed) and not empty(parsed) then
-        parsed.id = id
-        parsed.type = 'comment'
+      if type(parsed.success) == 'boolean' then
+        parsed.success = parsed.success and 1 or 0
+      end
+      if type(parsed.promote) == 'boolean' then
+        parsed.promote = parsed.promote and 1 or 0
+      end
 
-        if type(parsed.status) == 'boolean' then
-          parsed.status = parsed.status and 1 or 0
-        end
-        if type(parsed.promote) == 'boolean' then
-          parsed.promote = parsed.promote and 1 or 0
-        end
+      module_invoke_all('entity_before_save', parsed)
 
-        module_invoke_all('entity_before_save', parsed)
-
+      if parsed.valid == nil or (parsed.valid ~= nil and parsed.valid) then
         if action == 'create' then
           id, err = create(parsed)
         elseif action == 'update' then
           do _, err = update(parsed) end
         end
-
-        if err then
-          output.error = err
-        else
-          output.id = id
-          output.success = true
-        end
       end
-    --~ end
 
-  --~ end
+      if err then
+        output.error = err
+      else
+        output.id = id
+        output.success = true
+      end
+    end
+  end
 
   return output
 end

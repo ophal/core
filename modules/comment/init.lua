@@ -106,7 +106,6 @@ function save_service()
     output.success = false
     input = request_get_body()
     parsed, pos, err = json.decode(input, 1, nil)
-    output.input = parsed
     if err then
       output.error = err
     elseif 'table' == type(parsed) and not empty(parsed) then

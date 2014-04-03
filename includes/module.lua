@@ -3,8 +3,10 @@ function module_invoke_all(hook, ...)
 
   for name, m in pairs(ophal.modules) do
     if m[hook] then
-      -- TODO: Error handling
-      r = m[hook](...) -- call hook implementation
+      r, err = m[hook](...) -- call hook implementation
+      if err then
+        return nil, err
+      end
       if type(r) == 'table' then
         for k, v in pairs(r) do
           v.module = name -- register module name

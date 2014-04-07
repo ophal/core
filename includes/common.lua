@@ -72,7 +72,9 @@ do
         local options = javascript[scope][j]
         if options ~= nil and options.type == 'settings' then
           output[scope][#output[scope] + 1] = ([[<script type="text/javascript">
-Ophal.settings['%s'] = %s;
+(function ($) {
+$.extend(Ophal.settings, {"%s": %s});
+})(jQuery);
 </script>
 ]]):format(options.namespace or 'core', json.encode(j) or '')
         elseif options ~= nil and options.type == 'inline' then

@@ -58,8 +58,10 @@ do
       for _, j in pairs(v) do
         local options = javascript[scope][j]
         if options ~= nil and options.type == 'inline' then
-          output[scope][#output[scope] + 1] = ([[<script type="text/javascript">%s</script>
-]]):format(options.content or '')
+          output[scope][#output[scope] + 1] = ([[<script type="text/javascript">
+%s
+</script>
+]]):format(j or '')
         elseif is_file(j) then
           output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s%s?%s"></script>
 ]]):format(base.route, j, lfs.attributes(j, 'modification'))

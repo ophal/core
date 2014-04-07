@@ -4,6 +4,8 @@
 
 (function($) {window.Ophal = new function(namespace, func) {
 
+this.settings = {};
+
 this.set_message = function(message) {
   var message = $('<div class="error-message">' + message + '</div>');
   $(message).click(function () {

@@ -1,5 +1,5 @@
 local pairs, tcon, rawset, date = pairs, table.concat, rawset, os.date
-local base, lfs = base, lfs
+local base, lfs, json = base, lfs, require 'dkjson'
 local str_replace, is_file = seawolf.text.str_replace, seawolf.fs.is_file
 
 function page_set_title(header_title, title)
@@ -15,10 +15,13 @@ end
 do
   local javascript = {}
   local order = {}
+  local load_ophal_js = false
   add_js = {}
 
   setmetatable(add_js, {
     __call = function(t, options)
+      load_ophal_js = true
+
       if options == nil then
         options = {}
       elseif type(options) == 'string' then
@@ -37,27 +40,42 @@ do
       if order[scope] == nil then order[scope] = {} end
 
       if data ~= nil then
+        if not javascript[scope][data] then
+          order[scope][#order[scope] + 1] = data
+        end
         javascript[scope][data] = options
-        order[scope][#order[scope] + 1] = data
       end
     end
   })
 
 
   function init_js()
+    add_js 'libraries/jquery.min.js'
+    add_js 'libraries/ophal.js'
+    load_ophal_js = false
+
     for _, v in pairs(theme.settings.js or {}) do
       add_js(v)
     end
   end
 
   function get_js()
+    if not load_ophal_js then
+      return ''
+    end
+
     local output = {}
 
     for scope, v in pairs(order) do
       output[scope] = {}
       for _, j in pairs(v) do
         local options = javascript[scope][j]
-        if options ~= nil and options.type == 'inline' then
+        if options ~= nil and options.type == 'settings' then
+          output[scope][#output[scope] + 1] = ([[<script type="text/javascript">
+Ophal.settings['%s'] = %s;
+</script>
+]]):format(options.namespace or 'core', json.encode(j) or '')
+        elseif options ~= nil and options.type == 'inline' then
           output[scope][#output[scope] + 1] = ([[<script type="text/javascript">
 %s
 </script>

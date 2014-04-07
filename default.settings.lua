@@ -1,5 +1,4 @@
 settings.slash = string.sub(package.config,1,1)
-settings.theme = 'basic'
 settings.language = 'en'
 settings.language_dir = 'ltr'
 settings.site = {
@@ -59,6 +58,17 @@ settings.modules = {
   require 'external.library'
   env.myfunction = external.library.function
 ]]
+
+--[[
+  Theme settings.
+]]
+settings.theme = {
+  name = 'basic',
+  settings = {
+    css = {},
+    js = {},
+  },
+}
 
 --[[ Extend templates environment
   Template files (like: *.tpl.*) i.e: page.tpl.html, have a very limited

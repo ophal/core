@@ -1,4 +1,3 @@
-local theme_name
 local slash, tinsert, tconcat = settings.slash, table.insert, table.concat
 local pcall, settings, empty = pcall, settings, seawolf.variable.empty
 local assert, error, setfenv = assert, error, setfenv
@@ -9,10 +8,19 @@ if
   settings.mobile and
   (mobile.detect.isMobile() or _SERVER 'HTTP_HOST' == settings.mobile.domain_name)
 then
-  theme_name = settings.mobile.theme
+  theme.name = settings.mobile.theme
 else
-  theme_name = settings.theme
+  if type(settings.theme) == 'table' then
+    theme.name = settings.theme.name
+    theme.settings = settings.theme.settings
+  else
+    theme.name = settings.theme
+    theme.settings = {}
+  end
 end
+
+init_css()
+init_js()
 
 function theme_print(v)
   if type(v) == 'function' then
@@ -26,7 +34,7 @@ end
   Render theme template.
 ]]
 local function theme_render(f, env)
-  file = ('%sthemes%s%s%s%s.tpl.html'):format(currentdir, slash, theme_name, slash, f)
+  file = ('%sthemes%s%s%s%s.tpl.html'):format(currentdir, slash, theme.name, slash, f)
 
   local attr, err = lfs.attributes(file)
   if err then
@@ -191,14 +199,14 @@ function theme.json(variables)
   local content = variables.content
   local output = json.encode(content)
 
-  header('content-type', 'application/json; charset=utf-8')
+  --~ header('content-type', 'application/json; charset=utf-8')
   header('content-length', (output or ''):len())
 
   theme_print(output)
 end
 
 function path_to_theme()
-  return ('themes/%s'):format(theme_name)
+  return ('themes/%s'):format(theme.name)
 end
 
 --[[

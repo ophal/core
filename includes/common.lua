@@ -16,6 +16,7 @@ do
   local javascript = {}
   local order = {}
   add_js = {}
+
   setmetatable(add_js, {
     __call = function(t, options)
       if options == nil then
@@ -42,6 +43,13 @@ do
     end
   })
 
+
+  function init_js()
+    for _, v in pairs(theme.settings.js) do
+      add_js(v)
+    end
+  end
+
   function get_js()
     local output = {}
 
@@ -63,10 +71,19 @@ do
   end
 end
 
+function add_css() end
+
 do
-  local css = {
-    [('themes/%s/style.css'):format(settings.theme)] = {},
-  }
+  local css = {}
+
+  function init_css()
+    css[('themes/%s/style.css'):format(theme.name)] = {}
+
+    for _, v in pairs(theme.settings.css) do
+      css[v:format(theme.name)] = {}
+    end
+  end
+
   function add_css(data, options)
     if options == nil then options = {} end
     if data ~= nil then
@@ -78,8 +95,8 @@ do
     local output = {}
     for k, v in pairs(css) do
       if is_file(k) then
-        rawset(output, #output + 1, ([[<link type="text/css" rel="stylesheet" media="all" href="%s%s?%s" />
-]]):format(base.route, k, lfs.attributes(k, 'modification')))
+        output[1 + #output] = ([[<link type="text/css" rel="stylesheet" media="all" href="%s%s?%s" />
+]]):format(base.route, k, lfs.attributes(k, 'modification'))
       end
     end
     return tcon(output)

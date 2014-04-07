@@ -45,7 +45,7 @@ do
 
 
   function init_js()
-    for _, v in pairs(theme.settings.js) do
+    for _, v in pairs(theme.settings.js or {}) do
       add_js(v)
     end
   end
@@ -73,15 +73,13 @@ do
   end
 end
 
-function add_css() end
-
 do
   local css = {}
 
   function init_css()
     css[('themes/%s/style.css'):format(theme.name)] = {}
 
-    for _, v in pairs(theme.settings.css) do
+    for _, v in pairs(theme.settings.css or {}) do
       css[v:format(theme.name)] = {}
     end
   end

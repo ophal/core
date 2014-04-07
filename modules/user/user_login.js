@@ -11,6 +11,7 @@ function login_request() {
     processData: false,
     success: function (token) {
       if (token) {
+        token = JSON.parse(token);
         hash = HMAC_SHA256_MAC(token, SHA256_hash($('#login_form #login_pass').val()));
         /* Authenticate */
         $.ajax({

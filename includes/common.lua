@@ -52,6 +52,7 @@ do
   function init_js()
     add_js 'libraries/jquery.min.js'
     add_js 'libraries/ophal.js'
+    add_js {type = 'settings', {base = base}}
     load_ophal_js = false
 
     for _, v in pairs(theme.settings.js or {}) do

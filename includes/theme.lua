@@ -66,7 +66,12 @@ local function theme_render(f, env)
     end
 
     -- jail
-    env.print = theme_print
+    local buffer = {}
+    if env._return then
+      env.print = function (v) buffer[1 + #buffer] = v end
+    else
+      env.print = theme_print
+    end
     env.settings = settings
     env.echo = echo
     env.base = base
@@ -80,6 +85,7 @@ local function theme_render(f, env)
     env.request_path = request_path
     env.path_to_theme = path_to_theme
     env.pairs = pairs
+    env.format_date = format_date
     env._SERVER = _SERVER
     env.mobile = mobile
     setfenv(prog, env)
@@ -87,7 +93,7 @@ local function theme_render(f, env)
     -- execute
     local status, result = pcall(prog)
     if status then
-      return '' -- TODO: return a buffered output of the template
+      return tconcat(buffer)
     else
       return ("template '%s': %s"):format(file, result)
     end
@@ -194,12 +200,20 @@ function print_f(text, ...)
   print(text:format(...))
 end
 
+--[[
+  Return the output of given theme function and parameters.
+]]
+function render_t(arg)
+  arg._return = true
+  return theme(arg)
+end
+
 function theme.json(variables)
   local json = require 'dkjson'
   local content = variables.content
   local output = json.encode(content)
 
-  --~ header('content-type', 'application/json; charset=utf-8')
+  header('content-type', 'application/json; charset=utf-8')
   header('content-length', (output or ''):len())
 
   theme_print(output)

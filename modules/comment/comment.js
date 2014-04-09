@@ -1,10 +1,44 @@
-(function($) {
+Ophal.extend('comment', function ($) {
+
+function load_comments() {
+  var content = Ophal.settings.content.current;
+  var core = Ophal.settings.core;
+
+  /* Fetch current content comments */
+  $.ajax({
+    type: 'GET',
+    url: core.base.route + 'comment/fetch/' + content.id,
+    contentType: 'application/json; charset=utf-8',
+    processData: false,
+    success: function (data) {
+      if (data.success) {
+        var wrapper = $('<div class="comments-wrapper"></div>');
+        for (k in data.list) {
+          $(wrapper).prepend(data.list[k].rendered);
+        }
+        $('#content').append(wrapper);
+        Ophal.scroll_down();
+      }
+      else {
+        Ophal.set_message('Comments not available.');
+      }
+    },
+    error: function() {
+      Ophal.set_message('Error loading comments.');
+    },
+  });
+}
 
 $(document).ready(function() {
+  /* Load comments if current page is an entity */
+  if (Ophal.settings.content) {
+    load_comments();
+  }
 
   $('.comment-form').submit(function() {
     var id = $(this).attr('entity:id');
-    var parentId = $(this).attr('entity:parent');
+    var entityId = $(this).attr('entity:entity_id');
+    var parentId = $(this).attr('entity:parent_id');
 
     var endpoint = '/comment/save';
     if (id) {
@@ -13,6 +47,8 @@ $(document).ready(function() {
 
     var entity = {
       type: 'comment',
+      entity_id: entityId,
+      parent_id: parentId,
       body: $('textarea', this).val(),
     }
     $(document).trigger('ophal:entity:save', {context: this, entity: entity});
@@ -27,10 +63,11 @@ $(document).ready(function() {
       processData: false,
       success: function (data) {
         if (data.success) {
-          /* window.location = '/comment/' + data.id; */
+          window.location = data.return_path + '#comment-' + data.id;
         }
         else {
-          if (data.success) {
+          $(this).removeAttr('disabled');
+          if (data.error) {
             alert('Operation failed! Reason: ' + data.error);
           }
           else {
@@ -47,6 +84,7 @@ $(document).ready(function() {
   });
   $('.comment-form textarea').keydown(function(event) {
     if (event.keyCode == 13) {
+      $(this).attr('disabled', 'disabled');
       event.preventDefault();
       event.returnValue = false;
       $(this).closest("form").submit();
@@ -54,4 +92,4 @@ $(document).ready(function() {
   })
 });
 
-})(jQuery);
+});

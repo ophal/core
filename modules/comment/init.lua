@@ -1,7 +1,8 @@
-local add_js, theme, header, arg, env = add_js, theme, header, arg, env
+local add_js, theme, header, arg, env, l = add_js, theme, header, arg, env, l
 local modules, tonumber, empty = ophal.modules, tonumber, seawolf.variable.empty
 local request_get_body, json, type = request_get_body, require 'dkjson', type
 local _SESSION, time, module_invoke_all = _SESSION, os.time, module_invoke_all
+local pairs, render_t, url = pairs, render_t, url
 
 local debug = debug
 
@@ -15,16 +16,34 @@ function init()
   user = modules.user
 end
 
+function content_render(content)
+  add_js 'modules/comment/comment.js'
+  add_js {type = 'settings', namespace = 'content', {current = {id = content.id}}}
+
+  local links
+
+  if comment_access(nil, 'create') then
+    if content.links == nil then content.links = {} end
+    links = content.links
+    links[1 + #links] = l('Add a new comment', 'comment/create/' .. content.id)
+  end
+end
+
 function route()
   local items = {}
 
-  items.comment_form = {
+  items['comment/create'] = {
     title = 'Add a comment',
-    page_callback = 'comment_form',
+    page_callback = 'create_form',
   }
 
   items['comment/save'] = {
     page_callback = 'save_service',
+    format = 'json',
+  }
+
+  items['comment/fetch'] = {
+    page_callback = 'fetch_service',
     format = 'json',
   }
 
@@ -55,7 +74,20 @@ function load(id)
   return content
 end
 
-function comment_access(content, action)
+function load_multiple_by(field_name, value)
+  local rs, err
+  local rows = {}
+
+  rs, err = db_query('SELECT * FROM comment WHERE ' .. field_name .. ' = ?', value)
+
+  for row in rs:rows(true) do
+    rows[1 + #rows] = row
+  end
+
+  return rows, err
+end
+
+function comment_access(entity, action)
   local account = _SESSION.user
 
   if user.access 'administer comments' then
@@ -65,31 +97,69 @@ function comment_access(content, action)
   if action == 'create' then
     return user.access 'post comments'
   elseif action == 'update' then
-    return user.access 'edit own comments' and content.user_id == account.id
+    return user.access 'edit own comments' and entity.user_id == account.id
   elseif action == 'read' then
     return user.access 'access comments'
   elseif action == 'delete' then
-    return user.access 'delete own comments' and content.user_id == account.id
+    return user.access 'delete own comments' and entity.user_id == account.id
   end
 end
 
-function comment_form(defaults)
-  add_js 'libraries/jquery.min.js'
+function create_form()
+  local entity_id, parent_id
+
   add_js 'modules/comment/comment.js'
 
-  return theme{'form', id = 'comment_form',
-    attributes = {
-      class = 'comment-form',
-      ['entity:parent'] = 1,
-    },
-    elements = {
-      {'textarea', description = 'Press ENTER to post.'},
+  entity_id = tonumber(arg(2) or '')
+  parent_id = tonumber(arg(3) or '')
+
+  if entity_id then
+    return theme{'form', id = 'comment_form',
+      attributes = {
+        class = 'comment-form',
+        ['entity:entity_id'] = entity_id,
+        ['entity:parent_id'] = parent_id,
+      },
+      elements = {
+        {'textarea', description = 'Press ENTER to post.'},
+      }
     }
-  }
+  else
+    header('status', 401)
+    return ''
+  end
+end
+
+function fetch_service()
+  local output, entity, entity_id, err
+
+  output = {success = false}
+
+  if not comment_access(comment, 'read') then
+    header('status', 401)
+  else
+    entity_id = arg(2)
+    if entity_id then
+      list, err = load_multiple_by('entity_id', entity_id)
+      if err then
+        output.error = err
+      else
+        for k, row in pairs(list) do
+          list[k].rendered = render_t{'comment', entity = row,
+            account = user.load{id = row.user_id}
+          }
+        end
+        output.list = list
+        output.success = true
+      end
+    end
+  end
+
+  return output
 end
 
 function save_service()
-  local input, parsed, pos, err, output, account, action, id
+  local _, input, parsed, pos, err, output, account, action, id
   
   id = tonumber(arg(2) or '')
   action = empty(id) and 'create' or 'update'
@@ -108,32 +178,34 @@ function save_service()
     parsed, pos, err = json.decode(input, 1, nil)
     if err then
       output.error = err
-    elseif 'table' == type(parsed) and not empty(parsed) then
+    elseif
+      'table' == type(parsed) and
+      not empty(parsed) and
+      not empty(parsed.entity_id)
+    then
       parsed.id = id
       parsed.type = 'comment'
 
-      if type(parsed.success) == 'boolean' then
-        parsed.success = parsed.success and 1 or 0
-      end
-      if type(parsed.promote) == 'boolean' then
-        parsed.promote = parsed.promote and 1 or 0
-      end
+      parsed.status = 1 -- Make comments public by default
 
-      module_invoke_all('entity_before_save', parsed)
-
-      if parsed.valid == nil or (parsed.valid ~= nil and parsed.valid) then
-        if action == 'create' then
-          id, err = create(parsed)
-        elseif action == 'update' then
-          do _, err = update(parsed) end
-        end
-      end
+      _, err = module_invoke_all('entity_before_save', parsed)
 
       if err then
         output.error = err
       else
-        output.id = id
-        output.success = true
+        if action == 'create' then
+          id, err = create(parsed)
+        elseif action == 'update' then
+          _, err = update(parsed)
+        end
+
+        if err then
+          output.error = err
+        else
+          output.id = id
+          output.return_path = url('content/' .. parsed.entity_id)
+          output.success = true
+        end
       end
     end
   end
@@ -143,7 +215,9 @@ end
 
 function create(entity)
   local rs, err
-  rs, err = db_query('INSERT INTO comment(user_id, body, status, created) VALUES(?, ?, ?, ?)', _SESSION.user.id, entity.body, entity.status, time())
+  rs, err = db_query([[
+INSERT INTO comment(entity_id, parent_id, user_id, language, body, created, status, sticky)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?)]], entity.entity_id, entity.parent_id, _SESSION.user.id, 'en', entity.body, time(), entity.status, false)
   entity.id = db_last_insert_id()
   if not err then
     module_invoke_all('entity_after_save', entity)

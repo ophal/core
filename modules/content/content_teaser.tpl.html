@@ -2,4 +2,5 @@
 <h2><?lua print(l(content.title, 'content/' .. content.id)) ?></h2>
 <?lua print(content.teaser) ?>
 <?lua print(theme.content_links(content)) ?>
+<?lua print_t{'content_links', entity = content} ?>
 </div>

@@ -1,4 +1,4 @@
-(function($) {
+Ophal.extend('content', function($) {
 
 $(document).ready(function() {
   var form = $('#content_edit_form, #content_create_form');
@@ -48,4 +48,4 @@ $(document).ready(function() {
   });
 });
 
-})(jQuery);
+});

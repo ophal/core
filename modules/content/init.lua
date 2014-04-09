@@ -1,7 +1,7 @@
 local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
 local pager, l, page_set_title, arg = pager, l, page_set_title, arg
-local tonumber, format_date = tonumber, format_date
+local tonumber = tonumber
 local empty, add_js, _SESSION = seawolf.variable.empty, add_js, _SESSION
 local header, json, type, time = header, require 'dkjson', type, os.time
 local print_t, require, modules = print_t, require, ophal.modules
@@ -253,17 +253,24 @@ function frontpage()
   end
 end
 
-function theme.content_links(content, page)
+function theme.content_links(variables)
+  local page, entity, links
+
+  page = variables.page
   if page == nil then page = false end
 
-  local links = {}
+  entity = variables.entity
+  if entity == nil then entity = {} end
+
+  links = entity.links
+  if links == nil then links = {} end
 
   if not page then
-    tinsert(links, l('Read more', 'content/' .. content.id))
+    links[1 + #links] = l('Read more', 'content/' .. entity.id)
   end
 
-  if content_access(content, 'update') then
-    tinsert(links, l('edit', 'content/' .. content.id .. '/edit'))
+  if content_access(entity, 'update') then
+    links[1 + #links] = l('edit', 'content/' .. entity.id .. '/edit')
   end
 
   return theme.item_list{list = links, class = 'content-links'}

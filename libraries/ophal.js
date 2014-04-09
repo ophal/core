@@ -20,4 +20,10 @@ this.extend = function (namespace, func) {
   (this[namespace] = func)($);
 };
 
+this.scroll_down = function() {
+  if (window.location.href.split('#')[1]) {
+    window.location = window.location;
+  }
+};
+
 }})(jQuery);

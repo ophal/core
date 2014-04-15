@@ -24,7 +24,7 @@ function init()
 end
 
 --[[
-  Implements hook_menu().
+  Implements hook_route().
 ]]
 function route()
   items = {}

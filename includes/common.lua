@@ -148,7 +148,7 @@ end
   URL is formatted correctly.
 
   This function ends the request; use it rather than a print theme('page')
-  statement in your menu callback.
+  statement in your route callback.
 
   @param path
     A Drupal path or a full URL.

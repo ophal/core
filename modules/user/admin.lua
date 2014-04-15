@@ -3,7 +3,7 @@
 module 'ophal.modules.user.admin'
 
 --[[
-  Implemens hook_menu().
+  Implemens hook_route().
 ]]
 function route()
   items = {}

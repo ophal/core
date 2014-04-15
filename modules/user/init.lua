@@ -11,7 +11,7 @@ debug = debug
 module 'ophal.modules.user'
 
 --[[
-  Implemens hook_menu().
+  Implemens hook_route().
 ]]
 function route()
   items = {}

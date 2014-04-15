@@ -29,6 +29,9 @@ function content_render(content)
   end
 end
 
+--[[
+  Implements hook route().
+]]
 function route()
   local items = {}
 
@@ -48,10 +51,6 @@ function route()
   }
 
   return items
-end
-
-function menu()
-  return route()
 end
 
 function load(id)

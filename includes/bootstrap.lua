@@ -206,7 +206,7 @@ function bootstrap(phase, main)
     function ()
       -- call hook route to load handlers
       -- TODO: implement route cache
-      ophal.routes = module_invoke_all 'route'
+      ophal.routes = route_build_routes()
 
       -- process current route
       init_route()

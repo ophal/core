@@ -3,6 +3,7 @@ if not ophal.aliases.alias then ophal.aliases.alias = {} end
 
 
 local explode = seawolf.text.explode
+local table_shift = seawolf.contrib.table_shift
 local aliases = ophal.aliases
 local route_set_title, pcall = route_set_title, pcall
 
@@ -60,6 +61,53 @@ do
   end
 end
 
+function route_build_handler(handler, module_name)
+  local callback
+  local known_callbacks = {'access_callback', 'page_callback'}
+
+  handler.module = module_name -- register module name
+
+  for _, v in pairs(known_callbacks) do
+    callback = handler[v]
+    if type(callback) == 'string' then
+      handler[v] = {
+        callback,
+        module = module_name,
+      }
+    elseif type(callback) == 'table' then
+      handler[v] = {
+        callback[1],
+        module = module_name,
+        arguments = table_shift(callback),
+      }
+    end
+  end
+end
+
+function route_build_routes()
+  local err
+  local routes, r = {}
+
+  for name, m in pairs(ophal.modules) do
+    if m.route then
+      r, err = m.route() -- call hook implementation
+      if err then
+        return nil, err
+      end
+      if type(r) == 'table' then
+        for k, v in pairs(r) do
+          route_build_handler(v, name) 
+          routes[k] = v
+        end
+      elseif r then
+        table.insert(routes, r)
+      end
+    end
+  end
+
+  return routes
+end
+
 function url(route, options)
   if options == nil then options = {} end
   if route == nil then route = '' end
@@ -104,6 +152,7 @@ function route_get_handler()
     route = route_tree[a] -- get route from stack
     handler = routes[route] -- lookup handler
     if handler then
+      handler.route = route
       break
     end
   end
@@ -121,11 +170,28 @@ function route_get_handler()
     handler.format = 'html' -- default output format
   end
 
+  module_invoke_all('route_validate_handler', handler)
+
   return handler
 end
 
+function route_execute_callback(handler, callback)
+  local func, result
+  local status = true
+
+  if handler[callback] then
+    func = ophal.modules[handler[callback].module][handler[callback][1]]
+    status, result = pcall(func, unpack(handler[callback].arguments or {}))
+    if not status then
+      result = ("module '%s': %s"):format(handler.module, result)
+    end
+  end
+
+  return status, result
+end
+
 function route_execute_active_handler()
-  local handler, content, status
+  local handler, status, content
 
   -- Execute handler
   handler = route_get_handler()
@@ -135,10 +201,7 @@ function route_execute_active_handler()
     page_set_title(handler.title)
   else
     page_set_title(handler.title) -- allow later override
-    status, content = pcall(ophal.modules[handler.module][handler.page_callback])
-    if not status then
-      content = ("module '%s': %s"):format(handler.module, content)
-    end
+    status, content = route_execute_callback(handler, 'page_callback')
   end
 
   -- Render content

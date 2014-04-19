@@ -1,4 +1,5 @@
 function module_invoke_all(hook, ...)
+  local err
   local result, r = {}
 
   for name, m in pairs(ophal.modules) do

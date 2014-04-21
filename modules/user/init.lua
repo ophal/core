@@ -7,8 +7,6 @@ local session_destroy, module_invoke_all = session_destroy, module_invoke_all
 local request_get_body, ophal, pcall = request_get_body, ophal, pcall
 local route_execute_callback = route_execute_callback
 
-debug = debug
-
 module 'ophal.modules.user'
 
 --[[
@@ -22,10 +20,12 @@ function route()
   items['user/login'] = {
     title = 'User login',
     page_callback = 'login_page',
+    access_callback = 'is_anonymous',
   }
   items['user/logout'] = {
     title = 'User logout',
     page_callback = 'logout_page',
+    access_callback = 'is_logged_in',
   }
   items['user/auth'] = {
     title = 'User authentication web service',
@@ -38,6 +38,25 @@ function route()
     format = 'json',
   }
   return items
+end
+
+--[[
+  Implements hook route_validate_handler().
+]]
+function route_validate_handler(handler)
+  local status, result
+
+  status, result = route_execute_callback(handler, 'access_callback')
+
+  if not status then
+    handler.error = 500
+    handler.title = 'Unexpected error'
+    handler.content = ("module '%s': %s"):format(handler.module, result or '')
+  elseif result == false then
+    handler.error = 401
+    handler.title = 'Access denied'
+    handler.content = handler.title
+  end
 end
 
 --[[
@@ -56,6 +75,10 @@ function is_logged_in()
   if not empty(_SESSION.user) and not empty(_SESSION.user.id) then
     return not empty(_SESSION.user.id)
   end
+end
+
+function is_anonymous()
+  return not is_logged_in()
 end
 
 function load(account)

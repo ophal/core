@@ -1,20 +1,24 @@
 local json, crypto, tonumber = require 'dkjson', require 'crypto', tonumber
 local print, exit, _SESSION, config = print, exit, env._SESSION, settings.user
 local debug, error, empty, header = debug, error, seawolf.variable.empty, header
-local theme, tconcat, add_js = theme, table.concat, add_js
+local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
 local type, env, uuid, time, goto, pairs = type, env, uuid, os.time, goto, pairs
 local session_destroy, module_invoke_all = session_destroy, module_invoke_all
-local request_get_body = request_get_body
+local request_get_body, ophal, pcall = request_get_body, ophal, pcall
+local route_execute_callback = route_execute_callback
 
 debug = debug
 
 module 'ophal.modules.user'
 
 --[[
-  Implemens hook_route().
+  Implemens hook route().
 ]]
 function route()
   items = {}
+  items.user = {
+    page_callback = 'default_page'
+  }
   items['user/login'] = {
     title = 'User login',
     page_callback = 'login_page',
@@ -116,6 +120,12 @@ function access(perm)
     end
   end
   return false
+end
+
+function default_page()
+  if not is_logged_in() then
+    goto 'user/login'
+  end
 end
 
 function login_page()

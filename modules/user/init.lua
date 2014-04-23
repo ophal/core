@@ -32,11 +32,6 @@ function route()
     page_callback = 'auth_service',
     format = 'json',
   }
-  items['user/token'] = {
-    title = 'User token web service',
-    page_callback = 'token_service',
-    format = 'json',
-  }
   return items
 end
 
@@ -198,13 +193,12 @@ function auth_service()
   if err then
     error(err)
   elseif
-    'table' == type(_SESSION.user) and 'table' == type(_SESSION.user.token) and
     'table' == type(parsed) and not empty(parsed.user) and
-    not empty(parsed.hash) and time() + 3 >= _SESSION.user.token.ts
+    not empty(parsed.pass)
   then
     account = load{name = parsed.user}
     if 'table' == type(account) and not empty(account.id) then
-      if parsed.hash == crypto.hmac.digest('sha256', account.pass, _SESSION.user.token.id) then
+      if account.pass == (crypto.digest.new 'sha256'):update(parsed.pass):final() then
         output.authenticated = true
         _SESSION.user = account
       end
@@ -212,14 +206,4 @@ function auth_service()
   end
 
   return output
-end
-
-function token_service()
-  local output
-
-  if _SESSION and  'table' == type(_SESSION.user) then
-    _SESSION.user.token = {id = uuid.new(), ts = time()}
-  end
-
-  return _SESSION.user.token.id
 end

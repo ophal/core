@@ -56,4 +56,4 @@ Ophal has the following dependencies:
 - LuaDBI
 - luuid
 - dkjson
-
+- LuaCrypto (only if user module is enabled)

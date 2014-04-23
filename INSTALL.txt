@@ -139,6 +139,12 @@ Also, make sure to enable and configure the User module.
 NOTE: Ophal is compatible with SQLite only.
 
 == (Optional) Configure the User module
+WARNING! Since the user module allows to start an authenticated session, meaning
+that certain users will have access to priviledged data, the use of an SSL
+certificated and HTTPS is strongly recommended. Please make sure that your
+production server running an Ophal site (with user module enable) is
+correctly configured for secure connections.
+
 Run the following SQL queries in strict order:
 
 1. Create schema:
@@ -163,16 +169,13 @@ Run the following SQL queries in strict order:
 
 2. Generate a password for superuser with following script:
 
-    crypto = require 'crypto'
-    d = crypto.digest.new 'sha256'
-    d:update 'mypassword'
-    print(d:final())
+    print((require 'crypto'.digest.new 'sha256'):update('mypassword'):final())
 
   NOTICE: this script outputs a password hash, change 'mypassword' by 'yourpass'
 
 3. Create user 1:
 
-    INSERT INTO "user" VALUES(1,'root','test@example.com',[password],1,CURRENT_TIMESTAMP);
+    INSERT INTO "user" VALUES(1,'root','test@example.com',[password hash],1,CURRENT_TIMESTAMP);
 
 4. Add math libraries to global env in settings.lua:
 

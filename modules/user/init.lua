@@ -149,26 +149,14 @@ end
 function login_page()
   add_js 'libraries/jquery.min.js'
   add_js 'libraries/jquery.js'
-  add_js 'libraries/jssha256.js'
   add_js 'modules/user/user_login.js'
-  return tconcat{
-    '<form method="POST">',
-    '<table id="login_form" class="form">',
-      '<tr><td>',
-      theme.label{title = 'Username'},
-      '</td><td>',
-      theme.textfield{attributes = {id = 'login_user'}, value = ''},
-      '</td></tr>',
-      '<tr><td>',
-      theme.label{title = 'Password'},
-      '</td><td>',
-      '<input id="login_pass" type="password" name="pass">',
-      '</td></tr>',
-      '<tr><td colspan="2" align="right">',
-      theme.submit{attributes = {id = 'login_submit'}, value = 'Login'},
-      '</td></tr>',
-    '</table>',
-    '</form>',
+
+  return theme{'form', attributes = {id = 'login_form'},
+    elements = {
+      {'textfield', title = 'Username', value = '', attributes = {id = 'login_user'}},
+      {'textfield', title = 'Password', value = '', attributes = {id = 'login_pass', type = 'password'}},
+      {'submit', value = 'Login', attributes = {id = 'login_submit'}},
+    },
   }
 end
 

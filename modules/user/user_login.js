@@ -27,7 +27,7 @@ function login_request() {
 }
 
 $(document).ready(function() {
-  $('#login_submit').click(function() {
+  $('#login_form #login_submit').click(function() {
     try {
       login_request();
     } finally {

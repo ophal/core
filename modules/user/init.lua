@@ -134,7 +134,7 @@ function access(perm)
     if tonumber(account.id) == 1 then
       return true
     elseif not empty(account.permissions) then
-      return account.permissions[perm]
+      return account.permissions[perm] or false
     end
   end
   return false

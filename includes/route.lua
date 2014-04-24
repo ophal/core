@@ -77,7 +77,7 @@ function route_build_handler(handler, module_name)
     elseif type(callback) == 'table' then
       handler[v] = {
         callback[1],
-        module = module_name,
+        module = callback.module or module_name,
         arguments = table_shift(callback),
       }
     end

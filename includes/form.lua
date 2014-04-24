@@ -58,6 +58,13 @@ end
 function theme.textfield(variables)
   if variables == nil then variables = {} end
 
+  if variables.attributes == nil then
+    variables.attributes = {}
+  end
+  if variables.attributes.type == nil then
+    variables.attributes.type = 'text'
+  end
+
   return ('<input %s %s/>'):format(
     render_attributes(variables.attributes),
     variables.value and ('value="%s" '):format(variables.value) or ''

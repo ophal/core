@@ -7,18 +7,6 @@ local basename = seawolf.fs.basename
 local rtrim, unescape = seawolf.text.rtrim, socket.url.unescape
 local tconcat, lower = table.concat, string.lower
 
--- Build base URL
-base.system_root = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
-base.system_root = base.system_root .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
-base.url = base.system_root
-
-local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER 'SCRIPT_NAME' or '/index.cgi'), [[\,/]])
-if dir ~= '' then
-  base.route = '/' .. dir
-  base.url = base.url .. base.route
-  base.route = base.route .. '/'
-end
-
 --[[ Ophal's print function.
 
   It is the unique Ophal's output function, *write() is for internal use only*.
@@ -137,6 +125,21 @@ do
     path = trim(path, '/')
 
     return path
+  end
+end
+
+-- Build base URL, system_root, route and path
+function build_base()
+  base.system_root = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
+  base.system_root = base.system_root .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
+  base.url = base.system_root
+  base.path = request_path()
+
+  local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER 'SCRIPT_NAME' or '/index.cgi'), [[\,/]])
+  if dir ~= '' then
+    base.route = '/' .. dir
+    base.url = base.url .. base.route
+    base.route = base.route .. '/'
   end
 end
 

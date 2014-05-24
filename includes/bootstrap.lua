@@ -41,6 +41,7 @@ env = {
     system_root = '',
     route = '/',
     url = '',
+    path = '',
   },
   output_buffer = {},
   ophal = {
@@ -154,6 +155,7 @@ function bootstrap(phase, main)
     -- 8. Route API,
     function ()
       require 'includes.route'
+      build_base()
     end,
 
     -- 9. Core API,

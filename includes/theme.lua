@@ -211,6 +211,11 @@ end
 function theme.json(variables)
   local json = require 'dkjson'
   local content = variables.content
+
+  if not variables.status then
+    content = {error = content}
+  end
+
   local output = json.encode(content)
 
   header('content-type', 'application/json; charset=utf-8')

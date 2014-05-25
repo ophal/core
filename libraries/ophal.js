@@ -26,4 +26,8 @@ this.scroll_down = function() {
   }
 };
 
+this.progress = function(selector, value) {
+  $(selector + ' .progress .meter').css('width', value + '%');
+};
+
 }})(jQuery);

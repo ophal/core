@@ -194,3 +194,14 @@ function theme.markup(variables)
 
   return variables.value
 end
+
+function theme.progress(variables)
+  if variables == nil then variables = {} end
+
+  local value = variables.value or 0
+
+  return ('<div class="progress" %s><span class="meter" style="width: %s%%"></span></div>'):format(
+    render_attributes(variables.attributes),
+    value
+  )
+end

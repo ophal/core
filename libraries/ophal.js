@@ -26,6 +26,19 @@ this.scroll_down = function() {
   }
 };
 
+this.post = function(config) {
+  return $.ajax({
+    type: 'POST',
+    url: this.settings.core.base.route + config.url,
+    contentType: 'application/json; charset=utf-8',
+    data: JSON.stringify(config.data),
+    dataType: 'json',
+    processData: false,
+    success: config.success,
+    error: config.error
+  });
+};
+
 this.progress = function(selector, value) {
   $(selector + ' .progress .meter').css('width', value + '%');
 };

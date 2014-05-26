@@ -214,9 +214,37 @@ end
 
 function create(entity)
   local rs, err
-  rs, err = db_query([[
+
+  if entity.id then
+    rs, err = db_query([[
+INSERT INTO comment(id, entity_id, parent_id, user_id, language, body, created, status, sticky)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)]],
+      entity.id,
+      entity.entity_id,
+      entity.parent_id,
+      entity.user_id or _SESSION.user.id,
+      entity.language or 'en',
+      entity.body,
+      entity.created or time(),
+      entity.status,
+      entity.sticky or false
+    )
+  else
+    rs, err = db_query([[
 INSERT INTO comment(entity_id, parent_id, user_id, language, body, created, status, sticky)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?)]], entity.entity_id, entity.parent_id, _SESSION.user.id, 'en', entity.body, time(), entity.status, false)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
+      entity.entity_id,
+      entity.parent_id,
+      entity.user_id or _SESSION.user.id,
+      entity.language or 'en',
+      entity.body,
+      entity.created or time(),
+      entity.status,
+      entity.sticky or false
+    )
+  end
+
+  
   entity.id = db_last_insert_id()
   if not err then
     module_invoke_all('entity_after_save', entity)

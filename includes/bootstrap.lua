@@ -195,6 +195,9 @@ function bootstrap(phase, main)
         require 'includes.database'
         if settings.db.default ~= nil then
           db_connect()
+          if settings.route_aliases_storage then
+            route_aliases_load()
+          end
         end
       end
     end,

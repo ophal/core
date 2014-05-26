@@ -215,6 +215,24 @@ CREATE UNIQUE INDEX unq_idx_tag_name ON tag (name);
 
 Also, make sure to enable and configure the Content module.
 
+== (Optional) Configure the route aliases database storage
+Complementary to the use of route_register_alias(), you can store route aliases
+into the database. This is specially useful for sites that make extensive use of
+semantic urls (i.e: /my-rocking-article instead of /content/7).
+
+1. Run the following SQL queries in strict order:
+
+    CREATE TABLE route_alias(id INTEGER PRIMARY KEY AUTOINCREMENT, source VARCHAR(255), alias VARCHAR(255), language VARCHAR(12));
+    CREATE INDEX idx_alias_language_id ON route_alias (alias, language, id);
+    CREATE INDEX idx_source_language_id ON route_alias (source, language, id);
+
+2. Enable database storage for route aliases
+
+    --[=[
+      Route aliases database storage
+    ]=]
+    settings.route_aliases_storage = true
+
 NOTE: Ophal is compatible with SQLite only.
 
 

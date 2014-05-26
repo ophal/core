@@ -6,11 +6,45 @@ local explode = seawolf.text.explode
 local table_shift = seawolf.contrib.table_shift
 local aliases = ophal.aliases
 local route_set_title, pcall = route_set_title, pcall
+local empty = seawolf.variable.empty
 
+function route_register_alias(source, alias)
+  aliases.source[source] = alias
+  aliases.alias[alias] = source
+end
 
-function route_register_alias(route, alias)
-  aliases.source[route] = alias
-  aliases.alias[alias] = route
+function route_aliases_load()
+  local rs = db_query('SELECT * FROM route_alias WHERE language IN (?, ?)', 'all', settings.language)
+  for row in rs:rows(true) do
+    route_register_alias(row.source, row.alias)
+  end
+end
+
+function route_read_alias(id)
+  local rs = db_query('SELECT * FROM route_alias WHERE id = ?', id)
+  return rs:fetch(true)
+end
+
+function route_create_alias(entity)
+  if empty(entity.language) then
+    entity.language = 'all'
+  end
+  local rs, err = db_query('INSERT INTO route_alias(source, alias, language) VALUES(?, ?, ?)', entity.source, entity.alias, entity.language)
+  entity.id = db_last_insert_id()
+  return entity.id, err
+end
+
+function route_update_alias(id, entity)
+  local keys, placeholders = {}, {}
+  local record = route_read_alias(id)
+  for _, v in pairs{'source', 'alias', 'language'} do
+    record[v] = entity[v]
+  end
+  return db_query('UPDATE route_alias SET source = ?, alias = ?, language = ? WHERE id = ?', record.source, record.alias, record.language, id)
+end
+
+function route_delete_alias(id)
+  return db_query('DELETE FROM route_alias WHERE id = ?', id)
 end
 
 do

@@ -215,6 +215,8 @@ end
 function create(entity)
   local rs, err
 
+  if entity.type == nil then entity.type = 'comment' end
+
   if entity.id then
     rs, err = db_query([[
 INSERT INTO comment(id, entity_id, parent_id, user_id, language, body, created, status, sticky)

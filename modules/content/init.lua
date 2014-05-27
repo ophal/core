@@ -131,6 +131,9 @@ end
 
 function create(entity)
   local rs, err
+
+  if entity.type == nil then entity.type = 'content' end
+
   rs, err = db_query('INSERT INTO content(user_id, title, teaser, body, status, promote, created) VALUES(?, ?, ?, ?, ?, ?, ?)', _SESSION.user.id, entity.title, entity.teaser, entity.body, entity.status, entity.promote, time())
   entity.id = db_last_insert_id()
   if not err then

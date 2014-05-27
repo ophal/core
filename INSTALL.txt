@@ -96,12 +96,12 @@ into the same directory of index.cgi, make the desired changes an set it to read
 == (Optional) Configure the Content module
 Run the following SQL queries in strict order:
 
-CREATE TABLE content(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id UNSIGNED BIG INT, language VARCHAR(12), title VARCHAR(255), teaser TEXT, body TEXT, created UNSIGNED BIG INT, changed UNSIGNED BIG INT, status BOOLEAN, sticky BOOLEAN, comment BOOLEAN, promote BOOLEAN);
-CREATE INDEX idx_content_created ON content (created DESC);
-CREATE INDEX idx_content_changed ON content (changed DESC);
-CREATE INDEX idx_content_frontpage ON content (promote, status, sticky, created DESC);
-CREATE INDEX idx_content_title ON content (title);
-CREATE INDEX idx_content_user ON content (user_id);
+    CREATE TABLE content(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id UNSIGNED BIG INT, language VARCHAR(12), title VARCHAR(255), teaser TEXT, body TEXT, created UNSIGNED BIG INT, changed UNSIGNED BIG INT, status BOOLEAN, sticky BOOLEAN, comment BOOLEAN, promote BOOLEAN);
+    CREATE INDEX idx_content_created ON content (created DESC);
+    CREATE INDEX idx_content_changed ON content (changed DESC);
+    CREATE INDEX idx_content_frontpage ON content (promote, status, sticky, created DESC);
+    CREATE INDEX idx_content_title ON content (title);
+    CREATE INDEX idx_content_user ON content (user_id);
 
 Also, make sure to enable and configure the User module.
 
@@ -110,29 +110,29 @@ NOTE: Ophal is compatible with SQLite only.
 == (Optional) Configure the Comment module
 Run the following SQL queries in strict order:
 
-CREATE TABLE comment(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_id UNSIGNED BIG INT, -- Entity associated with this object
-  parent_id UNSIGNED BIG INT, -- Parent object
-  user_id UNSIGNED BIG INT, -- User ID of author
-  language VARCHAR(12), -- Language code
-  body TEXT, -- Comment body
-  created UNSIGNED BIG INT, -- Creation date
-  changed UNSIGNED BIG INT, -- Last change date
-  status BOOLEAN,
-  sticky BOOLEAN
-);
-CREATE INDEX idx_comment_created ON comment (created DESC);
-CREATE INDEX idx_comment_changed ON comment (changed DESC);
-CREATE INDEX idx_comment_linear ON comment (entity_id, status);
-CREATE INDEX idx_comment_linear_sticky ON comment (entity_id, status, sticky);
-CREATE INDEX idx_comment_full_linear ON comment (entity_id);
-CREATE INDEX idx_comment_full_linear_sticky ON comment (entity_id, sticky);
-CREATE INDEX idx_comment_tree ON comment (parent_id, status);
-CREATE INDEX idx_comment_tree_sticky ON comment (parent_id, status, sticky);
-CREATE INDEX idx_comment_full_tree ON comment (parent_id);
-CREATE INDEX idx_comment_full_tree_sticky ON comment (parent_id, sticky);
-CREATE INDEX idx_comment_user ON comment (user_id);
+    CREATE TABLE comment(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_id UNSIGNED BIG INT, -- Entity associated with this object
+      parent_id UNSIGNED BIG INT, -- Parent object
+      user_id UNSIGNED BIG INT, -- User ID of author
+      language VARCHAR(12), -- Language code
+      body TEXT, -- Comment body
+      created UNSIGNED BIG INT, -- Creation date
+      changed UNSIGNED BIG INT, -- Last change date
+      status BOOLEAN,
+      sticky BOOLEAN
+    );
+    CREATE INDEX idx_comment_created ON comment (created DESC);
+    CREATE INDEX idx_comment_changed ON comment (changed DESC);
+    CREATE INDEX idx_comment_linear ON comment (entity_id, status);
+    CREATE INDEX idx_comment_linear_sticky ON comment (entity_id, status, sticky);
+    CREATE INDEX idx_comment_full_linear ON comment (entity_id);
+    CREATE INDEX idx_comment_full_linear_sticky ON comment (entity_id, sticky);
+    CREATE INDEX idx_comment_tree ON comment (parent_id, status);
+    CREATE INDEX idx_comment_tree_sticky ON comment (parent_id, status, sticky);
+    CREATE INDEX idx_comment_full_tree ON comment (parent_id);
+    CREATE INDEX idx_comment_full_tree_sticky ON comment (parent_id, sticky);
+    CREATE INDEX idx_comment_user ON comment (user_id);
 
 Also, make sure to enable and configure the User module.
 
@@ -151,8 +151,8 @@ Run the following SQL queries in strict order:
 
     CREATE TABLE user(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255), mail VARCHAR(255), pass VARCHAR(255), active BOOLEAN, created UNSIGNED BIG INT);
     CREATE UNIQUE INDEX unq_idx_user_name ON user (name);
-    CREATE INDEX unq_idx_user_created ON user (created);
-    CREATE INDEX unq_idx_user_mail ON user (mail);
+    CREATE INDEX idx_user_created ON user (created);
+    CREATE INDEX idx_user_mail ON user (mail);
 
     CREATE TABLE role(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255), active BOOLEAN, weight INT);
     CREATE UNIQUE INDEX unq_idx_role_name ON role (name);
@@ -163,7 +163,7 @@ Run the following SQL queries in strict order:
     CREATE TABLE user_role(user_id UNSIGNED BIG INT, role_id UNSIGNED BIG INT, PRIMARY KEY (user_id, role_id));
 
     CREATE TABLE role_permission(role_id UNSIGNED BIG INT, permission varchar(255), module varchar(255), PRIMARY KEY (role_id, permission));
-    CREATE INDEX idx_permission ON role_permission (permission);
+    CREATE INDEX idx_role_permission ON role_permission (permission);
 
   NOTE: Ophal is compatible with SQLite only.
 
@@ -223,8 +223,8 @@ semantic urls (i.e: /my-rocking-article instead of /content/7).
 1. Run the following SQL queries in strict order:
 
     CREATE TABLE route_alias(id INTEGER PRIMARY KEY AUTOINCREMENT, source VARCHAR(255), alias VARCHAR(255), language VARCHAR(12));
-    CREATE INDEX idx_alias_language_id ON route_alias (alias, language, id);
-    CREATE INDEX idx_source_language_id ON route_alias (source, language, id);
+    CREATE INDEX idx_route_alias_alias_language_id ON route_alias (alias, language, id);
+    CREATE INDEX idx_route_alias_source_language_id ON route_alias (source, language, id);
 
 2. Enable database storage for route aliases
 

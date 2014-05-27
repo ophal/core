@@ -101,7 +101,7 @@ end
 function entity_after_save(entity)
   local rs, err, tags, in_tags
 
-  rs, err = db_query('SELECT tag_id id FROM field_tag WHERE entity_id = ?', entity.id)
+  rs, err = db_query('SELECT tag_id id FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
   if err then
     error(err)
   else
@@ -137,10 +137,10 @@ function entity_after_save(entity)
 end
 
 --[[
-  Implements hook content_post_delete().
+  Implements hook entity_after_delete().
 ]]
-function entity_post_delete(entity_id)
-  rs, err = db_query('DELETE FROM field_tag WHERE entity_id = ?', entity_id)
+function entity_after_delete(entity)
+  rs, err = db_query('DELETE FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
   if err then
     error(err)
   end
@@ -259,8 +259,8 @@ function page()
       else
         for v in rs:rows(true) do
           tinsert(tables, v.entity_type)
-          tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. ' e JOIN field_tag ft ON e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?')
-          tinsert(query, 'SELECT e.*, "' .. v.entity_type .. '" type FROM ' .. v.entity_type .. ' e JOIN field_tag ft ON e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?')
+          tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
+          tinsert(query, 'SELECT e.*, "' .. v.entity_type .. '" type FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
         end
       end
 

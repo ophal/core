@@ -96,6 +96,7 @@ function load(account)
   end
 
   if not empty(account) then
+    account.type = 'user'
     module_invoke_all('user_load', account)
     load_permissions(account)
   end

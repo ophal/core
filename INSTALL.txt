@@ -233,8 +233,35 @@ semantic urls (i.e: /my-rocking-article instead of /content/7).
     ]=]
     settings.route_aliases_storage = true
 
-NOTE: Ophal is compatible with SQLite only.
+== (Optional) Configure the files metadata database storage
+Complementary to the use of file module, you can store files metadata
+into the database.
 
+1. Run the following SQL queries in strict order:
+
+    CREATE TABLE file(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id UNSIGNED BIG INT, -- User ID of author
+      filename VARCHAR(255),
+      filepath VARCHAR(255),
+      filemime VARCHAR(255),
+      filesize UNSIGNED INT(10),
+      status boolean,
+      timestamp UNSIGNED BIG INT
+    );
+    CREATE INDEX idx_file_user ON file (user_id);
+    CREATE INDEX idx_file_status ON file (status);
+    CREATE INDEX idx_file_timestamp ON file (timestamp);
+
+2. Enable database storage for route aliases
+
+    --[=[
+      Files metadata database storage
+    ]=]
+    settings.file_metadata_storage = true
+
+
+NOTE: Ophal is compatible with SQLite only.
 
 4. Send feedback
 Whether you successfully installed Ophal or not, please file an issue with your

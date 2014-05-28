@@ -1,12 +1,21 @@
 local conf, theme, header, _GET = settings.file or {}, theme, header, _GET
-local tinsert, tconcat, lfs = table.insert, table.concat, lfs
+local tinsert, tconcat, lfs, env = table.insert, table.concat, lfs, env
 local is_dir, is_file = seawolf.fs.is_dir, seawolf.fs.is_file
 local temp_dir, empty = seawolf.behaviour.temp_dir, seawolf.variable.empty
 local request_get_body, io_open, tonumber = request_get_body, io.open, tonumber
 local json, files_path = require 'dkjson', settings.site.files_path
-local os_remove = os.remove
+local os_remove, modules = os.remove, ophal.modules
+local module_invoke_all = module_invoke_all
 
 module 'ophal.modules.file'
+
+local user, db_query, db_last_insert_id
+
+function init()
+  db_query = env.db_query
+  db_last_insert_id = env.db_last_insert_id
+  user = modules.user
+end
 
 function route()
   items = {}
@@ -113,4 +122,61 @@ function merge()
   output = json.encode(output)
 
   theme.html = function () return output or '' end
+end
+
+function create(entity)
+  local rs, err
+
+  if entity.type == nil then entity.type = 'file' end
+
+  if entity.id then
+    rs, err = db_query([[
+INSERT INTO file(id, user_id, filename, filepath, filemime, filesize, status, timestamp)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
+      entity.id,
+      entity.user_id or _SESSION.user.id,
+      entity.filename,
+      entity.filepath,
+      entity.filemime,
+      entity.filesize,
+      entity.status,
+      entity.timestamp
+    )
+  else
+    rs, err = db_query([[
+INSERT INTO file(user_id, filename, filepath, filemime, filesize, status, timestamp)
+VALUES(?, ?, ?, ?, ?, ?, ?)]],
+      entity.user_id or _SESSION.user.id,
+      entity.filename,
+      entity.filepath,
+      entity.filemime,
+      entity.filesize,
+      entity.status,
+      entity.timestamp
+    )
+    entity.id = db_last_insert_id()
+  end
+
+  if not err then
+    module_invoke_all('entity_after_save', entity)
+  end
+  return entity.id, err
+end
+
+function update(entity)
+  local rs, err
+  rs, err = db_query('UPDATE file SET user_id = ?, filename = ?, filepath = ?, filemime = ?, filesize = ?, status = ?, timestamp = ? WHERE id = ?',
+      entity.user_id,
+      entity.filename,
+      entity.filepath,
+      entity.filemime,
+      entity.filesize,
+      entity.status,
+      entity.timestamp,
+      entity.id
+  )
+  if not err then
+    module_invoke_all('entity_after_save', entity)
+  end
+  return rs, err
 end

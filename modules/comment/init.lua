@@ -244,10 +244,9 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
       entity.status,
       entity.sticky or false
     )
+    entity.id = db_last_insert_id()
   end
 
-  
-  entity.id = db_last_insert_id()
   if not err then
     module_invoke_all('entity_after_save', entity)
   end

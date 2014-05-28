@@ -15,3 +15,4 @@
 - Make clear separation between Path core component and Menu core module
 - Handling of Menus and Paths should be best easy
 - Use lua states instead of empty ENV tables: https://github.com/mbalmer/luaproxy
+- User module: logins and access log

@@ -204,6 +204,23 @@ VALUES(?, ?, ?, ?, ?)]],
   return entity.id, err
 end
 
+function update(entity)
+  local rs, err
+  rs, err = db_query('UPDATE content SET name = ?, mail = ?, pass = ?, active = ?, created = ? WHERE id = ?',
+    entity.name,
+    entity.mail,
+    entity.pass,
+    entity.active,
+    entity.created,
+    entity.id
+  )
+  if not err then
+    module_invoke_all('entity_after_save', entity)
+  end
+  return rs, err
+end
+
+
 function auth_service()
   local input, parsed, pos, err, account
   local output = {authenticated = false}

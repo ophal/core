@@ -59,6 +59,7 @@ end
 ]]
 function init()
   db_query = env.db_query
+  db_last_insert_id = env.db_last_insert_id
 
   -- Load user
   if _SESSION and _SESSION.user == nil then
@@ -168,8 +169,39 @@ function logout_page()
   end
 end
 
-function create()
-  -- INSERT INTO user(name, mail, pass, active, created) values('User', 'user@example.com', 'password', 1, strftime('%s', 'now'));
+function create(entity)
+  local rs, err
+
+  if entity.type == nil then entity.type = 'user' end
+
+  if entity.id then
+    rs, err = db_query([[
+INSERT INTO user(id, name, mail, pass, active, created)
+VALUES(?, ?, ?, ?, ?, ?)]],
+      entity.id,
+      entity.name,
+      entity.mail,
+      entity.pass,
+      entity.active or false,
+      entity.created or time()
+    )
+  else
+    rs, err = db_query([[
+INSERT INTO user(name, mail, pass, active, created)
+VALUES(?, ?, ?, ?, ?)]],
+      entity.name,
+      entity.mail,
+      entity.pass,
+      entity.active or false,
+      entity.created or time()
+    )
+    entity.id = db_last_insert_id()
+  end
+
+  if not err then
+    module_invoke_all('entity_after_save', entity)
+  end
+  return entity.id, err
 end
 
 function auth_service()

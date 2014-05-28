@@ -134,8 +134,34 @@ function create(entity)
 
   if entity.type == nil then entity.type = 'content' end
 
-  rs, err = db_query('INSERT INTO content(user_id, title, teaser, body, status, promote, created) VALUES(?, ?, ?, ?, ?, ?, ?)', _SESSION.user.id, entity.title, entity.teaser, entity.body, entity.status, entity.promote, time())
-  entity.id = db_last_insert_id()
+  if entity.id then
+    rs, err = db_query([[
+INSERT INTO content(id, user_id, title, teaser, body, status, promote, created)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
+      entity.id,
+      entity.user_id or _SESSION.user.id,
+      entity.title,
+      entity.teaser,
+      entity.body,
+      entity.status,
+      entity.promote or false,
+      entity.created or time()
+    )
+  else
+    rs, err = db_query([[
+INSERT INTO content(user_id, title, teaser, body, status, promote, created)
+VALUES(?, ?, ?, ?, ?, ?, ?)]],
+      entity.user_id or _SESSION.user.id,
+      entity.title,
+      entity.teaser,
+      entity.body,
+      entity.status,
+      entity.promote or false,
+      entity.created or time()
+    )
+    entity.id = db_last_insert_id()
+  end
+
   if not err then
     module_invoke_all('entity_after_save', entity)
   end

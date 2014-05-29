@@ -236,7 +236,7 @@ function auth_service()
   then
     account = load{name = parsed.user}
     if 'table' == type(account) and not empty(account.id) then
-      if account.pass == (crypto.digest.new 'sha256'):update(parsed.pass):final() then
+      if account.pass == (crypto.digest.new(config.algorithm or 'sha256')):update(parsed.pass):final() then
         output.authenticated = true
         _SESSION.user = account
       end

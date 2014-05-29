@@ -28,6 +28,26 @@ function route()
   return items
 end
 
+function load(id)
+  local rs, err, entity
+
+  id = tonumber(id or 0)
+
+  rs, err = db_query('SELECT * FROM file WHERE id = ?', id)
+  if err then
+    error(err)
+  end
+
+  entity = rs:fetch(true)
+
+  if entity then
+    entity.type = 'file'
+    module_invoke_all('picture_load', entity)
+  end
+
+  return entity
+end
+
 function upload()
   local output, target, fileid, filename, filesize, index, upload_dir, err
   local status, output_fh, data

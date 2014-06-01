@@ -40,5 +40,7 @@ DirectoryIndex index.cgi
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteCond %{REQUEST_URI} !=/favicon.ico
+  # Don't care about image files
+  RewriteCond %{REQUEST_URI} !\.(jpg|JPG|gif|GIF|png|PNG|ico|ICO|svg|SVG)$
   RewriteRule ^(.*)$ index.cgi [L]
 </IfModule>

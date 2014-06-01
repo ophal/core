@@ -228,6 +228,44 @@ function path_to_theme()
   return ('themes/%s'):format(theme.name)
 end
 
+function theme_blocks_load()
+  module_invoke_all('blocks_alter', ophal.blocks)
+end
+
+function theme_regions_load()
+  ophal.regions.sidebar_first = {}
+  ophal.regions.sidebar_last = {}
+
+  module_invoke_all('regions_alter', ophal.regions)
+end
+
+function theme_get_regions()
+  local output = {}
+
+  for _, region in pairs(ophal.regions) do
+    if not empty(region) then
+      local region_output = {}
+      for _, block in pairs(region.blocks) do
+        if block.id and not empty(ophal.blocks[block.id]) then
+          block = ophal.blocks[block.id]
+          region_output[#region_output + 1] = function ()
+            theme{'block', entity = block}
+          end
+        end
+      end
+
+      -- Delayed rendering, this function will be called on theme render
+      output[region.id] = function ()
+        for k, v in pairs(region_output) do
+          v()
+        end
+      end
+    end
+  end
+
+  return output
+end
+
 --[[
   Anchor theme function.
 ]]

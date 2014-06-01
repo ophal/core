@@ -49,6 +49,8 @@ env = {
     modules = {},
     routes = {},
     aliases = {},
+    blocks = {},
+    regions = {},
     title = '',
     header_title = '',
     cookies = {},
@@ -212,6 +214,9 @@ function bootstrap(phase, main)
       -- call hook route to load handlers
       -- TODO: implement route cache
       ophal.routes = route_build_routes()
+
+      theme_blocks_load()
+      theme_regions_load()
 
       -- process current route
       init_route()

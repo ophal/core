@@ -246,5 +246,6 @@ function route_execute_active_handler()
     content = content,
     javascript = get_js(),
     css = get_css(),
+    regions = theme_get_regions(),
   }
 end

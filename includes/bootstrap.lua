@@ -61,12 +61,15 @@ env = {
 
 -- Load settings
 settings = {
-  language = 'en',
-  theme = 'basic',
+  slash = string.sub(package.config,1,1),
   modules = {},
 }
-pcall(require, 'settings')
-env.settings = settings
+do
+  local _, vault = pcall(require, 'vault')
+  local _, settings_builder = pcall(require, 'settings')
+  settings_builder(settings, vault)
+  env.settings = settings
+end
 
 -- Detect nginx
 if ngx then

@@ -150,7 +150,6 @@ end
 
 function login_page()
   add_js 'libraries/jquery.min.js'
-  add_js 'libraries/jquery.js'
   add_js 'modules/user/user_login.js'
 
   return theme{'form', attributes = {id = 'login_form'},

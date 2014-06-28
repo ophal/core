@@ -14,7 +14,7 @@ function route()
 end
 
 function upload_test_page()
-  add_js 'misc/jquery.js'
+  add_js 'misc/jquery.min.js'
   add_js 'misc/uuid.js'
   add_js 'modules/file/file.js'
   return

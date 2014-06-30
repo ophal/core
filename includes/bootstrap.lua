@@ -67,7 +67,9 @@ settings = {
 do
   local _, vault = pcall(require, 'vault')
   local _, settings_builder = pcall(require, 'settings')
-  settings_builder(settings, vault)
+  if type(settings_builder) == 'function' then
+    settings_builder(settings, vault)
+  end
   env.settings = settings
 end
 

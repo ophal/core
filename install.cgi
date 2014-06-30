@@ -30,7 +30,7 @@ ophal.bootstrap(5, function ()
   local phase = tonumber(_GET.phase) or 1
 
   -- Load Core API
-  require 'includes.path'
+  require 'includes.route'
   require 'includes.common'
   require 'includes.theme'
 
@@ -42,13 +42,13 @@ ophal.bootstrap(5, function ()
     local previous = ''
 
     if phase > 1 then
-      previous = ('<p><a href="%s%sinstall.cgi?phase=%s"><< Previous</a> '):format(base_root, base_path, phase - 1)
+      previous = ('<p><a href="%s%sinstall.cgi?phase=%s"><< Previous</a> '):format(base.system_root , base.route, phase - 1)
     end
 
     return table.concat{
       ('<div %s id="install_pager">'):format(render_attributes(options)),
       previous,
-      ('<a href="%s%sinstall.cgi?phase=%s">Next >></a></p>'):format(base_root, base_path, phase + 1),
+      ('<a href="%s%sinstall.cgi?phase=%s">Next >></a></p>'):format(base.system_root, base.route, phase + 1),
       '</div>'
     }
   end
@@ -61,7 +61,7 @@ ophal.bootstrap(5, function ()
       -- Look for settings.lua
       if seawolf.fs.is_file [[settings.lua]] then
         -- Redirect to next phase
-        redirect(('%s%sinstall.cgi?phase=3'):format(base_root, base_path))
+        redirect(('%s%sinstall.cgi?phase=3'):format(base.system_root, base.route))
       end
 
       page_set_title 'Phase 1: Welcome!'
@@ -74,7 +74,7 @@ ophal.bootstrap(5, function ()
 <li>No dabatase is created by this installer, you need to create one in advance.</li>
 </ol>
 </p>
-]] .. theme{'install_pager'}):format(base_root, base_path, 2)
+]] .. theme{'install_pager'}):format(base.system_root, base.route, 2)
     end,
 
     -- Verify pre-requisites
@@ -85,7 +85,7 @@ ophal.bootstrap(5, function ()
       -- Look for settings.lua
       if seawolf.fs.is_file 'settings.lua' then
         -- Redirect to next phase
-        redirect(('%s%sinstall.cgi?phase=3'):format(base_root, base_path))
+        redirect(('%s%sinstall.cgi?phase=3'):format(base.system_root, base.route))
       end
 
       page_set_title 'Phase 2: Pre-requisites'
@@ -180,7 +180,7 @@ ophal.bootstrap(5, function ()
       -- Look for settings.lua
       if seawolf.fs.is_file 'settings.lua' then
         -- Redirect to next phase
-        redirect(('%s%sinstall.cgi?phase=4'):format(base_root, base_path))
+        redirect(('%s%sinstall.cgi?phase=4'):format(base.system_root, base.route))
       end
 
       require 'includes.module'
@@ -366,7 +366,7 @@ Options +FollowSymLinks
 ]])
               output =
                 '<p>Installation complete!</p>' ..
-                ('<p>Your new site is available <a href="%s">here</a></p>'):format(base_path)
+                ('<p>Your new site is available <a href="%s">here</a></p>'):format(base.route)
               fh:close()
             end
           else

@@ -1,4 +1,9 @@
-local version = ('Ophal (ophal.org);version:0.1-alpha11')
+local version = {
+  core = 'Ophal',
+  number = '0.1',
+  revision = 'alpha11',
+  homepage = 'ophal.org',
+}
 
 -- Jailed environment functions and modules
 env = {
@@ -45,7 +50,7 @@ env = {
   },
   output_buffer = {},
   ophal = {
-    version = version,
+    version = nil,
     modules = {},
     routes = {},
     aliases = {},
@@ -61,6 +66,11 @@ env = {
 
 -- Load settings
 settings = {
+  version = {
+    core = true,
+    number = true,
+    revision = true,
+  },
   slash = string.sub(package.config,1,1),
   modules = {},
 }
@@ -71,6 +81,19 @@ do
     settings_builder(settings, vault)
   end
   env.settings = settings
+end
+
+-- Build version
+if settings.version.core then
+  if settings.version.number then
+    if settings.version.revision then
+      env.ophal.version = ('%s %s-%s (%s)'):format(version.core, version.number, version.revision, version.homepage)
+    else
+      env.ophal.version = ('%s %s (%s)'):format(version.core, version.number, version.homepage)
+    end
+  else
+    env.ophal.version = ('%s (%s)'):format(version.core, version.homepage)
+  end
 end
 
 -- Detect nginx

@@ -1,5 +1,5 @@
 --[[
-  This file is for storage sencible information ONLY.
+  This file is for storage of sensitive information ONLY.
 ]]
 
 local m = {

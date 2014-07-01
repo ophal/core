@@ -188,7 +188,7 @@ ophal.bootstrap(5, function ()
 
       add_js 'libraries/jquery.min.js'
       add_js 'libraries/uuid.js'
-      add_js{'install', type = 'inline', content = [[
+      add_js{[[
 $(document).ready(function() {
   $('#generate').click(function() {
     $('#settings').html($('#settings_template').html()
@@ -196,16 +196,21 @@ $(document).ready(function() {
       .replace('!db_filepath', $('#db_filepath').val())
       .replace('!site_hash', uuid())
       .replace('!files_path', $('#files_path').val())
+      .replace('!lorem_ipsum_module', $('#lorem_ipsum_module').is(':checked'))
       .replace('!content_module', $('#content_module').is(':checked'))
+      .replace('!comment_module', $('#comment_module').is(':checked'))
       .replace('!user_module', $('#user_module').is(':checked'))
       .replace('!tag_module', $('#tag_module').is(':checked'))
       .replace('!menu_module', $('#menu_module').is(':checked'))
+      .replace('!file_module', $('#file_module').is(':checked'))
+      .replace('!boost_module', $('#boost_module').is(':checked'))
+      .replace('!test_module', $('#test_module').is(':checked'))
     );
     $('#check_settings').show();
     $('#install_pager').show();
   });
 });
-]]}
+]], type = 'inline'}
 
       page_set_title 'Phase 3: Configuration file settings.lua'
 
@@ -213,121 +218,154 @@ $(document).ready(function() {
         '<h3>Step 1. Configure your site</h3>',
         theme{'form', action = 'install.cgi',
           elements = {
-            {'textfield', title = 'Site name', value = 'Ophal', attributes = {id = 'sitename'}},
-            {'textfield', title = 'Database file path', attributes = {id = 'db_filepath'}},
-            {'textfield', title = 'File directory', value = 'files', attributes = {id = 'files_path'}},
-            {'checkbox', title = 'Enable the Content module', value = '0', attributes = {id = 'content_module'}},
-            {'checkbox', title = 'Enable the User module', value = '0', attributes = {id = 'user_module'}},
-            {'checkbox', title = 'Enable the Tag module', value = '0', attributes = {id = 'tag_module'}},
-            {'checkbox', title = 'Enable the Menu module', value = '0', attributes = {id = 'menu_module'}},
-            {'button', value = 'Generate', attributes = {id = 'generate'}},
+            {'textfield', title = 'Site name', value = 'Ophal', attributes = {id = 'sitename'}, weight = 1},
+            {'textfield', title = 'Database file path', attributes = {id = 'db_filepath'}, weight = 5},
+            {'textfield', title = 'File directory', value = 'files', attributes = {id = 'files_path'}, weight = 10},
+            {'checkbox', title = 'Enable the Lorem Ipsum module', value = '1', attributes = {id = 'lorem_ipsum_module'}, weight = 15},
+            {'checkbox', title = 'Enable the Content module', value = '0', attributes = {id = 'content_module'}, weight = 20},
+            {'checkbox', title = 'Enable the Comment module', value = '0', attributes = {id = 'comment_module'}, weight = 25},
+            {'checkbox', title = 'Enable the User module', value = '0', attributes = {id = 'user_module'}, weight = 30},
+            {'checkbox', title = 'Enable the Tag module', value = '0', attributes = {id = 'tag_module'}, weight = 35},
+            {'checkbox', title = 'Enable the Menu module', value = '0', attributes = {id = 'menu_module'}, weight = 40},
+            {'checkbox', title = 'Enable the File module (experimental)', value = '0', attributes = {id = 'file_module'}, weight = 45},
+            {'checkbox', title = 'Enable the Boost module (experimental)', value = '0', attributes = {id = 'boost_module'}, weight = 50},
+            {'checkbox', title = 'Enable the Test module (experimental)', value = '0', attributes = {id = 'test_module'}, weight = 55},
+            {'button', value = 'Generate', attributes = {id = 'generate'}, weight = 100},
           }
         },
         '<div id="settings"></div>',
-        [[<div id="settings_template" style="display:none">
+        [=[<div id="settings_template" style="display:none">
 <h3>Step 2. Create file settings.lua</h3>
 <p>Copy the following text into the file <i>settings.lua</i> and put it right in the exact same folder of file <i>index.cgi</i>:</p>
 <textarea cols="100" rows="15">
-settings.slash = string.sub(package.config,1,1)
-settings.theme = 'basic'
-settings.language = 'en'
-settings.language_dir = 'ltr'
-settings.site = {
-  frontpage = 'lorem_ipsum',
-  name = '!site_name',
-  hash = '!site_hash',
-  logo_title = 'The Ophal Project',
-  logo_path = 'images/ophalproject.png',
-  files_path = '!files_path',
-}
-settings.cache = false
-settings.debugapi = true
-settings.maintenance_mode = false
-settings.output_buffering = false
-settings.sessionapi = true
-settings.formapi = false
-settings.date_format = '!%Y-%m-%d %H:%M UTC'
-
---[=[ Active/Disabled modules
-  List of Ophal modules to load on bootstrap.
-
-  Example:
-
-  settings.modules = {
-    mymodule = true,
-    othermodule = false, -- disabled module
+return function(settings, vault)
+  settings.language = 'en'
+  settings.language_dir = 'ltr'
+  settings.site = {
+    frontpage = 'lorem_ipsum',
+    name = '!site_name',
+    hash = '!site_hash',
+    logo_title = 'The Ophal Project',
+    logo_path = 'images/ophalproject.png',
+    files_path = '!files_path',
   }
-]=]
-settings.modules = {
-  lorem_ipsum = true,
-  content = !content_module,
-  user = !user_module,
-  tag = !tag_module,
-  menu = !menu_module,
-}
+  settings.cache = false
+  settings.debugapi = true
+  settings.maintenance_mode = false
+  settings.output_buffering = false
+  settings.sessionapi = true
+  settings.formapi = false
+  settings.date_format = '!%Y-%m-%d %H:%M UTC'
 
---[=[ Database connection settings
-  Ophal automatically connects on bootstrap to a database if a the key
-  'db' is set with connection settings.
+  --[[ Active/Disabled modules
+    List of Ophal modules to load on bootstrap.
 
-  Example:
+    Example:
 
+    settings.modules = {
+      mymodule = true,
+      othermodule = false, -- disabled module
+    }
+  ]]
+  settings.modules = {
+    lorem_ipsum = !lorem_ipsum_module,
+    content = !content_module,
+    user = !user_module,
+    tag = !tag_module,
+    menu = !menu_module,
+    file = !file_module, -- Experimental!
+    boost = !boost_module, -- Experimental!
+    test = !test_module, -- Experimental!
+  }
+
+  --[[ Database connection settings
+    Ophal automatically connects on bootstrap to a database if a the key
+    'db' is set with connection settings.
+
+    Example:
+
+    settings.db = {
+      default = {
+        driver = 'PostgreSQL',
+        database = 'database',
+        username = vault.db.default.username,
+        password = vault.db.default.password,
+        host = 'localhost',
+        port = '5432',
+      }
+    }
+  ]]
   settings.db = {
     default = {
-      driver = 'PostgreSQL',
-      database = 'database',
-      username = 'username',
-      password = 'password',
-      host = 'localhost',
-      port = '5432',
+      driver = 'SQLite3',
+      database = '!db_filepath',
     }
   }
-]=]
-settings.db = {
-  default = {
-    driver = 'SQLite3',
-    database = '!db_filepath',
+
+  --[[ Extend jailed environment
+    Ophal code is jailed into an environment with few functions. Use the
+    global variable 'env' to add external functions and lua modules.
+
+    Example:
+
+    require 'external.library'
+    env.myfunction = external.library.function
+  ]]
+
+  --[[
+    Theme settings.
+  ]]
+  settings.theme = {
+    name = 'basic',
+    settings = {
+      css = {},
+      js = {},
+    },
   }
-}
 
---[=[ Extend jailed environment
-  Ophal code is jailed into an environment with few functions. Use the
-  global variable 'env' to add external functions and lua modules.
+  --[[ Extend templates environment
+    Template files (like: *.tpl.*) i.e: page.tpl.html, have a very limited
+    set of functions available. Use setting 'template_env' to add external
+    functions and lua modules.
+    NOTE: Template variables are not overridden by the ones with this setting.
 
-  Example:
+    Example:
 
-  require 'external.library'
-  env.myfunction = external.library.function
-]=]
+    settings.template_env = {}
 
---[=[ Mobile support settings
-  The mobile_detect library is a helper for mobile web development.
-  Set settings.mobile to nil to turn off mobile support.
-  Always make sure to set settings.domain_name if settings.redirect is
-  set to true.
+    require 'external.library'
+    settings.template_env.myfunction = external.library.function
+  ]]
 
-  Example:
-  settings.mobile = {
-    theme = 'mobile',
-    domain_name = 'mobile.mydomain.com',
-    redirect = true,
-  }
-]=]
+  --[[ Mobile support settings
+    The mobile_detect library is a helper for mobile web development.
+    Set settings.mobile to nil to turn off mobile support.
+    Always make sure to set settings.domain_name if settings.redirect is
+    set to true.
 
---[=[
-  Boost provides static cache by saving all the output to files.
+    Example:
+    settings.mobile = {
+      theme = 'mobile',
+      domain_name = 'mobile.mydomain.com',
+      redirect = true,
+    }
+  ]]
 
-  Example:
+  --[[
+    Boost provides static cache by saving all the output to files.
 
-  settings.modules.boost = true
-  settings.boost = {
-    path = 'files/boost/',
-    lifetime = 3600, -- seconds
-    signature = '<!-- Page cached by Boost @ %s, expires @ %s -->',
-    date_format = '!%Y-%m-%d %T UTC',
-  }
-]=]
-</textarea></div>]],
+    Example:
+
+    settings.modules.boost = true
+    settings.boost = {
+      path = 'files/boost/',
+      lifetime = 3600, -- seconds
+      signature = '<!-- Page cached by Boost @ %s, expires @ %s -->',
+      date_format = '!%Y-%m-%d %T UTC',
+    }
+  ]]
+end
+</textarea></div>]=],
         theme{'install_pager', style = 'display: none;'}
       }
     end,

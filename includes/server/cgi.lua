@@ -37,11 +37,7 @@ end
 -- Headers handler
 ophal.header = {
   sent = false,
-  data = {
-    -- Default headers
-    ['content-type'] = {'text/html; charset=utf-8'},
-    ['x-powered-by'] = {ophal.version},
-  },
+  data = {},
   set = function (t, header)
     local replace
 

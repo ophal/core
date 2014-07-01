@@ -88,7 +88,7 @@ local function theme_render(f, env)
     env.format_date = format_date
     env._SERVER = _SERVER
     env.mobile = mobile
-    env.ophal_version = ophal.version
+    env.core_version = ophal.version
     setfenv(prog, env)
 
     -- execute

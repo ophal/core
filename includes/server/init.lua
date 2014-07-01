@@ -21,6 +21,12 @@ function echo(...)
   end
 end
 
+-- Default headers
+header('content-type', 'text/html; charset=utf-8')
+if ophal.version then
+  header('x-powered-by', ophal.version)
+end
+
 -- Browser cache control
 if settings.cache and _SERVER 'HTTP_IF_MODIFIED_SINCE' ~= nil then
   header('status', '304 Not Modified')

@@ -168,8 +168,8 @@ function bootstrap(phase, main)
     -- 6. Check installer
     function ()
       if (_SERVER 'SCRIPT_NAME' or '/index.cgi') == base.route .. 'index.cgi' and not seawolf.fs.is_file 'settings.lua' then
-        redirect(('%s%sinstall.cgi'):format(base.system_root, base.route))
         require 'includes.common'
+        redirect(('%s%sinstall.cgi'):format(base.system_root, base.route))
         return -1
       end
     end,

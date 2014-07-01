@@ -72,17 +72,21 @@ do
       for _, j in pairs(v) do
         local options = javascript[scope][j]
         if options ~= nil and options.type == 'settings' then
-          output[scope][#output[scope] + 1] = ([[<script type="text/javascript">
+          output[scope][#output[scope] + 1] = ([=[<script type="text/javascript">
+<!--//--><![CDATA[//><!--
 (function ($) {
 $.extend(Ophal.settings, {"%s": %s});
 })(jQuery);
+//--><!]]>
 </script>
-]]):format(options.namespace or 'core', json.encode(j) or '')
+]=]):format(options.namespace or 'core', json.encode(j) or '')
         elseif options ~= nil and options.type == 'inline' then
-          output[scope][#output[scope] + 1] = ([[<script type="text/javascript">
+          output[scope][#output[scope] + 1] = ([=[<script type="text/javascript">
+<!--//--><![CDATA[//><!--
 %s
+//--><!]]>
 </script>
-]]):format(j or '')
+]=]):format(j or '')
         elseif is_file(j) then
           output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s%s?%s"></script>
 ]]):format(base.route, j, lfs.attributes(j, 'modification'))

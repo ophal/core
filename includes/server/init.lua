@@ -47,7 +47,7 @@ if settings.mobile then
 end
 
 -- Set headers for dynamic content
-header('expires', 'Sun, 19 Nov 1978 05:00:00 GMT')
+header('expires', 'Sun, 19 Jun 2011 23:09:50 GMT')
 header('last-modified', date('!%a, %d %b %Y %X GMT', time(date('*t')) - 15*60))
 header('cache-control', 'store, no-cache, must-revalidate, post-check=0, pre-check=0')
 header('Keep-Alive', 'timeout=15, max=90')

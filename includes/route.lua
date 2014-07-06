@@ -14,9 +14,14 @@ function route_register_alias(source, alias)
 end
 
 function route_aliases_load()
+  local alias
   local rs, err = db_query 'SELECT * FROM route_alias'
   for row in rs:rows(true) do
-    route_register_alias(row.source, row.alias)
+    alias = row.alias
+    if (row.language or 'all') ~= 'all' and settings.route_aliases_prepend_language then
+      alias = row.language .. '/' ..row.alias
+    end
+    route_register_alias(row.source, alias)
   end
 end
 

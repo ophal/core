@@ -34,8 +34,34 @@ function route_create_alias(entity)
   if empty(entity.language) then
     entity.language = 'all'
   end
-  local rs, err = db_query('INSERT INTO route_alias(source, alias, language) VALUES(?, ?, ?)', entity.source, entity.alias, entity.language)
-  entity.id = db_last_insert_id()
+
+  local rs, err
+
+  if entity.type == nil then entity.type = 'route' end
+
+  if entity.id then
+    rs, err = db_query([[
+INSERT INTO route_alias(id, source, alias, language)
+VALUES(?, ?, ?, ?)]],
+      entity.id,
+      entity.source,
+      entity.alias,
+      entity.language
+    )
+  else
+    rs, err = db_query([[
+INSERT INTO route_alias(id, source, alias, language)
+VALUES(?, ?, ?)]],
+      entity.source,
+      entity.alias,
+      entity.language
+    )
+    entity.id = db_last_insert_id()
+  end
+
+  if not err then
+    module_invoke_all('entity_after_save', entity)
+  end
   return entity.id, err
 end
 

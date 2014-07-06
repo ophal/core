@@ -14,7 +14,7 @@ function route_register_alias(source, alias)
 end
 
 function route_aliases_load()
-  local rs = db_query('SELECT * FROM route_alias WHERE language IN (?, ?)', 'all', settings.language)
+  local rs, err = db_query 'SELECT * FROM route_alias'
   for row in rs:rows(true) do
     route_register_alias(row.source, row.alias)
   end

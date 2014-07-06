@@ -256,6 +256,7 @@ return function(settings, vault)
   settings.sessionapi = true
   settings.formapi = false
   settings.date_format = '!%Y-%m-%d %H:%M UTC'
+  settings.route_aliases_storage = false
 
   --[[ Active/Disabled modules
     List of Ophal modules to load on bootstrap.

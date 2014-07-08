@@ -167,9 +167,15 @@ Run the following SQL queries in strict order:
 
   NOTE: Ophal is compatible with SQLite only.
 
-2. Generate a password for superuser with following script:
+2. Generate a password for superuser with following script (requires ophal-cli):
 
-    print((require 'crypto'.digest.new 'sha256'):update('mypassword'):final())
+    $ ophal sha256 mypassword
+    89e01536ac207279409d4de1e5253e01f4a1769e696db0d6062ca9b8f56767c8
+
+  Alternatively, you can run the following lua code:
+
+    > print((require 'crypto'.digest.new 'sha256'):update('mypassword'):final())
+    89e01536ac207279409d4de1e5253e01f4a1769e696db0d6062ca9b8f56767c8
 
   NOTICE: this script outputs a password hash, change 'mypassword' by 'yourpass'
 

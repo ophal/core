@@ -36,6 +36,7 @@ env = {
   select = select,
   _SERVER = os.getenv,
   _SESSION = nil,
+  _VERSION = _VERSION,
   lfs = nil,
   lpeg = nil,
   uuid = nil,

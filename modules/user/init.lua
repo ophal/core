@@ -1,6 +1,6 @@
-local json, crypto, tonumber = require 'dkjson', require 'crypto', tonumber
+local json, hash, tonumber = require 'dkjson', require 'seawolf.other'.hash, tonumber
 local print, exit, _SESSION, config = print, exit, env._SESSION, settings.user
-local debug, error, empty, header = debug, error, seawolf.variable.empty, header
+local error, empty, header = error, seawolf.variable.empty, header
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
 local type, env, uuid, time, goto, pairs = type, env, uuid, os.time, goto, pairs
 local session_destroy, module_invoke_all = session_destroy, module_invoke_all
@@ -235,7 +235,7 @@ function auth_service()
   then
     account = load{name = parsed.user}
     if 'table' == type(account) and not empty(account.id) then
-      if account.pass == (crypto.digest.new(config.algorithm or 'sha256')):update(parsed.pass):final() then
+      if account.pass == hash(config.algorithm or 'sha256', parsed.pass or '') then
         output.authenticated = true
         _SESSION.user = account
       end

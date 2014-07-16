@@ -66,10 +66,6 @@ return function(settings, vault)
   ]]
   settings.theme = {
     name = 'basic',
-    settings = {
-      css = {},
-      js = {},
-    },
   }
 
   --[[ Extend templates environment

@@ -65,24 +65,42 @@ env = {
   },
 }
 
--- Load settings
-settings = {
-  version = {
-    core = true,
-    number = true,
-    revision = true,
-  },
-  slash = string.sub(package.config,1,1),
-  modules = {},
-}
-do
+-- Build settings
+settings = (function()
+  local settings = {
+    version = {
+      core = true,
+      number = true,
+      revision = true,
+    },
+    slash = string.sub(package.config,1,1),
+    modules = {},
+  }
+
+  -- Load settings.lua and vault.lua
   local _, vault = pcall(require, 'vault')
   local _, settings_builder = pcall(require, 'settings')
   if type(settings_builder) == 'function' then
     settings_builder(settings, vault)
   end
-  env.settings = settings
-end
+
+  -- Load themes/%/settings.lua
+  local seawolf = require 'seawolf'.__build 'variable'
+  local theme_settings = {}
+  local template_env_settings = {date = os.date}
+  local _, settings_builder = pcall(require, ('themes.%s.settings'):format(settings.theme.name))
+  if type(settings_builder) == 'function' then
+    settings_builder(theme_settings, template_env_settings)
+  end
+
+  -- Merge theme, template and general settings
+  settings.theme = seawolf.variable.array_merge(theme_settings, settings.theme)
+  settings.template_env = seawolf.variable.array_merge(template_env_settings, settings.template_env or {})
+
+  return settings
+end)()
+
+env.settings = settings
 
 -- Build version
 if settings.version.core then

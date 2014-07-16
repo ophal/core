@@ -12,7 +12,7 @@ then
 else
   if type(settings.theme) == 'table' then
     theme.name = settings.theme.name
-    theme.settings = settings.theme.settings
+    theme.settings = settings.theme
   else
     theme.name = settings.theme
     theme.settings = {}

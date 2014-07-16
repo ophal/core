@@ -131,11 +131,7 @@ function bootstrap(phase, main)
       env.socket = require 'socket'
       env.socket.url = require 'socket.url'
 
-      require 'seawolf.variable'
-      require 'seawolf.fs'
-      require 'seawolf.text'
-      require 'seawolf.behaviour'
-      require 'seawolf.contrib'
+      env.seawolf = require 'seawolf'.__build('variable', 'fs', 'text', 'behaviour', 'contrib')
     end,
 
     -- 2. Debug API

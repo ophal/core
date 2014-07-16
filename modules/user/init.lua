@@ -1,4 +1,5 @@
-local json, hash, tonumber = require 'dkjson', require 'seawolf.other'.hash, tonumber
+local seawolf = require 'seawolf'.__build('other', 'variable')
+local json, hash, tonumber = require 'dkjson', seawolf.other.hash, tonumber
 local print, exit, _SESSION, config = print, exit, env._SESSION, settings.user
 local error, empty, header = error, seawolf.variable.empty, header
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack

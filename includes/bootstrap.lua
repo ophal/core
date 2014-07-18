@@ -85,17 +85,20 @@ settings = (function()
   end
 
   -- Load themes/%/settings.lua
-  local seawolf = require 'seawolf'.__build 'variable'
-  local theme_settings = {}
-  local template_env_settings = {date = os.date}
+  local seawolf = require 'seawolf'.__build('variable', 'contrib')
+
+  if settings.template_env == nil then settings.template_env = {} end
+
+  if settings.theme.css == nil then settings.theme.css = {} end
+  setmetatable(settings.theme.css, seawolf.contrib.metahelper)
+
+  if settings.theme.js == nil then settings.theme.js = {} end
+  setmetatable(settings.theme.js, seawolf.contrib.metahelper)
+
   local _, settings_builder = pcall(require, ('themes.%s.settings'):format(settings.theme.name))
   if type(settings_builder) == 'function' then
-    settings_builder(theme_settings, template_env_settings)
+    settings_builder(settings.theme, settings.template_env)
   end
-
-  -- Merge theme, template and general settings
-  settings.theme = seawolf.variable.array_merge(theme_settings, settings.theme)
-  settings.template_env = seawolf.variable.array_merge(template_env_settings, settings.template_env or {})
 
   return settings
 end)()

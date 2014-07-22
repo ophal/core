@@ -19,7 +19,7 @@
     });
   });
 
-  const BYTES_PER_CHUNK = 1024 * 1024; // 1MB chunk sizes.
+  const BYTES_PER_CHUNK = 1024 * 1024; /* 1MB chunk sizes */
 
   /**
    * Calculates slices and indirectly uploads a chunk of a file via uploadFile()
@@ -29,11 +29,11 @@
     var start = 0;
     var end;
     var index = 0;
-    blob.slices = 0; // slices, value that gets decremented
-    blob.slicesTotal = 0; // total amount of slices, constant once calculated
-    blob.uniq_id = uuid(); // file unique identifier, used server side
+    blob.slices = 0; /* slices, value that gets decremented */
+    blob.slicesTotal = 0; /* total amount of slices, constant once calculated */
+    blob.uniq_id = uuid(); /* file unique identifier, used server side */
 
-    // calculate the number of slices
+    /* calculate the number of slices */
     blob.slices = Math.ceil(blob.size / BYTES_PER_CHUNK);
     blob.slicesTotal = blob.slices;
 
@@ -85,8 +85,8 @@
     var fileData;
     var endpoint = "/upload?" +
       "id=" + blob.uniq_id + "&" +
-      "size=" + blob.size + "&" + // full size
-      "index=" + index // part identifier
+      "size=" + blob.size + "&" + /* full size */
+      "index=" + index /* part identifier */
     ;
 
     if (blob.webkitSlice) {
@@ -99,13 +99,13 @@
       chunk = blob.slice(start, end);
     }
 
-    if (blob.webkitSlice) { // android default browser in version 4.0.4 has webkitSlice instead of slice()
-      var buffer = str2ab_blobreader(chunk, function(buf) { // we cannot send a blob, because body payload will be empty
-        fileData = buf; // thats why we send an ArrayBuffer
+    if (blob.webkitSlice) { /* android default browser in version 4.0.4 has webkitSlice instead of slice() */
+      var buffer = str2ab_blobreader(chunk, function(buf) { /* we cannot send a blob, because body payload will be empty */
+        fileData = buf; /* thats why we send an ArrayBuffer */
       });  
     }
     else {
-      fileData = chunk; // but if we support slice() everything should be ok
+      fileData = chunk; /* but if we support slice() everything should be ok */
     }
 
     var percentageDiv = $('.form-upload-percent', context);
@@ -114,26 +114,26 @@
     $.ajax({
       url: endpoint,  
       type: 'POST',
-      xhr: function() {  // custom xhr
+      xhr: function() {  /* custom xhr */
         var xhr = $.ajaxSettings.xhr();
-        if (xhr.upload) { // if upload property exists
+        if (xhr.upload) { /* if upload property exists */
           xhr.upload.addEventListener('progress', function(evt) {
             if (evt.lengthComputable) {
               $(progressBar).attr('max', blob.slicesTotal);
               $(progressBar).val(index);
               $(percentageDiv).html(Math.round(index/blob.slicesTotal * 100) + "%");
             }
-          }, false); // progressbar
+          }, false); /* progressbar */
         }
         return xhr;
       },
-      //Ajax events
+      /* Ajax events */
       success: function(data) {
         data = $.parseJSON(data);
         if (data.success) {
           blob.slices--;
 
-          // if we have finished all slices
+          /* if we have finished all slices */
           if (blob.slices == 0) {
             mergeFile(blob, context);
           }
@@ -150,9 +150,9 @@
       error: function() {
         alert('Operation error. Please try again later.');
       },
-      // File data
+      /* File data */
       data: fileData,
-      //Options to tell JQuery not to process data or worry about content-type
+      /* Options to tell JQuery not to process data or worry about content-type */
       cache: false,
       contentType: false,
       processData: false
@@ -164,9 +164,9 @@
    */
   function mergeFile(blob, context) {
     var endpoint = "/merge?" +
-      "name=" + encodeURIComponent(blob.name) + "&" + // filename
-      "id=" + blob.uniq_id + "&" + // unique upload identifier
-      "index=" + blob.slicesTotal // part identifier
+      "name=" + encodeURIComponent(blob.name) + "&" + /* filename */
+      "id=" + blob.uniq_id + "&" + /* unique upload identifier */
+      "index=" + blob.slicesTotal /* part identifier */
     ;
 
     var percentageDiv = $('.form-upload-percent', context);

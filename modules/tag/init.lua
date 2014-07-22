@@ -27,8 +27,7 @@ function get_tags()
   return tags
 end
 
---[[
-  Implements hook boot().
+--[[ Implements hook boot().
 ]]
 function boot()
   if ophal.modules.user then
@@ -36,8 +35,7 @@ function boot()
   end
 end
 
---[[
-  Implements hook init().
+--[[ Implements hook init().
 ]]
 function init()
   db_query = env.db_query
@@ -75,8 +73,7 @@ function route()
   return items
 end
 
---[[
-  Implements hook content_load().
+--[[ Implements hook content_load().
 ]]
 function content_load(entity)
   local rs, err, tags
@@ -95,8 +92,7 @@ function content_load(entity)
   entity.tags = tags
 end
 
---[[
-  Implements hook entity_post_save().
+--[[ Implements hook entity_post_save().
 ]]
 function entity_after_save(entity)
   local rs, err, tags, in_tags
@@ -136,8 +132,7 @@ function entity_after_save(entity)
   end
 end
 
---[[
-  Implements hook entity_after_delete().
+--[[ Implements hook entity_after_delete().
 ]]
 function entity_after_delete(entity)
   rs, err = db_query('DELETE FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
@@ -146,8 +141,7 @@ function entity_after_delete(entity)
   end
 end
 
---[[
-  Implements hook menus_alter().
+--[[ Implements hook menus_alter().
 ]]
 function menus_alter(menus)
   local rs, err
@@ -389,8 +383,7 @@ function delete_page()
   return theme{'tag_delete_form', tag = tag}
 end
 
---[[
-  Implements hook form_alter().
+--[[ Implements hook form_alter().
 ]]
 function form_alter(form)
   if

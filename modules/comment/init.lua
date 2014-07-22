@@ -10,12 +10,16 @@ module 'ophal.modules.comment'
 
 local user, db_query, db_last_insert_id
 
+--[[ Implements hook init().
+]]
 function init()
   db_query = env.db_query
   db_last_insert_id = env.db_last_insert_id
   user = modules.user
 end
 
+--[[ Implements hook content_render().
+]]
 function content_render(content)
   add_js 'modules/comment/comment.js'
   add_js {type = 'settings', namespace = 'content', {current = {id = content.id}}}
@@ -29,8 +33,7 @@ function content_render(content)
   end
 end
 
---[[
-  Implements hook route().
+--[[ Implements hook route().
 ]]
 function route()
   local items = {}

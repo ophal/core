@@ -10,8 +10,7 @@ local route_execute_callback = route_execute_callback
 
 module 'ophal.modules.user'
 
---[[
-  Implemens hook route().
+--[[ Implements hook route().
 ]]
 function route()
   items = {}
@@ -36,8 +35,7 @@ function route()
   return items
 end
 
---[[
-  Implements hook route_validate_handler().
+--[[ Implements hook route_validate_handler().
 ]]
 function route_validate_handler(handler)
   local status, result
@@ -55,8 +53,7 @@ function route_validate_handler(handler)
   end
 end
 
---[[
-  Implements hook_init().
+--[[ Implements hook init().
 ]]
 function init()
   db_query = env.db_query

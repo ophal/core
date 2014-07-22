@@ -7,15 +7,13 @@ local exit_ophal = exit_ophal
 
 module 'ophal.modules.boost'
 
---[[
-  Return cache file path for current page.
+--[[ Return cache file path for current page.
 ]]
 local function filepath()
   return ('%s%s.html'):format(settings.boost.path, request_path():gsub([[/]], '_'):gsub([[\.]], '_'))
 end
 
---[[
-  Implementation of hook_boot()
+--[[ Implementation of hook boot()
 ]]
 function boot()
   local file
@@ -35,15 +33,13 @@ function boot()
   end
 end
 
---[[
-  Given a timestamp, return formatted date by Boost format date.
+--[[ Given a timestamp, return formatted date by Boost format date.
 ]]
 function format_date(ts)
   return os.date(settings.boost.date_format, ts)
 end
 
---[[
-  Given a timestamp, return cache signature.
+--[[ Given a timestamp, return cache signature.
 ]]
 function signature()
   local ts = os.time()
@@ -52,8 +48,7 @@ function signature()
   return (settings.boost.signature):format(created, expires)
 end
 
---[[
-  Given a file path, return cache expiration status.
+--[[ Given a file path, return cache expiration status.
 ]]
 function has_expired(file)
   local ts = lfs.attributes(file, 'modification')
@@ -64,8 +59,7 @@ function has_expired(file)
   end
 end
 
---[[
-  Implementation of hook_exit().
+--[[ Implementation of hook exit().
 ]]
 function exit()
   local file, output, fh

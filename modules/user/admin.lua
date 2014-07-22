@@ -2,8 +2,7 @@
 
 module 'ophal.modules.user.admin'
 
---[[
-  Implemens hook_route().
+--[[ Implements hook route().
 ]]
 function route()
   items = {}

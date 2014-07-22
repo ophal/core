@@ -4,15 +4,13 @@ local _SESSION, format, tonumber = _SESSION, string.format, tonumber
 
 module 'ophal.modules.lorem_ipsum'
 
---[[
-  Implementation of hook_init().
+--[[ Implementation of hook init().
 ]]
 function init()
   route_register_alias('lorem_ipsum', 'loremipsum')
 end
 
---[[
-  Implementation of hook_route().
+--[[ Implementation of hook route().
 ]]
 function route()
   local items = {}

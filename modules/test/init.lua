@@ -2,6 +2,8 @@ local theme, add_js = theme, add_js
 
 module 'ophal.modules.test'
 
+--[[ Implements hook route().
+]]
 function route()
   local items = {}
 

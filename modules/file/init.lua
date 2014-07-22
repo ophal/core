@@ -11,12 +11,16 @@ module 'ophal.modules.file'
 
 local user, db_query, db_last_insert_id
 
+--[[ Implements hook init().
+]]
 function init()
   db_query = env.db_query
   db_last_insert_id = env.db_last_insert_id
   user = modules.user
 end
 
+--[[ Implements hook route().
+]]
 function route()
   items = {}
   items.upload = {

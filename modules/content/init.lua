@@ -14,8 +14,7 @@ module 'ophal.modules.content'
 
 local user
 
---[[
-  Implements hook_init().
+--[[ Implements hook init().
 ]]
 function init()
   db_query = env.db_query
@@ -23,8 +22,7 @@ function init()
   user = modules.user
 end
 
---[[
-  Implements hook_route().
+--[[ Implements hook route().
 ]]
 function route()
   items = {}

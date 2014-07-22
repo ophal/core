@@ -36,6 +36,9 @@ function route()
 end
 
 --[[ Implements hook route_validate_handler().
+
+  NOTE: the access_callback should return false (not just nil) in order to raise
+        a '401 Access Denied'.
 ]]
 function route_validate_handler(handler)
   local status, result
@@ -69,6 +72,8 @@ function is_logged_in()
   if not empty(_SESSION.user) and not empty(_SESSION.user.id) then
     return not empty(_SESSION.user.id)
   end
+  -- No session or user is anonymous
+  return false
 end
 
 function is_anonymous()

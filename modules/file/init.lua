@@ -25,9 +25,11 @@ function route()
   items = {}
   items.upload = {
     page_callback = 'upload',
+    format = 'json',
   }
   items.merge = {
     page_callback = 'merge',
+    format = 'json',
   }
   return items
 end
@@ -55,8 +57,6 @@ end
 function upload()
   local output, target, fileid, filename, filesize, index, upload_dir, err
   local status, output_fh, data
-
-  header('content-type', 'text/plain')
 
   fileid = _GET.id
   filename = _GET.name
@@ -100,16 +100,13 @@ function upload()
       output.success = true
     end
   end
-  output = json.encode(output)
 
-  theme.html = function () return output or '' end
+  return output
 end
 
 function merge()
   local output, source_fh, target_fh, index, filename, fileid, data, err, status
   local source_path
-
-  header('content-type', 'application/json; charset=utf-8')
 
   filename = _GET.name
   fileid = _GET.id
@@ -143,9 +140,8 @@ function merge()
     target_fh:close()
     output.success = true
   end
-  output = json.encode(output)
 
-  theme.html = function () return output or '' end
+  return output
 end
 
 function create(entity)

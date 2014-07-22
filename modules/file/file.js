@@ -129,7 +129,6 @@
       },
       /* Ajax events */
       success: function(data) {
-        data = $.parseJSON(data);
         if (data.success) {
           blob.slices--;
 

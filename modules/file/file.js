@@ -26,9 +26,8 @@
    */
   function sendRequest(element, context) {
     var blob = element.files[0];
-    var start = 0;
-    var end;
-    var index = 0;
+    blob.start = 0;
+    blob.index = 0;
     blob.slices = 0; /* slices, value that gets decremented */
     blob.slicesTotal = 0; /* total amount of slices, constant once calculated */
     blob.uniq_id = uuid(); /* file unique identifier, used server side */
@@ -37,16 +36,20 @@
     blob.slices = Math.ceil(blob.size / BYTES_PER_CHUNK);
     blob.slicesTotal = blob.slices;
 
-    while(start < blob.size) {
-      end = start + BYTES_PER_CHUNK;
-      if (end > blob.size) {
-        end = blob.size;
+    uploadFile(blob, context);
+  }
+
+  function uploadContinue(blob, context) {
+    if (blob.start < blob.size) {
+      blob.end = blob.start + BYTES_PER_CHUNK;
+      if (blob.end > blob.size) {
+        blob.end = blob.size;
       }
 
-      uploadFile(blob, index, start, end, context);
+      uploadFile(blob, context);
 
-      start = end;
-      index++;
+      blob.start = blob.end;
+      blob.index++;
     }
   }
 
@@ -75,28 +78,25 @@
    * Performs actual upload, adjusts progress bars
    *
    * @param blob
-   * @param index
-   * @param start
-   * @param end
+   * @param context
    */
-  function uploadFile(blob, index, start, end, context) {
-    var end;
+  function uploadFile(blob, context) {
     var chunk;
     var fileData;
     var endpoint = "/upload?" +
+      "name=" + encodeURIComponent(blob.name) + "&" + /* filename */
       "id=" + blob.uniq_id + "&" +
-      "size=" + blob.size + "&" + /* full size */
-      "index=" + index /* part identifier */
+      "index=" + blob.index /* part identifier */
     ;
 
     if (blob.webkitSlice) {
-      chunk = blob.webkitSlice(start, end);
+      chunk = blob.webkitSlice(blob.start, blob.end);
     }
     else if (blob.mozSlice) {
-      chunk = blob.mozSlice(start, end);
+      chunk = blob.mozSlice(blob.start, blob.end);
     }
     else {
-      chunk = blob.slice(start, end);
+      chunk = blob.slice(blob.start, blob.end);
     }
 
     if (blob.webkitSlice) { /* android default browser in version 4.0.4 has webkitSlice instead of slice() */
@@ -112,7 +112,7 @@
     var progressBar = $('.form-upload-progress', context);
 
     $.ajax({
-      url: endpoint,  
+      url: endpoint,
       type: 'POST',
       xhr: function() {  /* custom xhr */
         var xhr = $.ajaxSettings.xhr();
@@ -120,8 +120,8 @@
           xhr.upload.addEventListener('progress', function(evt) {
             if (evt.lengthComputable) {
               $(progressBar).attr('max', blob.slicesTotal);
-              $(progressBar).val(index);
-              $(percentageDiv).html(Math.round(index/blob.slicesTotal * 100) + "%");
+              $(progressBar).val(blob.index);
+              $(percentageDiv).html(Math.round(blob.index/blob.slicesTotal * 100) + "%");
             }
           }, false); /* progressbar */
         }
@@ -132,13 +132,17 @@
         if (data.success) {
           blob.slices--;
 
-          /* if we have finished all slices */
           if (blob.slices == 0) {
+            /* merge slices finished all slices */
             mergeFile(blob, context);
+          }
+          else {
+            /* otherwise keep uploading */
+            uploadContinue(blob, context);
           }
         }
         else {
-          if (data.success) {
+          if (data.error) {
             alert('Operation failed! Reason: ' + data.error);
           }
           else {
@@ -165,6 +169,7 @@
     var endpoint = "/merge?" +
       "name=" + encodeURIComponent(blob.name) + "&" + /* filename */
       "id=" + blob.uniq_id + "&" + /* unique upload identifier */
+      "size=" + blob.size + "&" + /* full size */
       "index=" + blob.slicesTotal /* part identifier */
     ;
 
@@ -185,7 +190,7 @@
           alert('File uploaded successfully!');
         }
         else {
-          if (data.success) {
+          if (data.error) {
             alert('Operation failed! Reason: ' + data.error);
           }
           else {

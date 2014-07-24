@@ -1,22 +1,25 @@
-local conf, theme, header, _GET = settings.file or {}, theme, header, _GET
+local seawolf = require 'seawolf'.__build('fs', 'behaviour', 'variable')
+local config, theme, header, _GET = settings.file or {}, theme, header, _GET
 local tinsert, tconcat, lfs, env = table.insert, table.concat, lfs, env
 local is_dir, is_file = seawolf.fs.is_dir, seawolf.fs.is_file
 local temp_dir, empty = seawolf.behaviour.temp_dir, seawolf.variable.empty
 local request_get_body, io_open, tonumber = request_get_body, io.open, tonumber
 local json, files_path = require 'dkjson', settings.site.files_path
-local os_remove, modules = os.remove, ophal.modules
-local module_invoke_all = module_invoke_all
+local os_remove, modules, time = os.remove, ophal.modules, os.time
+local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
+
+local debug = debug
 
 module 'ophal.modules.file'
 
-local user, db_query, db_last_insert_id
+local user_mod, db_query, db_last_insert_id
 
 --[[ Implements hook init().
 ]]
 function init()
   db_query = env.db_query
   db_last_insert_id = env.db_last_insert_id
-  user = modules.user
+  user_mod = modules.user
 end
 
 --[[ Implements hook route().
@@ -24,22 +27,28 @@ end
 function route()
   items = {}
   items.upload = {
-    page_callback = 'upload',
+    page_callback = 'upload_service',
+    access_callback = {module = 'user', 'access', 'upload files'},
     format = 'json',
   }
   items.merge = {
-    page_callback = 'merge',
+    page_callback = 'merge_service',
+    access_callback = {module = 'user', 'access', 'upload files'},
     format = 'json',
   }
   return items
 end
 
-function load(id)
-  local rs, err, entity
+function load(field, value)
+  if field == nil then field = 'id' end
 
-  id = tonumber(id or 0)
+  local rs, err
 
-  rs, err = db_query('SELECT * FROM file WHERE id = ?', id)
+  if field == 'id' then
+    value = tonumber(value or 0)
+  end
+
+  rs, err = db_query('SELECT * FROM file WHERE ' .. field .. ' = ?', value)
   if err then
     error(err)
   end
@@ -48,24 +57,34 @@ function load(id)
 
   if entity then
     entity.type = 'file'
-    module_invoke_all('picture_load', entity)
+    module_invoke_all('file_load', entity)
   end
 
   return entity
 end
 
-function upload()
-  local output, target, fileid, filename, filesize, index, upload_dir, err
-  local status, output_fh, data
+--[[ Implements endpoint callback: upload.
+]]
+function upload_service()
+  local output, target, upload_id, index, upload_dir, err
+  local status, output_fh, data, file
 
-  fileid = _GET.id
-  filename = _GET.name
-  filesize = _GET.size
+  upload_id = _GET.id
   index = _GET.index
+  file = {
+    filename = _GET.name,
+  }
 
   output = {
     success = false,
   }
+
+  if config.filedb_storage then
+    if not empty(load('filename', file.filename)) then
+      output.error = 'File uploaded already!'
+      return output
+    end
+  end
 
   -- Make sure to have a general uploads directory
   upload_dir = ('%s/ophal_uploads'):format(temp_dir())
@@ -78,7 +97,7 @@ function upload()
 
   -- Make sure to have a dedicated folder for uploaded file parts
   if empty(err) then
-    upload_dir = ('%s/%s'):format(upload_dir, fileid)
+    upload_dir = ('%s/%s'):format(upload_dir, upload_id)
     if not is_dir(upload_dir) and not is_file(upload_dir) then
       status, err = lfs.mkdir(upload_dir)
       if err then
@@ -104,24 +123,30 @@ function upload()
   return output
 end
 
-function merge()
-  local output, source_fh, target_fh, index, filename, fileid, data, err, status
-  local source_path
+--[[ Implements endpoint callback: merge.
+]]
+function merge_service()
+  local output, source_fh, target_fh, index, upload_id, data, err, status
+  local source_path, file
 
-  filename = _GET.name
-  fileid = _GET.id
+  upload_id = _GET.id
   index = tonumber(_GET.index)
+  file = {
+    filename = _GET.name,
+    filepath = ('%s/%s'):format(files_path, _GET.name),
+    filesize = tonumber(_GET.size or 0),
+  }
 
   output = {
     success = false,
   }
 
-  target_fh, err = io_open(('%s/%s'):format(files_path, _GET.name), 'w+')
+  target_fh, err = io_open(file.filepath, 'w+')
   if err then
     output.error = err
   elseif index > 0 then
     for i = 1, index do
-      source_path = ('%s/ophal_uploads/%s/%s.part'):format(temp_dir(), fileid, i - 1)
+      source_path = ('%s/ophal_uploads/%s/%s.part'):format(temp_dir(), upload_id, i - 1)
       source_fh = io_open(source_path, 'r')
       data, err = source_fh:read '*a'
       if err then
@@ -136,8 +161,25 @@ function merge()
         os_remove(source_path)
       end
     end
-    os_remove(('%s/ophal_uploads/%s'):format(temp_dir(), fileid))
+    os_remove(('%s/ophal_uploads/%s'):format(temp_dir(), upload_id))
     target_fh:close()
+
+    -- Register the file into the database
+    if config.filedb_storage then
+      local mime = finfo.open(finfo.MIME_TYPE, finfo.NO_CHECK_COMPRESS)
+      debug.log(mime)
+      local rc = mime:load()
+      if rc ~= 0 then
+        output.error = mime:error()
+      else
+        file.filemime = mime:file(file.filepath)
+        file.status = true
+        file.timestamp = time()
+        create(file)
+      end
+      mime:close()
+    end
+
     output.success = true
   end
 

@@ -270,7 +270,7 @@ into the database.
     --[=[
       Files metadata database storage
     ]=]
-    settings.file_metadata_storage = true
+    settings.filedb_storage = true
 
 
 NOTE: Ophal is compatible with SQLite only.

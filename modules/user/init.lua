@@ -88,7 +88,6 @@ function load(account)
       account = {
         id = 0,
         name = 'Anonymous',
-        role = 'anonymous',
       }
     elseif not empty(account.id) then
       rs = db_query('SELECT * FROM user WHERE id = ?', account.id)
@@ -108,22 +107,117 @@ function load(account)
   return account
 end
 
-function load_permissions(account)
+do
+  local roles_permissions
+  local roles_permissions_cached
+  function load_roles_permissions(config, force_reload)
+    if config.role == nil then config.role = {} end
+
+    -- Return cached roles_permissions
+    if roles_permissions_cached and not force_reload then
+      return roles_permissions
+    end
+
+    roles_permissions = {}
+
+    -- Traverse config.role to roles_permissions
+    for role_id, permissions in pairs(config.role) do
+      local buffer = {}
+      for _, perm in pairs(permissions) do
+        buffer[perm] = true
+      end
+      roles_permissions[role_id] = buffer
+    end
+
+    -- Load permissions from database storage
+    if config.permissions_storage then
+      local rs, err = db_query [[
+SELECT rp.*
+FROM
+  role_permission AS rp LEFT JOIN
+  role AS r ON r.id = rp.role_id AND r.active = 1
+ORDER BY rp.role_id, rp.permission
+  ]]
+      for row in rs:rows(true) do
+        if roles_permissions[row.role_id] == nil then
+          roles_permissions[row.role_id] = {}
+        end
+
+        -- Do not override config from settings.lua
+        if roles_permissions[row.role_id][row.permission] == nil then
+          roles_permissions[row.role_id][row.permission] = true
+        end
+      end
+    end
+
+    roles_permissions_cached = true
+
+    return roles_permissions
+  end
+end
+
+do
+  local users_roles = {
+    [0] = {anonymous = true},
+  }
+  local users_roles_cached
+  function load_users_roles(settings, force_reload)
+    if empty(config.user_role) then config.user_role = {} end
+
+    -- Return cached users_roles
+    if users_roles_cached and not force_reload then
+      return user_roles
+    end
+
+    -- Traverse config.user_role to users_roles
+    for user_id, roles in pairs(config.user_role) do
+      local buffer = {}
+      for _, role_id in pairs(permissions) do
+        buffer[role_id] = true
+      end
+      users_roles[user_id] = buffer
+    end
+
+    -- Load user <--> role relationships from database storage
+    if config.permissions_storage then
+      local rs, err = db_query 'SELECT * FROM user_role'
+      for row in rs:rows(true) do
+        local user_id = tonumber(row.user_id)
+        if users_roles[user_id] == nil then
+          users_roles[user_id] = {}
+        end
+
+        -- Do not override config from settings.lua
+        if users_roles[user_id][row.role_id] == nil then
+          users_roles[user_id][row.role_id] = true
+        end
+      end
+    end
+
+    users_roles_cached = true
+
+    return users_roles
+  end
+end
+
+function load_permissions(account, force_reload)
   if empty(config) then config = {} end
   if empty(config.role) then config.role = {} end
   if empty(config.user_role) then config.user_role = {} end
 
+  local roles_permissions = load_roles_permissions(config)
+  local users_roles = load_users_roles(config)
   local permissions = {}
-  local user_roles = config.user_role
   local roles = config.role
 
-  if empty(user_roles[0]) then user_roles[0] = {anonymous = true} end
-  account.roles = user_roles[tonumber(account.id)] or {}
+  account.roles = users_roles[tonumber(account.id)] or {}
   account.permissions = {}
   for role, assigned in pairs(account.roles) do
     if assigned then
-      for _, permission in pairs(roles[role] or {}) do
-        permissions[permission] = true
+      for permission, granted in pairs(roles_permissions[role] or {}) do
+        if granted then
+          permissions[permission] = true
+        end
       end
     end
   end

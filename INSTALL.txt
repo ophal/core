@@ -154,16 +154,14 @@ Run the following SQL queries in strict order:
     CREATE INDEX idx_user_created ON user (created);
     CREATE INDEX idx_user_mail ON user (mail);
 
-    CREATE TABLE role(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255), active BOOLEAN, weight INT);
+    CREATE TABLE role(id VARCHAR(255) PRIMARY KEY, name VARCHAR(255), active BOOLEAN, weight INT);
     CREATE UNIQUE INDEX unq_idx_role_name ON role (name);
     CREATE INDEX idx_role_weight ON role (weight);
-    INSERT INTO role VALUES(1, 'anonymous', 1, 0);
-    INSERT INTO role VALUES(2, 'authenticated', 1, 1);
 
-    CREATE TABLE user_role(user_id UNSIGNED BIG INT, role_id UNSIGNED BIG INT, PRIMARY KEY (user_id, role_id));
+    CREATE TABLE user_role(user_id UNSIGNED BIG INT, role_id VARCHAR(255), PRIMARY KEY (user_id, role_id));
 
-    CREATE TABLE role_permission(role_id UNSIGNED BIG INT, permission varchar(255), module varchar(255), PRIMARY KEY (role_id, permission));
-    CREATE INDEX idx_role_permission ON role_permission (permission);
+    CREATE TABLE role_permission(role_id VARCHAR(255), permission VARCHAR(255), module VARCHAR(255), PRIMARY KEY (role_id, permission));
+    CREATE INDEX idx_role_permission_perm ON role_permission (permission);
 
   NOTE: Ophal is compatible with SQLite only.
 
@@ -183,34 +181,42 @@ Run the following SQL queries in strict order:
 
     INSERT INTO "user" VALUES(1,'root','test@example.com',[password hash],1,CURRENT_TIMESTAMP);
 
-4. Add math libraries to global env in settings.lua:
-
-    env.maths = require 'seawolf.maths'
-    env.math = math
-
-5. Enable Form API:
+4. Enable Form API:
 
     settings.formapi = true
 
-6. Enable this module:
+5. Enable this module:
 
     settings.modules.user = true
 
-7. Configure default roles
+6. Configure default roles
+
+  You can either add the following to your settings.lua
 
     --[=[
       User module options
     ]=]
     settings.user = {
+      permissions_storage = true,
+      -- algorithm = 'sha256', -- Be careful!
       role = {
         anonymous = {
           'access content',
         },
         authenticated = {
           'access content',
+          'create content',
+          'edit own content',
         },
       }
     }
+
+  Or run the following SQL queries:
+
+    INSERT INTO role_permission VALUES('anonymous', 'access content', 'user');
+    INSERT INTO role_permission VALUES('authenticated', 'access content', 'user');
+    INSERT INTO role_permission VALUES('authenticated', 'create content', 'user');
+    INSERT INTO role_permission VALUES('authenticated', 'edit own content', 'user');
 
 == (Optional) Configure the Tag module
 Run the following SQL queries in strict order:

@@ -341,3 +341,11 @@ function auth_service()
 
   return output
 end
+
+--[[ Return the current user from _SESSION.
+]]
+function current()
+  if _SESSION then
+    return _SESSION.user
+  end
+end

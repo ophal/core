@@ -191,37 +191,33 @@ function create(entity)
 
   if entity.type == nil then entity.type = 'file' end
 
-  if entity.id then
-    rs, err = db_query([[
+  rs, err = (function(id, ...)
+    if id then
+      return db_query([[
 INSERT INTO file(id, user_id, filename, filepath, filemime, filesize, status, timestamp)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
-      entity.id,
-      entity.user_id or _SESSION.user.id,
-      entity.filename,
-      entity.filepath,
-      entity.filemime,
-      entity.filesize,
-      entity.status,
-      entity.timestamp
-    )
-  else
-    rs, err = db_query([[
+VALUES(?, ?, ?, ?, ?, ?, ?, ?)]], id, ...)
+    else
+      local rs1, rs2 = db_query([[
 INSERT INTO file(user_id, filename, filepath, filemime, filesize, status, timestamp)
-VALUES(?, ?, ?, ?, ?, ?, ?)]],
-      entity.user_id or _SESSION.user.id,
-      entity.filename,
-      entity.filepath,
-      entity.filemime,
-      entity.filesize,
-      entity.status,
-      entity.timestamp
-    )
-    entity.id = db_last_insert_id()
-  end
+VALUES(?, ?, ?, ?, ?, ?, ?)]], ...)
+      entity.id = db_last_insert_id()
+      return rs1, rs2
+    end
+  end)(
+    entity.id,
+    entity.user_id or user_mod.current().id,
+    entity.filename,
+    entity.filepath,
+    entity.filemime,
+    entity.filesize,
+    entity.status,
+    entity.timestamp
+  )
 
   if not err then
     module_invoke_all('entity_after_save', entity)
   end
+
   return entity.id, err
 end
 

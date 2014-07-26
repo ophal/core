@@ -166,7 +166,7 @@ do
 
     -- Return cached users_roles
     if users_roles_cached and not force_reload then
-      return user_roles
+      return users_roles
     end
 
     -- Traverse config.user_role to users_roles

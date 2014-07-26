@@ -1,3 +1,4 @@
+local config = settings.comment
 local add_js, theme, header, arg, env, l = add_js, theme, header, arg, env, l
 local modules, tonumber, empty = ophal.modules, tonumber, seawolf.variable.empty
 local request_get_body, json, type = request_get_body, require 'dkjson', type
@@ -18,18 +19,20 @@ function init()
   user = modules.user
 end
 
---[[ Implements hook content_render().
+--[[ Implements hook entity_render().
 ]]
-function content_render(content)
+function entity_render(entity)
+  if not config.entities[entity.type] then return end
+
   add_js 'modules/comment/comment.js'
-  add_js {type = 'settings', namespace = 'content', {current = {id = content.id}}}
+  add_js {type = 'settings', namespace = 'content', {current = {id = entity.id}}}
 
   local links
 
   if comment_access(nil, 'create') then
-    if content.links == nil then content.links = {} end
-    links = content.links
-    links[1 + #links] = l('Add a new comment', 'comment/create/' .. content.id)
+    if entity.links == nil then entity.links = {} end
+    links = entity.links
+    links[1 + #links] = l('Add a new comment', 'comment/create/' .. entity.id)
   end
 end
 
@@ -57,7 +60,7 @@ function route()
 end
 
 function load(id)
-  local rs, err, content
+  local rs, err, entity
 
   id = tonumber(id or 0)
 
@@ -66,14 +69,14 @@ function load(id)
     error(err)
   end
 
-  content = rs:fetch(true)
+  entity = rs:fetch(true)
 
-  if content then
-    content.type = 'comment'
-    module_invoke_all('comment_load', content)
+  if entity then
+    entity.type = 'comment'
+    module_invoke_all('entity_load', entity)
   end
 
-  return content
+  return entity
 end
 
 function load_multiple_by(field_name, value)
@@ -148,7 +151,7 @@ function fetch_service()
       else
         for k, row in pairs(list) do
           list[k].rendered = render_t{'comment', entity = row,
-            account = user.load{id = row.user_id}
+            account = user.load(row.user_id)
           }
         end
         output.list = list

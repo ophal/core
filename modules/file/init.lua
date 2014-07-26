@@ -39,7 +39,7 @@ function route()
   return items
 end
 
-function load(field, value)
+function load_by_field(field, value)
   if field == nil then field = 'id' end
 
   local rs, err
@@ -57,10 +57,14 @@ function load(field, value)
 
   if entity then
     entity.type = 'file'
-    module_invoke_all('file_load', entity)
+    module_invoke_all('entity_load', entity)
   end
 
   return entity
+end
+
+function load(id)
+  return load_by_field('id', id)
 end
 
 --[[ Implements endpoint callback: upload.
@@ -80,7 +84,7 @@ function upload_service()
   }
 
   if config.filedb_storage then
-    if not empty(load('filename', file.filename)) then
+    if not empty(load_by_field('filename', file.filename)) then
       output.error = 'File uploaded already!'
       return output
     end

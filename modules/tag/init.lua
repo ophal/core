@@ -1,3 +1,4 @@
+local config = settings.tag
 local theme, env, add_css, slash, l = theme, env, add_css, settings.slash, l
 local tinsert, tconcat, pairs, ophal = table.insert, table.concat, pairs, ophal
 local add_js, arg, trim, header = add_js, arg, seawolf.text.trim, header
@@ -73,10 +74,12 @@ function route()
   return items
 end
 
---[[ Implements hook content_load().
+--[[ Implements hook entity_load().
 ]]
-function content_load(entity)
+function entity_load(entity)
   local rs, err, tags
+
+  if not config.entities[entity.type] then return end
 
   rs, err = db_query('SELECT t.* FROM field_tag ft JOIN tag t ON t.id = ft.tag_id WHERE ft.entity_type = ? AND ft.entity_id = ?', entity.type, entity.id)
   if err then
@@ -96,6 +99,8 @@ end
 ]]
 function entity_after_save(entity)
   local rs, err, tags, in_tags
+
+  if not config.entities[entity.type] then return end
 
   rs, err = db_query('SELECT tag_id id FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
   if err then
@@ -134,7 +139,11 @@ end
 
 --[[ Implements hook entity_after_delete().
 ]]
-function entity_after_delete(entity)
+function entity_after_delete(entity
+  local rs, err
+
+  if not config.entities[entity.type] then return end
+
   rs, err = db_query('DELETE FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
   if err then
     error(err)

@@ -64,7 +64,7 @@ function init()
 
   -- Load user
   if _SESSION and _SESSION.user == nil then
-    _SESSION.user = load{id = 0}
+    _SESSION.user = load(0)
   end
 end
 
@@ -80,31 +80,32 @@ function is_anonymous()
   return not is_logged_in()
 end
 
-function load(account)
-  local rs
-
-  if 'table' == type(account) then
-    if account.id == 0 then
-      account = {
-        id = 0,
-        name = 'Anonymous',
-      }
-    elseif not empty(account.id) then
-      rs = db_query('SELECT * FROM user WHERE id = ?', account.id)
-      account = rs:fetch(true)
-    elseif not empty(account.name) then
-      rs = db_query('SELECT * FROM user WHERE name = ?', account.name)
-      account = rs:fetch(true)
-    end
+function load(id)
+  if id == 0 then
+    return {
+      id = 0,
+      name = 'Anonymous',
+    }
   end
 
-  if not empty(account) then
-    account.type = 'user'
-    module_invoke_all('user_load', account)
-    load_permissions(account)
+  return load_by_field('id', id)
+end
+
+function load_by_field(field, value)
+  local rs, entity
+
+  if not empty(field) and not empty(value) then
+    rs = db_query('SELECT * FROM user WHERE ' .. field .. ' = ?', value)
+    entity = rs:fetch(true)
   end
 
-  return account
+  if not empty(entity) then
+    entity.type = 'user'
+    module_invoke_all('entity_load', entity)
+    load_permissions(entity)
+  end
+
+  return entity
 end
 
 do
@@ -330,7 +331,7 @@ function auth_service()
     'table' == type(parsed) and not empty(parsed.user) and
     not empty(parsed.pass)
   then
-    account = load{name = parsed.user}
+    account = load_by_field('name', parsed.user)
     if 'table' == type(account) and not empty(account.id) then
       if account.pass == hash(config.algorithm or 'sha256', parsed.pass or '') then
         output.authenticated = true

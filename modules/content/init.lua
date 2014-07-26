@@ -1,3 +1,4 @@
+local config = settings.content
 local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
 local pager, l, page_set_title, arg = pager, l, page_set_title, arg
@@ -12,14 +13,14 @@ local set_global = set_global
 
 module 'ophal.modules.content'
 
-local user
+local user_mod
 
 --[[ Implements hook init().
 ]]
 function init()
   db_query = env.db_query
   db_last_insert_id = env.db_last_insert_id
-  user = modules.user
+  user_mod = modules.user
 end
 
 --[[ Implements hook route().
@@ -37,7 +38,7 @@ function route()
 end
 
 function load(id)
-  local rs, err, content
+  local rs, err, entity
 
   id = tonumber(id or 0)
 
@@ -46,49 +47,50 @@ function load(id)
     error(err)
   end
 
-  content = rs:fetch(true)
+  entity = rs:fetch(true)
 
-  if content then
-    content.type = 'content'
-    module_invoke_all('content_load', content)
+  if entity then
+    entity.type = 'content'
+    module_invoke_all('entity_load', entity)
   end
 
-  return content
+  return entity
 end
 
-function content_access(content, action)
+function entity_access(entity, action)
   local account = _SESSION.user
 
-  if user.access 'administer content' then
+  if user_mod.access 'administer content' then
     return true
   end
 
   if action == 'create' then
-    return user.access 'create content'
+    return user_mod.access 'create content'
   elseif action == 'update' then
-    return user.access 'edit own content' and content.user_id == account.id
+    return user_mod.access 'edit own content' and entity.user_id == account.id
   elseif action == 'read' then
-    return user.access 'access content'
+    return user_mod.access 'access content'
   elseif action == 'delete' then
-    return user.access 'delete own content' and content.user_id == account.id
+    return user_mod.access 'delete own content' and entity.user_id == account.id
   end
 end
 
 function save_service()
   local input, parsed, pos, err, output, account, action, id
+  local entity
 
-  if not user.is_logged_in() then
+  if not user_mod.is_logged_in() then
     header('status', 401)
   else
     id = tonumber(arg(2) or '')
     action = empty(id) and 'create' or 'update'
     output = {}
 
-    content = load(id)
+    entity = load(id)
 
-    if not content_access(content, action) then
+    if not entity_access(entity, action) then
       header('status', 401)
-    elseif action == 'update' and empty(content) then
+    elseif entity == 'update' and empty(entity) then
       header('status', 404)
       output.error = 'No such content.'
     else
@@ -176,13 +178,13 @@ function update(entity)
 end
 
 function router()
-  local rs, err, ipp, current_page, num_pages, count, content, id, arg1
+  local rs, err, ipp, current_page, num_pages, count, entity, id, arg1
 
   arg1 = arg(1)
 
   if not empty(arg1) then
     if arg1 == 'create' then
-      if not content_access(content, 'create') then
+      if not entity_access(entity, 'create') then
         page_set_title 'Access denied'
         header('status', 401)
         return ''
@@ -193,23 +195,23 @@ function router()
       add_js 'modules/content/content.js'
 
       page_set_title 'Create content'
-      return theme.content_form{}
+      return theme{'content_form'}
     end
 
-    content = load(arg1)
+    entity = load(arg1)
 
-    if empty(content) then
+    if empty(entity) then
       page_set_title 'Page not found'
       header('header', 404)
       return ''
-    elseif not content_access(content, 'read') then
+    elseif not entity_access(entity, 'read') then
       page_set_title 'Access denied'
       header('status', 401)
       return ''
     end
 
     if arg(2) == 'edit' then
-      if not content_access(content, 'update') then
+      if not entity_access(entity, 'update') then
         page_set_title 'Access denied'
         header('status', 401)
         return ''
@@ -218,19 +220,19 @@ function router()
       add_js 'libraries/jquery.min.js'
       add_js 'libraries/json2.js'
       add_js 'modules/content/content.js'
-      page_set_title('Edit "' .. content.title .. '"')
+      page_set_title('Edit "' .. entity.title .. '"')
 
-      return theme.content_form(content)
+      return theme{'content_form', entity = entity}
     else
-      page_set_title(content.title)
-      if content.status or user.access 'administer content' then
-        page_set_title(content.title)
-        set_global('language', content.language)
-        module_invoke_all('content_render', content)
+      page_set_title(entity.title)
+      if entity.status or user_mod.access 'administer content' then
+        page_set_title(entity.title)
+        set_global('language', entity.language)
+        module_invoke_all('entity_render', entity)
         return function ()
           print_t{'content_page',
-            account = user.load{id = content.user_id} or user.load{id = 0},
-            content = content,
+            account = user_mod.load(entity.user_id) or user_mod.load(0),
+            entity = entity,
             format_date = format_date
           }
         end
@@ -250,7 +252,7 @@ function frontpage()
   local rs, err, count, current_page, ipp, num_pages, query
 
   -- Count rows
-  query = ('SELECT count(*) FROM content WHERE promote = 1 %s'):format(user.is_logged_in() and '' or 'AND status = 1')
+  query = ('SELECT count(*) FROM content WHERE promote = 1 %s'):format(user_mod.is_logged_in() and '' or 'AND status = 1')
   rs, err = db_query(query)
   if err then
     error(err)
@@ -264,7 +266,7 @@ function frontpage()
   num_pages = ceil(count/ipp)
 
   -- Render list
-  query = ('SELECT * FROM content WHERE promote = 1 %s ORDER BY created DESC LIMIT ?, ?'):format(user.is_logged_in() and '' or 'AND status = 1')
+  query = ('SELECT * FROM content WHERE promote = 1 %s ORDER BY created DESC LIMIT ?, ?'):format(user_mod.is_logged_in() and '' or 'AND status = 1')
   rs, err = db_query(query, (current_page -1)*ipp, ipp)
   if err then
     error(err)
@@ -296,11 +298,11 @@ function theme.content_links(variables)
     links[1 + #links] = l('Read more', 'content/' .. entity.id)
   end
 
-  if content_access(entity, 'update') then
+  if entity_access(entity, 'update') then
     links[1 + #links] = l('edit', 'content/' .. entity.id .. '/edit')
   end
 
-  return theme.item_list{list = links, class = 'content-links'}
+  return theme{'item_list', list = links, class = 'content-links'}
 end
 
 function theme.content_frontpage(variables)
@@ -313,18 +315,22 @@ function theme.content_frontpage(variables)
   end
 end
 
-function theme.content_form(content)
+function theme.content_form(variables)
+  local entity = variables.entity
+
+  if entity == nil then entity = {} end
+
   return theme{'form', method = 'POST',
-    attributes = {id = empty(content.id) and 'content_create_form' or 'content_edit_form'},
-    entity = content,
+    attributes = {id = empty(entity.id) and 'content_create_form' or 'content_edit_form'},
+    entity = entity,
     elements = {
-      {'hidden', attributes = {id = 'entity_id'}, value = content.id},
-      {'textfield', title = 'Title', attributes = {id = 'content_title', size = 60}, value = content.title, weight = 10},
-      {'textarea', title = 'Teaser', attributes = {id = 'content_teaser', cols = 60, rows = 10}, value = content.teaser, weight = 20},
-      {'textarea', title = 'Body', attributes = {id = 'content_body', cols = 60, rows = 15}, value = content.body, weight = 30},
-      {'checkbox', title = 'Status', attributes = {id = 'content_status'}, value = content.status, weight = 40},
-      {'checkbox', title = 'Promote to frontpage', attributes = {id = 'content_promote'}, value = content.promote, weight = 50},
-      {'markup', title = 'Created on', value = content.created and format_date(content.created) or '', weight = 60},
+      {'hidden', attributes = {id = 'entity_id'}, value = entity.id},
+      {'textfield', title = 'Title', attributes = {id = 'content_title', size = 60}, value = entity.title, weight = 10},
+      {'textarea', title = 'Teaser', attributes = {id = 'content_teaser', cols = 60, rows = 10}, value = entity.teaser, weight = 20},
+      {'textarea', title = 'Body', attributes = {id = 'content_body', cols = 60, rows = 15}, value = entity.body, weight = 30},
+      {'checkbox', title = 'Status', attributes = {id = 'content_status'}, value = entity.status, weight = 40},
+      {'checkbox', title = 'Promote to frontpage', attributes = {id = 'content_promote'}, value = entity.promote, weight = 50},
+      {'markup', title = 'Created on', value = entity.created and format_date(entity.created) or '', weight = 60},
       {'button', attributes = {id = 'save_submit'}, value = 'Save', weight = 70},
     },
   }

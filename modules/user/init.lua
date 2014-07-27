@@ -81,20 +81,18 @@ function is_anonymous()
 end
 
 function load(id)
-  if id == 0 then
-    return {
-      id = 0,
-      name = 'Anonymous',
-    }
-  end
-
   return load_by_field('id', id)
 end
 
 function load_by_field(field, value)
   local rs, entity
 
-  if not empty(field) and not empty(value) then
+  if field == 'id' and value == 0 then
+    entity = {
+      id = 0,
+      name = 'Anonymous',
+    }
+  elseif not empty(field) and not empty(value) then
     rs = db_query('SELECT * FROM user WHERE ' .. field .. ' = ?', value)
     entity = rs:fetch(true)
   end

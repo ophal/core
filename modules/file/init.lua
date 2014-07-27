@@ -171,7 +171,6 @@ function merge_service()
     -- Register the file into the database
     if config.filedb_storage then
       local mime = finfo.open(finfo.MIME_TYPE, finfo.NO_CHECK_COMPRESS)
-      debug.log(mime)
       local rc = mime:load()
       if rc ~= 0 then
         output.error = mime:error()

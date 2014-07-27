@@ -272,7 +272,7 @@ function frontpage()
     error(err)
   else
     for row in rs:rows(true) do
-      tinsert(rows, function () print_t{'content_teaser', content = row} end)
+      tinsert(rows, function () print_t{'content_teaser', entity = row} end)
     end
   end
 

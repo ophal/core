@@ -84,22 +84,6 @@ settings = (function()
     settings_builder(settings, vault)
   end
 
-  -- Load themes/%/settings.lua
-  local seawolf = require 'seawolf'.__build('variable', 'contrib')
-
-  if settings.template_env == nil then settings.template_env = {} end
-
-  if settings.theme.css == nil then settings.theme.css = {} end
-  setmetatable(settings.theme.css, seawolf.contrib.metahelper)
-
-  if settings.theme.js == nil then settings.theme.js = {} end
-  setmetatable(settings.theme.js, seawolf.contrib.metahelper)
-
-  local _, settings_builder = pcall(require, ('themes.%s.settings'):format(settings.theme.name))
-  if type(settings_builder) == 'function' then
-    settings_builder(settings.theme, settings.template_env)
-  end
-
   return settings
 end)()
 

@@ -4,6 +4,7 @@ local assert, error, setfenv = assert, error, setfenv
 local currentdir = lfs.currentdir() .. slash
 local base, l = base, l
 
+-- Calculate theme.name
 if
   settings.mobile and
   (mobile.detect.isMobile() or _SERVER 'HTTP_HOST' == settings.mobile.domain_name)
@@ -12,12 +13,30 @@ then
 else
   if type(settings.theme) == 'table' then
     theme.name = settings.theme.name
-    theme.settings = settings.theme
   else
     theme.name = settings.theme
-    theme.settings = {}
   end
 end
+
+-- Load themes/%/settings.lua
+local seawolf = require 'seawolf'.__build('variable', 'contrib')
+
+if settings.template_env == nil then settings.template_env = {} end
+
+if settings.theme == nil then settings.theme = {name = 'basic'} end
+if settings.theme.css == nil then settings.theme.css = {} end
+setmetatable(settings.theme.css, seawolf.contrib.metahelper)
+
+if settings.theme.js == nil then settings.theme.js = {} end
+setmetatable(settings.theme.js, seawolf.contrib.metahelper)
+
+local _, settings_builder = pcall(require, ('themes.%s.settings'):format(settings.theme.name))
+if type(settings_builder) == 'function' then
+  settings_builder(settings.theme, settings.template_env)
+end
+
+-- Set final theme settings
+theme.settings = settings.theme
 
 init_css()
 init_js()

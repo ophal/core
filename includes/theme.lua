@@ -100,7 +100,7 @@ local function theme_render(f, env)
     env.print_f = print_f
     env.debug = debug
     env.l = l
-    env.arg = arg
+    env.route_arg = route_arg
     env.request_path = request_path
     env.path_to_theme = path_to_theme
     env.pairs = pairs

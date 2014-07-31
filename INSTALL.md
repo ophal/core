@@ -116,8 +116,9 @@ CREATE INDEX idx_content_user ON content (user_id);
 Add the following to settings.lua:
 
 ```Lua
-settings.comment = {
+settings.content = {
   entities = {},
+  items_per_page = 10, -- default: 10
 }
 ```
 

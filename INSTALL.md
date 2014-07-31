@@ -217,7 +217,7 @@ Run the following SQL queries in strict order:
 3. Create user 1:
 
   ```SQL
-  INSERT INTO "user" VALUES(1,'root','test@example.com',[password hash],1,CURRENT_TIMESTAMP);
+  INSERT INTO user VALUES(1, 'root', 'test@example.com', 'your password hash', 1, strftime('%s', 'now'));
   ```
 
 4. Enable Form API:

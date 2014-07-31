@@ -1,3 +1,4 @@
+local seawolf = require 'seawolf'.__build('text', 'text.preg', 'variable')
 local _SERVER, pairs, rawget = _SERVER, pairs, rawget
 local strpos, empty = seawolf.text.strpos, seawolf.variable.empty
 local substr = seawolf.text.substr

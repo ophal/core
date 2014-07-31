@@ -81,7 +81,7 @@ end
 do
   local arguments
 
-  function arg(index)
+  function route_arg(index)
     local source, rp
 
     index = index + 1
@@ -110,7 +110,7 @@ do
 
       -- build route tree
       for i = 1,8 do
-        a = arg(i - 1)
+        a = route_arg(i - 1)
         if a == nil or a == '' then
           break
         else

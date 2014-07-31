@@ -1,7 +1,7 @@
 local config = settings.content
 local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
-local pager, l, page_set_title, arg = pager, l, page_set_title, arg
+local pager, l, page_set_title, arg = pager, l, page_set_title, route_arg
 local tonumber, format_date = tonumber, format_date
 local empty, add_js, _SESSION = seawolf.variable.empty, add_js, _SESSION
 local header, json, type, time = header, require 'dkjson', type, os.time

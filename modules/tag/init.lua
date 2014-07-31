@@ -1,7 +1,7 @@
 local config = settings.tag
 local theme, env, add_css, slash, l = theme, env, add_css, settings.slash, l
 local tinsert, tconcat, pairs, ophal = table.insert, table.concat, pairs, ophal
-local add_js, arg, trim, header = add_js, arg, seawolf.text.trim, header
+local add_js, arg, trim, header = add_js, route_arg, seawolf.text.trim, header
 local page_set_title, json = page_set_title, require 'dkjson'
 local type, empty, error, goto = type, seawolf.variable.empty, error, goto
 local _SESSION, tonumber, _GET, ceil = _SESSION, tonumber, _GET, math.ceil

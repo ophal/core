@@ -1,5 +1,5 @@
 local config = settings.comment
-local add_js, theme, header, arg, env, l = add_js, theme, header, arg, env, l
+local add_js, theme, header, arg, env, l = add_js, theme, header, route_arg, env, l
 local modules, tonumber, empty = ophal.modules, tonumber, seawolf.variable.empty
 local request_get_body, json, type = request_get_body, require 'dkjson', type
 local _SESSION, time, module_invoke_all = _SESSION, os.time, module_invoke_all

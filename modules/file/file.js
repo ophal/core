@@ -36,7 +36,7 @@
     blob.slices = Math.ceil(blob.size / BYTES_PER_CHUNK);
     blob.slicesTotal = blob.slices;
 
-    uploadFile(blob, context);
+    uploadContinue(blob, context);
   }
 
   function uploadContinue(blob, context) {

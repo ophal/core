@@ -178,13 +178,9 @@ function merge_service()
         file.filemime = mime:file(file.filepath)
         file.status = true
         file.timestamp = time()
-        data, err = create(file)
-        if empty(err) then
-          output.id = data
-        else
-          output.error = err
-        end
+        create(file)
       end
+      mime:close()
     end
 
     output.success = true

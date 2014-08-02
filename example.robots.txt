@@ -29,7 +29,7 @@ Disallow: /themes/
 Disallow: /cron.cgi
 Disallow: /install.cgi
 Disallow: /CREDITS.txt
-Disallow: /INSTALL.txt
+Disallow: /INSTALL.md
 Disallow: /LICENSE.txt
 Disallow: /README.txt
 # Paths (clean URLs)
@@ -38,4 +38,3 @@ Disallow: /user/register/
 Disallow: /user/password/
 Disallow: /user/login/
 Disallow: /user/logout/
-

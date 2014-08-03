@@ -146,6 +146,9 @@
           }
         }
         else {
+          /* Allow to try again */
+          $('.form-upload-button', context).removeAttr('disabled');
+
           if (data.error) {
             $(statusDiv).html('<span class="error">Operation failed! Reason: ' + data.error + '</span>');
           }
@@ -188,10 +191,12 @@
         if (data.success) {
           $(progressBar).attr('max', 100);
           $(progressBar).val(100);
-          $('.form-upload-button', context).removeAttr('disabled');
           $(statusDiv).html('File uploaded successfully!');
         }
         else {
+          /* Allow to try again */
+          $('.form-upload-button', context).removeAttr('disabled');
+
           if (data.error) {
             $(statusDiv).html('<span class="error">Operation failed! Reason: ' + data.error + '</span>');
           }

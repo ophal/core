@@ -1,12 +1,13 @@
 local seawolf = require 'seawolf'.__build('fs', 'behaviour', 'variable')
 local config, theme, header, _GET = settings.file or {}, theme, header, _GET
 local tinsert, tconcat, lfs, env = table.insert, table.concat, lfs, env
-local is_dir, is_file = seawolf.fs.is_dir, seawolf.fs.is_file
+local is_dir, is_file, add_js = seawolf.fs.is_dir, seawolf.fs.is_file, add_js
 local temp_dir, empty = seawolf.behaviour.temp_dir, seawolf.variable.empty
 local request_get_body, io_open, tonumber = request_get_body, io.open, tonumber
 local json, files_path = require 'dkjson', settings.site.files_path
 local os_remove, modules, time = os.remove, ophal.modules, os.time
 local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
+local render_attributes = render_attributes
 
 local debug = debug
 
@@ -244,4 +245,28 @@ function update(entity)
     module_invoke_all('entity_after_save', entity)
   end
   return rs, err
+end
+
+function theme.file(variables)
+  if variables == nil then variables = {} end
+  if variables.attributes == nil then variables.attributes = {} end
+
+  local id, attributes
+
+  add_js 'libraries/uuid.js'
+  add_js 'modules/file/file.js'
+
+  id = variables.id
+  if empty(id) then
+    id = 'upload'
+  end
+
+  return tconcat{
+    ('<div class="form-upload-field" id="%s_field">'):format(id),
+    ('<input %s type="file" class="form-upload-file">'):format(id, id, render_attributes(variables.attributes)),
+    theme{'button', value = 'upload', attributes = {class = 'form-upload-button'}}, '<br />',
+    '<progress class="form-upload-progress" value="0" max="100"></progress>',
+    '<div class="form-upload-percent">Waiting...</div>',
+    '</div>'
+  }
 end

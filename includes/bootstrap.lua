@@ -198,7 +198,6 @@ function bootstrap(phase, main)
       require 'includes.pager'
       if settings.formapi then
         require 'includes.form'
-        require 'includes.file'
       end
     end,
 

@@ -39,10 +39,14 @@ function headerCookieSetString(name, value, expires, path, domain)
 end
 
 function header(n, v)
-  if type(v) == 'function' then
-    v = v()
+  if n == 'status' then
+    ngx.status = v
+  else
+    if type(v) == 'function' then
+      v = v()
+    end
+    ngx.header[n] = v
   end
-  ngx.header[n] = v
 end
 
 --[[

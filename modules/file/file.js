@@ -189,6 +189,8 @@
       url: endpoint,
       success: function (data) {
         if (data.success) {
+          $('.form-upload-entity-id', context).val(data.id);
+
           $(progressBar).attr('max', 100);
           $(progressBar).val(100);
           $(statusDiv).html('File uploaded successfully!');

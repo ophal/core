@@ -8,6 +8,10 @@
     $('.form-upload-button').click(function() {
       var context = $(this).parent();
       var element = $('.form-upload-file', context).get(0);
+      var statusDiv = $('.form-upload-status', context);
+
+      /* Clear status messages */
+      $(statusDiv).html('');
 
       if (element.files[0] != undefined) {
         sendRequest(element, context);
@@ -108,7 +112,7 @@
       fileData = chunk; /* but if we support slice() everything should be ok */
     }
 
-    var percentageDiv = $('.form-upload-percent', context);
+    var statusDiv = $('.form-upload-status', context);
     var progressBar = $('.form-upload-progress', context);
 
     $.ajax({
@@ -121,7 +125,7 @@
             if (evt.lengthComputable) {
               $(progressBar).attr('max', blob.slicesTotal);
               $(progressBar).val(blob.index);
-              $(percentageDiv).html(Math.round(blob.index/blob.slicesTotal * 100) + "%");
+              $(statusDiv).html(Math.round(blob.index/blob.slicesTotal * 100) + "%");
             }
           }, false); /* progressbar */
         }
@@ -143,15 +147,15 @@
         }
         else {
           if (data.error) {
-            alert('Operation failed! Reason: ' + data.error);
+            $(statusDiv).html('<span class="error">Operation failed! Reason: ' + data.error + '</span>');
           }
           else {
-            alert('Operation failed!');
+            $(statusDiv).html('<span class="error">Operation failed!</span>');
           }
         }
       },
       error: function() {
-        alert('Operation error. Please try again later.');
+        $(statusDiv).html('<span class="error">Operation error. Please try again later.</span>');
       },
       /* File data */
       data: fileData,
@@ -173,7 +177,7 @@
       "index=" + blob.slicesTotal /* part identifier */
     ;
 
-    var percentageDiv = $('.form-upload-percent', context);
+    var statusDiv = $('.form-upload-status', context);
     var progressBar = $('.form-upload-progress', context);
 
     /* Fetch auth token */
@@ -184,22 +188,20 @@
         if (data.success) {
           $(progressBar).attr('max', 100);
           $(progressBar).val(100);
-          $(percentageDiv).html('100%');
-
           $('.form-upload-button', context).removeAttr('disabled');
-          alert('File uploaded successfully!');
+          $(statusDiv).html('File uploaded successfully!');
         }
         else {
           if (data.error) {
-            alert('Operation failed! Reason: ' + data.error);
+            $(statusDiv).html('<span class="error">Operation failed! Reason: ' + data.error + '</span>');
           }
           else {
-            alert('Operation failed!');
+            $(statusDiv).html('<span class="error">Operation failed!</span>');
           }
         }
       },
       error: function() {
-        alert('Operation error. Please try again later.');
+        $(statusDiv).html('<span class="error">Operation error. Please try again later.</span>');
       },
     });
   }

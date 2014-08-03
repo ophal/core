@@ -266,7 +266,7 @@ function theme.file(variables)
     ('<input %s type="file" class="form-upload-file">'):format(id, id, render_attributes(variables.attributes)),
     theme{'button', value = 'upload', attributes = {class = 'form-upload-button'}}, '<br />',
     '<progress class="form-upload-progress" value="0" max="100"></progress>',
-    '<div class="form-upload-percent">Waiting...</div>',
+    '<div class="form-upload-status">Ready to upload</div>',
     '</div>'
   }
 end

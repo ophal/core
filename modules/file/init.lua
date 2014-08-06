@@ -7,7 +7,8 @@ local request_get_body, io_open, tonumber = request_get_body, io.open, tonumber
 local json, files_path = require 'dkjson', settings.site.files_path
 local os_remove, modules, time = os.remove, ophal.modules, os.time
 local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
-local render_attributes = render_attributes
+local render_attributes, format_size = render_attributes, format_size
+local format_date = format_date
 
 local debug = debug
 
@@ -269,5 +270,19 @@ function theme.file(variables)
     '<progress class="form-upload-progress" value="0" max="100"></progress>',
     '<div class="form-upload-status">Ready to upload</div>',
     '</div>'
+  }
+end
+
+function theme.file_info(variables)
+  local entity = variables.file
+
+  return tconcat{
+    '<div class="file-info">',
+    '<span class="file-size">', entity.filename, '</span>',
+    ' - ',
+    '<span class="file-size">', format_size(entity.filesize), '</span>',
+    ' - ',
+    '<span class="file-date">', format_date(entity.timestamp), '</span>',
+    '</div>',
   }
 end

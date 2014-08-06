@@ -1,5 +1,6 @@
+local seawolf = require 'seawolf'.__build('maths', 'text', 'fs')
 local pairs, tcon, rawset, date = pairs, table.concat, rawset, os.date
-local base, lfs, json = base, lfs, require 'dkjson'
+local base, lfs, json, round = base, lfs, require 'dkjson', seawolf.maths.round
 local str_replace, is_file = seawolf.text.str_replace, seawolf.fs.is_file
 
 function page_set_title(header_title, title)
@@ -194,6 +195,29 @@ end
 ]]
 function format_date(uts, date_format)
   return date(date_format and date_format or settings.date_format, uts)
+end
+
+
+--[[ Format given file size in units.
+]]
+do
+  local units = {'B', 'KB', 'MB', 'GB', 'TB', 'PB'}
+
+  function format_size(size)
+    size = size or 0
+
+    local unit, scale
+
+    for k, v in pairs(units) do
+      unit = v
+      scale = k - 1
+      if 1024^k > size then
+        break
+      end
+    end
+    size = round(size/1024^scale, 2)
+    return ('%s %s'):format(size, unit)
+  end
 end
 
 function get_global(key)

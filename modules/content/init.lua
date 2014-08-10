@@ -225,7 +225,7 @@ function router()
       return theme{'content_form', entity = entity}
     else
       page_set_title(entity.title)
-      if entity.status or user_mod.access 'administer content' then
+      if not empty(entity.status) or user_mod.access 'administer content' then
         page_set_title(entity.title)
         set_global('language', entity.language)
         module_invoke_all('entity_render', entity)

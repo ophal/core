@@ -253,8 +253,17 @@ function theme_blocks_load()
 end
 
 function theme_regions_load()
-  ophal.regions.sidebar_first = {}
-  ophal.regions.sidebar_last = {}
+  ophal.regions = module_invoke_all('region')
+
+  -- Default regions
+  ophal.regions.sidebar_first = {
+    id = 'sidebar_first',
+    blocks = {},
+  }
+  ophal.regions.sidebar_last = {
+    id = 'sidebar_last',
+    blocks = {},
+  }
 
   module_invoke_all('regions_alter', ophal.regions)
 end

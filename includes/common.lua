@@ -175,13 +175,15 @@ end
 
   @see get_destination()
 ]]
-function goto(path, http_response_code)
+function goto(path, http_response_code, options)
   path = path or ''
   http_response_code = http_response_code or 302
+  options = options or {}
+  if options.absolute == nil then options.absolute = true end
 
   local dest_url
 
-  dest_url = url(path, {absolute = true})
+  dest_url = url(path, options)
   -- Remove newlines from the URL to avoid header injection attacks.
   dest_url = str_replace({'\n', '\r'}, '', dest_url)
 

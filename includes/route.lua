@@ -173,9 +173,19 @@ function route_build_routes()
   return routes
 end
 
+--[[ Generates an internal or external URL.
+
+  Params:
+    options (optional): A table with the following elements:
+      'alias': Whether the given path is a URL alias already.
+      'absolute': Whether to force the output to be an absolute link.
+      'external': Whether the given path is an external URL.
+]]
 function url(route, options)
   if options == nil then options = {} end
   if route == nil then route = '' end
+
+  local alias
 
   if not (options.alias or options.external) then
     alias = aliases.source[route]

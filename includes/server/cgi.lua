@@ -121,3 +121,6 @@ function request_get_body()
   return io.read '*a'
 end
 
+function server_exit()
+  os.exit()
+end

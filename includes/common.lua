@@ -145,8 +145,9 @@ function exit_ophal()
     output_flush()
   end
 
-  -- Hasta la vista, baby
-  os.exit()
+  -- “I’m history! No, I’m mythology! Nah, I don’t care what I am; I’m free
+  -- hee!” - Genie, Aladdin | Robin Williams
+  server_exit()
 end
 
 --[[

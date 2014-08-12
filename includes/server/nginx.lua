@@ -79,3 +79,6 @@ do
   end
 end
 
+function server_exit()
+  ngx.exit(ngx.HTTP_OK)
+end

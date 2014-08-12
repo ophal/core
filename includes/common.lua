@@ -144,6 +144,9 @@ function exit_ophal()
   if settings.output_buffering then
     output_flush()
   end
+
+  -- Hasta la vista, baby
+  os.exit()
 end
 
 --[[

@@ -53,7 +53,7 @@ end
   Redirect to raw destination URL.
 ]]
 function redirect(dest_url, http_response_code)
-  ngx.redirect(dest_url, http_response_code or 302)
+  ngx.redirect(dest_url, http_response_code or ngx.HTTP_MOVED_TEMPORARILY)
 end
 
 do

@@ -8,7 +8,7 @@ local json, files_path = require 'dkjson', settings.site.files_path
 local os_remove, modules, time = os.remove, ophal.modules, os.time
 local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
 local render_attributes, format_size = render_attributes, format_size
-local format_date = format_date
+local format_date, sleep = format_date, socket.sleep
 
 local debug = debug
 
@@ -74,6 +74,9 @@ end
 function upload_service()
   local output, target, upload_id, index, upload_dir, err
   local status, output_fh, data, file
+
+  -- Reduce errors of type: "tempt to yield across metamethod/C-call boundary"
+  sleep(0.05)
 
   upload_id = _GET.id
   index = _GET.index

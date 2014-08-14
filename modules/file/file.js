@@ -118,19 +118,6 @@
     $.ajax({
       url: endpoint,
       type: 'POST',
-      xhr: function() {  /* custom xhr */
-        var xhr = $.ajaxSettings.xhr();
-        if (xhr.upload) { /* if upload property exists */
-          xhr.upload.addEventListener('progress', function(evt) {
-            if (evt.lengthComputable) {
-              $(progressBar).attr('max', blob.slicesTotal);
-              $(progressBar).val(blob.index);
-              $(statusDiv).html(Math.round(blob.index/blob.slicesTotal * 100) + "%");
-            }
-          }, false); /* progressbar */
-        }
-        return xhr;
-      },
       /* Ajax events */
       success: function(data) {
         if (data.success) {
@@ -143,6 +130,13 @@
           else {
             /* otherwise keep uploading */
             uploadContinue(blob, context);
+          }
+
+          if (blob.slices > 1) {
+            /* progress bar */
+            $(progressBar).attr('max', blob.slicesTotal);
+            $(progressBar).val(blob.index);
+            $(statusDiv).html(Math.round(blob.index/blob.slicesTotal * 100) + "%");
           }
         }
         else {

@@ -341,6 +341,7 @@ into the database.
     Files metadata database storage
   ]]
   settings.filedb_storage = true
+  settings.bytes_per_chunk = 1024 * 1024,
   ```
 
   NOTE: Ophal is compatible with SQLite only.

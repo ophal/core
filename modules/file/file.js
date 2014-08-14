@@ -23,7 +23,7 @@
     });
   });
 
-  const BYTES_PER_CHUNK = 1024 * 1024; /* 1MB chunk sizes */
+  const BYTES_PER_CHUNK = Ophal.settings.core.BYTES_PER_CHUNK;
 
   /**
    * Calculates slices and indirectly uploads a chunk of a file via uploadFile()

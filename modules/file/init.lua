@@ -255,6 +255,9 @@ function theme.file(variables)
   local id, attributes
 
   add_js 'libraries/uuid.js'
+  add_js {type = 'settings', {
+    BYTES_PER_CHUNK = config.bytes_per_chunk or (1024 * 1024),-- 1MB chunk sizes
+  }}
   add_js 'modules/file/file.js'
 
   id = variables.id

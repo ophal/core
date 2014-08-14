@@ -76,7 +76,7 @@ do
           output[scope][#output[scope] + 1] = ([=[<script type="text/javascript">
 <!--//--><![CDATA[//><!--
 (function ($) {
-$.extend(Ophal.settings, {"%s": %s});
+$.extend(true, Ophal.settings, {"%s": %s});
 })(jQuery);
 //--><!]]>
 </script>

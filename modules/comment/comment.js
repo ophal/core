@@ -18,6 +18,7 @@ function load_comments() {
         }
         $('#content').append(wrapper);
         Ophal.scroll_down();
+        $(document).trigger('ophal:comments:load', [$('.comments-wrapper'), data]);
       }
       else {
         Ophal.set_message('Comments not available.');

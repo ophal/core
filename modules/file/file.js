@@ -15,10 +15,28 @@
 
       if (element.files[0] != undefined) {
         sendRequest(element, context);
-        $(this).attr('disabled', 'disabled');
+        $('button', context).attr('disabled', 'disabled');
       }
       else {
         alert('Please select a file to upload.');
+      }
+    });
+
+    $('.form-delete-button').click(function() {
+      var context = $(this).parent();
+      var element = $('.form-upload-file', context);
+      var statusDiv = $('.form-upload-status', context);
+
+      /* Clear status messages */
+      $(statusDiv).html('');
+
+      element.entity_id = $('.form-upload-entity-id', context).val();
+      if (element.entity_id) {
+        deleteFile(element, context);
+        $('button', context).attr('disabled', 'disabled');
+      }
+      else {
+        $(statusDiv).html('<span class="error">There is no file to delete!</span>');
       }
     });
   });
@@ -87,7 +105,7 @@
   function uploadFile(blob, context) {
     var chunk;
     var fileData;
-    var endpoint = "/upload?" +
+    var endpoint = "/file/upload?" +
       "name=" + encodeURIComponent(blob.name) + "&" + /* filename */
       "id=" + blob.uniq_id + "&" +
       "index=" + blob.index /* part identifier */
@@ -141,7 +159,7 @@
         }
         else {
           /* Allow to try again */
-          $('.form-upload-button', context).removeAttr('disabled');
+          $('button', context).removeAttr('disabled');
 
           if (data.error) {
             $(statusDiv).html('<span class="error">Operation failed! Reason: ' + data.error + '</span>');
@@ -167,7 +185,7 @@
    * Function executed once all of the slices has been sent, "TO MERGE THEM ALL!"
    */
   function mergeFile(blob, context) {
-    var endpoint = "/merge?" +
+    var endpoint = "/file/merge?" +
       "name=" + encodeURIComponent(blob.name) + "&" + /* filename */
       "id=" + blob.uniq_id + "&" + /* unique upload identifier */
       "size=" + blob.size + "&" + /* full size */
@@ -191,7 +209,44 @@
         }
         else {
           /* Allow to try again */
-          $('.form-upload-button', context).removeAttr('disabled');
+          $('button', context).removeAttr('disabled');
+
+          if (data.error) {
+            $(statusDiv).html('<span class="error">Operation failed! Reason: ' + data.error + '</span>');
+          }
+          else {
+            $(statusDiv).html('<span class="error">Operation failed!</span>');
+          }
+        }
+      },
+      error: function() {
+        $(statusDiv).html('<span class="error">Operation error. Please try again later.</span>');
+      },
+    });
+  }
+
+  /**
+   */
+  function deleteFile(element, context) {
+    var endpoint = "/file/delete?" +
+      "id=" + element.entity_id
+    ;
+
+    var statusDiv = $('.form-upload-status', context);
+
+    /* Fetch auth token */
+    $.ajax({
+      type: 'GET',
+      url: endpoint,
+      success: function (data) {
+        if (data.success) {
+          $('.form-upload-entity-id', context).val('deleted');
+          $(statusDiv).html('File deleted successfully!');
+          $('.form-delete-button', context).hide();
+        }
+        else {
+          /* Allow to try again */
+          $('button', context).removeAttr('disabled');
 
           if (data.error) {
             $(statusDiv).html('<span class="error">Operation failed! Reason: ' + data.error + '</span>');

@@ -28,14 +28,19 @@ end
 ]]
 function route()
   items = {}
-  items.upload = {
+  items['file/upload'] = {
     page_callback = 'upload_service',
     access_callback = {module = 'user', 'access', 'upload files'},
     format = 'json',
   }
-  items.merge = {
+  items['file/merge'] = {
     page_callback = 'merge_service',
     access_callback = {module = 'user', 'access', 'upload files'},
+    format = 'json',
+  }
+  items['file/delete'] = {
+    page_callback = 'delete_service',
+    access_callback = {module = 'user', 'access', 'delete own files'},
     format = 'json',
   }
   return items
@@ -198,6 +203,25 @@ function merge_service()
   return output
 end
 
+function delete_service()
+  local rs, err
+  local file_id = _GET.id
+  local output = {success = false}
+
+  if not empty(file_id) then
+    entity = load(file_id)
+    rs, err = delete(entity)
+    if empty(err) then
+      os_remove(entity.filepath)
+      output.success = true
+    else
+      output.error = err
+    end
+  end
+
+  return output
+end
+
 function create(entity)
   local rs, err
 
@@ -251,11 +275,36 @@ function update(entity)
   return rs, err
 end
 
+function delete(entity)
+  local rs, err
+
+  rs, err = db_query('DELETE FROM file WHERE id = ?', entity.id)
+
+  if not err then
+    module_invoke_all('entity_after_delete', entity)
+  end
+
+  return rs, err
+end
+
+function handle_upload(src, tgt)
+  local src_id = src.entity[src.field]
+  local tgt_id = tgt.entity[tgt.field]
+
+  if empty(tgt_id) then
+    -- Keep current value
+    tgt.entity[tgt.field] = src_id
+  elseif tgt_id == 'deleted' then
+    tgt.entity[tgt.field] = nil
+  end
+end
+
 function theme.file(variables)
   if variables == nil then variables = {} end
   if variables.attributes == nil then variables.attributes = {} end
 
-  local id, attributes
+  local id, attributes, entity
+  local file_info, delete_button = '', ''
 
   add_js 'libraries/uuid.js'
   add_js {type = 'settings', {
@@ -268,11 +317,22 @@ function theme.file(variables)
     id = 'upload'
   end
 
+  entity = variables.entity or {}
+  if not empty(entity) then
+    file_info = tconcat{
+      '<strong>Current file:</strong> ', entity.filename, '<br />',
+      '<strong>Uploaded on: </strong> ', format_date(entity.timestamp),
+    }
+  end
+
   return tconcat{
     ('<div class="form-upload-field" id="%s_field">'):format(id),
-    theme{'hidden', attributes = {class = 'form-upload-entity-id'}},
+    theme{'hidden', attributes = {class = 'form-upload-entity-id'}, value = entity.id},
+    '<p>', file_info, '</p>',
     ('<input %s type="file" class="form-upload-file">'):format(id, id, render_attributes(variables.attributes)),
-    theme{'button', value = 'upload', attributes = {class = 'form-upload-button'}}, '<br />',
+    theme{'button', value = 'upload', attributes = {class = 'form-upload-button'}},
+    theme{'button', value = 'delete', attributes = {class = 'form-delete-button'}},
+    '<br />',
     '<progress class="form-upload-progress" value="0" max="100"></progress>',
     '<div class="form-upload-status">Ready to upload</div>',
     '</div>'

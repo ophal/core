@@ -3,7 +3,7 @@ local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
 local pager, l, page_set_title, arg = pager, l, page_set_title, route_arg
 local tonumber, format_date = tonumber, format_date
-local empty, add_js, _SESSION = seawolf.variable.empty, add_js, _SESSION
+local empty, add_js = seawolf.variable.empty, add_js
 local header, json, type, time = header, require 'dkjson', type, os.time
 local print_t, require, modules = print_t, require, ophal.modules
 local module_invoke_all, request_get_body = module_invoke_all, request_get_body
@@ -58,7 +58,7 @@ function load(id)
 end
 
 function entity_access(entity, action)
-  local account = _SESSION.user
+  local account = user_mod.current()
 
   if user_mod.access 'administer content' then
     return true
@@ -139,7 +139,7 @@ function create(entity)
 INSERT INTO content(id, user_id, title, teaser, body, status, promote, created)
 VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
       entity.id,
-      entity.user_id or _SESSION.user.id,
+      entity.user_id or user_mod.current().id,
       entity.title,
       entity.teaser,
       entity.body,
@@ -151,7 +151,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
     rs, err = db_query([[
 INSERT INTO content(user_id, title, teaser, body, status, promote, created)
 VALUES(?, ?, ?, ?, ?, ?, ?)]],
-      entity.user_id or _SESSION.user.id,
+      entity.user_id or user_mod.current().id,
       entity.title,
       entity.teaser,
       entity.body,

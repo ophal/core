@@ -179,6 +179,7 @@ end
 
 function router()
   local rs, err, ipp, current_page, num_pages, count, entity, id, arg1
+  local account = user_mod.current()
 
   arg1 = arg(1)
 
@@ -225,7 +226,7 @@ function router()
       return theme{'content_form', entity = entity}
     else
       page_set_title(entity.title)
-      if not empty(entity.status) or user_mod.access 'administer content' then
+      if not empty(entity.status) or entity.user_id == account.id or user_mod.access 'administer content' then
         page_set_title(entity.title)
         set_global('language', entity.language)
         module_invoke_all('entity_render', entity)

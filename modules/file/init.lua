@@ -67,7 +67,7 @@ function load_by_field(field, value)
     module_invoke_all('entity_load', entity)
   end
 
-  return entity
+  return entity or {}
 end
 
 function load(id)
@@ -212,7 +212,6 @@ function delete_service()
     entity = load(file_id)
     rs, err = delete(entity)
     if empty(err) then
-      os_remove(entity.filepath)
       output.success = true
     else
       output.error = err
@@ -281,6 +280,9 @@ function delete(entity)
   rs, err = db_query('DELETE FROM file WHERE id = ?', entity.id)
 
   if not err then
+    if entity.filepath then
+      os_remove(entity.filepath)
+    end
     module_invoke_all('entity_after_delete', entity)
   end
 

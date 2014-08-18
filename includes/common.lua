@@ -129,7 +129,7 @@ do
   end
 end
 
-function exit_ophal()
+function shutdown_ophal()
   -- call hook exit
   if module_invoke_all then
     module_invoke_all 'exit'
@@ -139,6 +139,10 @@ function exit_ophal()
   if settings.sessionapi and session_write_close then
     session_write_close()
   end
+end
+
+function exit_ophal()
+  shutdown_ophal()
 
   -- flush output buffer
   if settings.output_buffering then

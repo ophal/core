@@ -105,6 +105,7 @@ end
 -- Detect nginx
 if ngx then
   env.ngx = ngx
+  env.pcall = function(f, ...) return true, f(...) end
   for k, v in pairs(getfenv(0, ngx)) do
     env[k] = v
   end

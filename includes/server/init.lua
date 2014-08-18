@@ -111,7 +111,7 @@ do
     -- Get the part of the URI between the base path of the Drupal installation
     -- and the query string, and unescape it.
     request_path = request_uri(true)
-    base_route_len = rtrim(dirname(_SERVER 'SCRIPT_NAME'), '\/'):len()
+    base_route_len = rtrim(dirname(_SERVER 'SCRIPT_NAME'), '\\/'):len()
     path = unescape(request_path):sub(base_route_len + 1)
 
     -- Depending on server configuration, the URI might or might not include the

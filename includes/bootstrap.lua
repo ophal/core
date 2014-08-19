@@ -13,6 +13,7 @@ env = {
   type = type,
   module = module,
   pcall = pcall,
+  nopcall = function(f, ...) return true, f(...) end,
   loadstring = loadstring,
   setfenv = setfenv,
   getfenv = getfenv,
@@ -105,7 +106,7 @@ end
 -- Detect nginx
 if ngx then
   env.ngx = ngx
-  env.pcall = function(f, ...) return true, f(...) end
+  env.pcall = env.nopcall
   for k, v in pairs(getfenv(0, ngx)) do
     env[k] = v
   end

@@ -1,3 +1,4 @@
+local seawolf = require 'seawolf'.__build('text')
 local time, ngx_print, ngx_var, ngx_req = os.time, ngx.print, ngx.var, ngx.req
 local explode, unescape = seawolf.text.explode, socket.url.unescape
 local trim = seawolf.text.trim

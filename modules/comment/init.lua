@@ -119,7 +119,7 @@ function create_form()
   parent_id = tonumber(arg(3) or '')
 
   if entity_id then
-    return theme{'form', id = 'comment_form',
+    return theme{'form', id = 'comment_create_form',
       attributes = {
         class = 'comment-form',
         ['entity:entity_id'] = entity_id,

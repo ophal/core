@@ -1,18 +1,21 @@
-local config = settings.tag
+local _M = {
+  entity_type = 'tag',
+}
+ophal.modules.tag = _M
+
+local modules, config = ophal.modules, settings.tag
 local theme, env, add_css, slash, l = theme, env, add_css, settings.slash, l
 local tinsert, tconcat, pairs, ophal = table.insert, table.concat, pairs, ophal
-local add_js, arg, trim, header = add_js, route_arg, seawolf.text.trim, header
-local page_set_title, json = page_set_title, require 'dkjson'
+local add_js, route_arg, trim, header = add_js, route_arg, seawolf.text.trim, header
+local page_set_title, json, time = page_set_title, require 'dkjson', os.time
 local type, empty, error, goto = type, seawolf.variable.empty, error, goto
 local _SESSION, tonumber, _GET, ceil = _SESSION, tonumber, _GET, math.ceil
 local pager, print_t, request_get_body = pager, print_t, request_get_body
-local db_query, user_is_logged_in, db_last_insert_id
 
-local debug = debug
+local db_query, db_last_insert_id, user_mod
 
-module 'ophal.modules.tag'
 
-function get_tags()
+function _M.get_tags()
   local rs, err, tags
 
   rs, err = db_query 'SELECT * FROM tag'
@@ -28,55 +31,75 @@ function get_tags()
   return tags
 end
 
---[[ Implements hook boot().
-]]
-function boot()
-  if ophal.modules.user then
-    user_is_logged_in = ophal.modules.user.is_logged_in
-  end
-end
-
 --[[ Implements hook init().
 ]]
-function init()
+function _M.init()
   db_query = env.db_query
   db_last_insert_id = env.db_last_insert_id
+  user_mod = modules.user
 end
 
-function route()
+--[[ Implements hook route().
+]]
+function _M.route()
   local items = {}
 
-  items.tags = {
+  items['admin/content/tags'] = {
     page_callback = 'manage_page',
     title = 'Tags manager',
+    access_callback = {module = 'user', 'access', 'administer tags'},
   }
   items.tag = {
     page_callback = 'page',
     title = 'Tag page',
+    access_callback = {module = 'user', 'access', 'access tags'},
   }
   items['tag/add'] = {
     page_callback = 'add_page',
     title = 'Add new tag',
+    access_callback = {module = 'user', 'access', 'create tags'},
   }
   items['tag/edit'] = {
     page_callback = 'edit_page',
     title = 'Edit tag',
+    access_callback = {module = 'user', 'access', 'edit own tags'},
   }
   items['tag/service'] = {
-    page_callback = 'handle_service',
+    page_callback = 'save_service',
     title = 'Tag web service',
+    access_callback = {module = 'user', 'access', 'create tags'},
+    format = 'json',
   }
   items['tag/delete'] = {
     page_callback = 'delete_page',
     title = 'Delete tag',
+    access_callback = {module = 'user', 'access', 'delete own tags'},
   }
 
   return items
 end
 
+function _M.entity_access(entity, action)
+  local account = user_mod.current()
+
+  if user_mod.access 'administer tags' then
+    return true
+  end
+
+  if action == 'create' then
+    return user_mod.access 'create tags'
+  elseif action == 'update' then
+    return user_mod.access 'edit own tags' and entity.user_id == account.id
+  elseif action == 'read' then
+    return user_mod.access 'access tags'
+  elseif action == 'delete' then
+    return user_mod.access 'delete own tags' and entity.user_id == account.id
+  end
+end
+
 --[[ Implements hook entity_load().
 ]]
-function entity_load(entity)
+function _M.entity_load(entity)
   local rs, err, tags
 
   if not config.entities[entity.type] then return end
@@ -97,7 +120,7 @@ end
 
 --[[ Implements hook entity_post_save().
 ]]
-function entity_after_save(entity)
+function _M.entity_after_save(entity)
   local rs, err, tags, in_tags
 
   if not config.entities[entity.type] then return end
@@ -139,7 +162,7 @@ end
 
 --[[ Implements hook entity_after_delete().
 ]]
-function entity_after_delete(entity
+function _M.entity_after_delete(entity)
   local rs, err
 
   if not config.entities[entity.type] then return end
@@ -152,136 +175,232 @@ end
 
 --[[ Implements hook menus_alter().
 ]]
-function menus_alter(menus)
-  local rs, err
-  local account = _SESSION.user
-
-  if account and not empty(account.id) then
+function _M.menus_alter(menus)
+  if user_mod.is_logged_in() then
     menus.primary_links.tags = 'Tags'
   end
 
-  menus.tags_menu = {}
-  rs, err = db_query [[SELECT t.id, t.name
+  menus.tags_menu = function()
+    local rs, err = db_query [[SELECT t.id, t.name
 FROM tag t JOIN field_tag ft ON t.id = ft.tag_id
 GROUP BY t.id
 ORDER BY t.name]]
-  for row in rs:rows(true) do
-    menus.tags_menu['tag/' .. row.id] = ('%s'):format(row.name)
+    local c, items = 0, {}
+    for row in rs:rows(true) do
+      c = c + 1
+      items['tag/' .. row.id] = {weight = c*10, ('%s'):format(row.name)}
+    end
+    return items
+  end
+
+  menus.entity_tags_menu = function()
+    local rs, err = db_query([[SELECT t.id, t.name
+FROM tag t JOIN field_tag ft ON t.id = ft.tag_id
+WHERE ft.entity_type = ? AND ft.entity_id = ?
+GROUP BY t.id
+ORDER BY t.name]], route_arg(0), route_arg(1))
+    local c, items = 0, {}
+    for row in rs:rows(true) do
+      c = c + 1
+      items['tag/' .. row.id] = {weight = c*10, ('%s'):format(row.name)}
+    end
+    return items
   end
 end
 
-function handle_service()
+function _M.load(entity_id)
+  local rs, err = db_query('SELECT * FROM ' .. _M.entity_type .. ' WHERE id = ?', entity_id)
+
+  if err then
+    return nil, err
+  end
+
+  local entity, err = rs:fetch(true)
+
+  if err then
+    return nil, err
+  else
+    entity.type = _M.entity_type
+    return entity
+  end
+end
+
+function _M.create(entity)
+  if entity.type == nil then entity.type = _M.entity_type end
+
+  local rs, err = (function(id, ...)
+    if id then
+      return db_query([[
+INSERT INTO tag(id, user_id, name, status, created)
+VALUES(?, ?, ?, ?, ?)]], id, ...)
+    else
+      local rs1, rs2 = db_query([[
+INSERT INTO tag(user_id, name, status, created)
+VALUES(?, ?, ?, ?)]], ...)
+      entity.id = db_last_insert_id()
+      return rs1, rs2
+    end
+  end)(
+    entity.id,
+    entity.user_id or user_mod.current().id,
+    entity.name,
+    entity.created or time(),
+    entity.status
+  )
+
+  if not err then
+    module_invoke_all('entity_after_save', entity)
+  end
+
+  return entity.id, err
+end
+
+function _M.update(entity)
+  if entity.type == nil then entity.type = _M.entity_type end
+
+  local rs, err = db_query('UPDATE tag SET name = ?, status = ? WHERE id = ?',
+    entity.name,
+    entity.status,
+    entity.id
+  )
+
+  if not err then
+    module_invoke_all('entity_after_save', entity)
+  end
+
+  return rs, err
+end
+
+function _M.delete(entity)
+  local rs, err = db_query('DELETE FROM field_tag WHERE tag_id = ?', entity.id)
+
+  if err then
+    return nil, err
+  end
+
+  rs, err = db_query('DELETE FROM tag WHERE id = ?', entity.id)
+
+  if err then
+    return nil, err
+  end
+
+  return true
+end
+
+--[[ Implements endpoint callback: save.
+]]
+function _M.save_service()
   local input, parsed, pos, err, entity_id, output, target_fp
 
-  if not user_is_logged_in() then
-    header('status', 404)
+  local input, data, pos, err, account, action
+  local output = {success = false}
+  local entity = {id = tonumber(route_arg(2)), type = 'tag'}
+
+  if entity.type ~= _M.entity_type then
+    header('status', 401)
+    output.error = 'Entity type invalid for this handler.'
   else
-    header('content-type', 'application/json; charset=utf-8')
+    action = empty(entity.id) and 'create' or 'update'
+    do
+      local _ = _M.load(entity.id)
+      if not empty(_) then
+        entity = _
+      end
+    end
 
-    output = {success = false}
-    input = request_get_body()
-    parsed, pos, err = json.decode(input, 1, nil)
+    if not _M.entity_access(entity, action) then
+      header('status', 401)
+    elseif entity == 'update' and empty(entity) then
+      header('status', 404)
+      output.error = 'No such entity.'
+    else
+      input = request_get_body()
+      data, pos, err = json.decode(input, 1, nil)
+      data.id = entity.id
 
-    if err then
-      error(err)
-    elseif
-      'table' == type(parsed) and not empty(parsed.action)
-    then
-      if not empty(parsed.name) then
-        if parsed.action == 'create' then
-          rs, err = db_query('INSERT INTO tag(name) VALUES(?)', parsed.name)
-          if err then
-            error(err)
-          else
-            output.tag_id = db_last_insert_id()
-            if output.tag_id then
+      if err then
+        output.error = err
+      elseif 'table' == type(data) and not empty(data) then
+        data.type = _M.entity_type
+
+        if type(data.status) == 'boolean' then
+          data.status = data.status and 1 or 0
+        end
+
+        if not empty(data.name) then
+          if data.action == 'create' then
+            rs, err = _M.create(data)
+            if err then
+              output.error = err
+            else
               output.success = true
             end
-          end
-        elseif parsed.action == 'update' then
-          rs, err = db_query('SELECT * FROM tag WHERE id = ?', parsed.id)
-          if err then
-            error(err)
-          else
-            tag = rs:fetch(true)
-            rs, err = db_query('UPDATE tag SET name = ? WHERE id = ?', parsed.name, tag.id)
+          elseif data.action == 'update' then
+            rs, err = _M.update(data)
             if err then
-              error(err)
+              output.error = err
             else
-              output.tag_id = parsed.id
+              output.tag_id = data.id
               output.success = true
             end
           end
         end
-      end
-      if parsed.action == 'delete' then
-        rs, err = db_query('SELECT * FROM tag WHERE id = ?', parsed.id)
-        if err then
-          error(err)
-        else
-          tag = rs:fetch(true)
-          rs, err = db_query('DELETE FROM field_tag WHERE tag_id = ?', tag.id)
+        if data.action == 'delete' then
+          rs, err = _M.delete(data)
           if err then
-            error(err)
-          end
-          rs, err = db_query('DELETE FROM tag WHERE id = ?', tag.id)
-          if err then
-            error(err)
+            output.error = err
           else
             output.success = true
           end
         end
       end
     end
-
-    output = json.encode(output)
   end
 
-  theme.html = function () return output or '' end
+  return output
 end
   
-function page()
-  local rs, err, tag, current_page, ipp, num_pages, entity, attr, pagination, count
-  local tables, count_query, query, tags, output = {}, {}, {}, {}, {}
+function _M.page()
+  local rs, err, tag, current_page, ipp, num_pages, entity, attr, pagination, sql
+  local count, tables, count_query, query, tags, output = 0, {}, {}, {}, {}, {}
 
-  if _SESSION and not empty(_SESSION.user.id) then
-    add_css(('modules%spanel%spanel.css'):format(slash, slash))
-  end
+  tag, err = _M.load(route_arg(1))
 
-  rs, err = db_query('SELECT * FROM tag WHERE id = ?', arg(1))
   if err then
     error(err)
   else
-    tag = rs:fetch(true)
-
-    if tag then
-      -- Get tables to join with
-      rs, err = db_query('SELECT entity_type FROM field_tag WHERE tag_id = ? GROUP BY entity_type', tag.id)
-      if err then
-        error(err)
-      else
-        for v in rs:rows(true) do
-          tinsert(tables, v.entity_type)
-          tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
-          tinsert(query, 'SELECT e.*, "' .. v.entity_type .. '" type FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
-        end
+    -- Get tables to join with
+    rs, err = db_query('SELECT entity_type FROM field_tag WHERE tag_id = ? GROUP BY entity_type', tag.id)
+    if err then
+      error(err)
+    else
+      for v in rs:rows(true) do
+        tinsert(tables, v.entity_type)
+        tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
+        tinsert(query, 'SELECT e.*, "' .. v.entity_type .. '" type FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
       end
+    end
 
-      -- Count rows
-      rs, err = db_query(tconcat(count_query, ' UNION '), tag.id)
+    -- Count rows
+    if not empty(count_query) then
+      sql = tconcat(count_query, ' UNION ')
+      rs, err = db_query(sql, tag.id)
       if err then
         error(err)
       else
         count = (rs:fetch() or {})[1]
       end
+    end
 
-      -- Calculate current page
-      current_page = tonumber(_GET.page) or 1
-      ipp = 10
-      num_pages = ceil(count/ipp)
+    -- Calculate current page
+    current_page = tonumber(_GET.page) or 1
+    ipp = 10
+    num_pages = ceil(count/ipp)
 
+    if count > 0 then
       -- Render list
-      rs, err = db_query(tconcat(query, ' UNION ').. ' ORDER BY created DESC LIMIT ?, ?', tag.id, (current_page -1)*ipp, ipp)
+      sql = tconcat(query, ' UNION ').. ' ORDER BY created DESC LIMIT ?, ?'
+      rs, err = db_query(sql, tag.id, (current_page -1)*ipp, ipp)
       if err then
         error(err)
       else
@@ -292,11 +411,12 @@ function page()
       end
     end
 
-    if tag and _SESSION then
-      tag.links = tconcat{
-        l('edit', ('tag/edit/%s'):format(tag.id)),
-        l('delete', ('tag/delete/%s'):format(tag.id)),
-      }
+    tag.links = ''
+    if user_mod.access 'edit own tags' then
+      tag.links = tag.links .. l('edit', ('tag/edit/%s'):format(tag.id))
+    end
+    if user_mod.access 'delete own tags' then
+      tag.links = tag.links .. l('delete', ('tag/delete/%s'):format(tag.id))
     end
   end
 
@@ -308,10 +428,10 @@ function page()
   end
 end
 
-function manage_page()
+function _M.manage_page()
   local tags, rs, err, operations
 
-  if not user_is_logged_in() then
+  if not user_mod.is_logged_in() then
     goto 'user/login'
   end
 
@@ -335,32 +455,30 @@ function manage_page()
   return theme{'tags_manage_page', tags = tags, operations = operations}
 end
 
-function edit_page()
-  local tag, rs, err
+function _M.edit_page()
+  local entity, err
 
-  if not user_is_logged_in() then
+  if not user_mod.is_logged_in() then
     goto 'user/login'
   end
 
   add_js 'libraries/jquery.min.js'
   add_js 'modules/tag/tag.js'
 
-  rs, err = db_query('SELECT * FROM tag WHERE id = ?', trim(arg(2)))
+  entity, err = _M.load(trim(route_arg(2)))
   if err then
     error(err)
-  else
-    tag = rs:fetch(true)
   end
 
-  page_set_title(("Edit tag '%s'"):format(tag.name))
+  page_set_title(("Edit tag '%s'"):format(entity.name))
 
-  return theme{'tag_save_form', tag = tag}
+  return theme{'tag_form', entity = entity}
 end
 
-function add_page()
+function _M.add_page()
   local tag, rs, err
 
-  if not user_is_logged_in() then
+  if not user_mod.is_logged_in() then
     goto 'user/login'
   end
 
@@ -369,39 +487,43 @@ function add_page()
 
   page_set_title('Add new tag')
 
-  return theme{'tag_save_form', tag = {}}
+  return theme{'tag_form', entity = {type = _M.entity_type}}
 end
 
-function delete_page()
-  local tag, rs, err
+function _M.delete_page()
+  local entity, err
 
-  if not user_is_logged_in() then
+  if not user_mod.is_logged_in() then
     goto 'user/login'
   end
 
-  add_js 'libraries/jquery.min.js'
-  add_js 'modules/tag/tag.js'
-
-  rs, err = db_query('SELECT * FROM tag WHERE id = ?', trim(arg(2)))
+  entity, err = _M.load(trim(route_arg(2)))
   if err then
     error(err)
-  else
-    tag = rs:fetch(true)
+  elseif empty(entity) then
+      header('status', 404)
+    return 'Page not found'
   end
 
-  return theme{'tag_delete_form', tag = tag}
+  return theme{'tag_delete_form', entity = entity}
 end
 
 --[[ Implements hook form_alter().
 ]]
-function form_alter(form)
-  if
-    form.attributes.id == 'content_create_form' or
-    form.attributes.id == 'content_edit_form'
-  then
-    add_js 'modules/tag/tag.js'
-    tinsert(form.elements, {'tag_field', title = 'Tags', tags = form.entity.tags, attributes = {id = 'field_tags'}})
+function _M.form_alter(form)
+  local entities = config.entities or {}
+
+  for entity_type in pairs(entities) do
+    if
+      form.attributes.id == entity_type .. '_create_form' or
+      form.attributes.id == entity_type .. '_edit_form'
+    then
+      add_js 'modules/tag/tag.js'
+      tinsert(form.elements, {'tag_field', title = 'Tags', tags = form.entity.tags, attributes = {id = 'field_tags', size = 10}})
+      break
+    end
   end
+
 end
 
 function theme.tags_manage_page(variables)
@@ -426,30 +548,40 @@ function theme.tags_manage_page(variables)
   return tconcat(output)
 end
 
-function theme.tag_save_form(variables)
-  local tag = variables.tag
-  local row = '<tr><td class="field-name" valign="top">%s:</td><td>%s</td></tr>'
+function theme.tag_form(variables)
+  local entity = variables.entity
 
-  return tconcat{
-    '<div id="tag_save_form"><table class="form">',
-    theme.hidden{attributes = {id = 'tag_id'}, value = tag.id},
-    theme.hidden{attributes = {id = 'action'}, value = empty(tag.id) and 'create' or 'update'},
-    row:format('Name', theme.textfield{attributes = {id = 'tag_name'}, value = tag.name}),
-    ('<tr><td colspan="2" align="right">%s</td></tr>'):format(theme.button{attributes = {id = 'save_submit'}, value = 'Save'}),
-    '</table></div>',
+  if entity == nil then entity = {} end
+
+  add_js(('modules/%s/%s_form.js'):format(entity.type, entity.type))
+
+  local elements = {
+    {'hidden', attributes = {id = 'entity_id'}, value = entity.id},
+    {'hidden', attributes = {id = 'action'}, value = empty(entity.id) and 'create' or 'update'},
+    {'textfield', title = 'Name', attributes = {id = 'name_field'}, value = entity.name, weight = 20},
+    {'checkbox', title = 'Status', attributes = {id = 'status_field'}, value = entity.status, weight = 40},
+    {'button', attributes = {id = 'save_submit'}, value = 'Save', weight = 90},
+  }
+
+  return theme{'form', method = 'POST',
+    attributes = {id = empty(entity.id) and  entity.type .. '_create_form' or entity.type .. '_edit_form'},
+    entity = entity,
+    elements = elements,
   }
 end
 
 function theme.tag_delete_form(variables)
-  local tag = variables.tag
+  local entity = variables.entity
 
-  return tconcat{
-    '<div id="tag_delete_form"><table class="form">',
-    theme.hidden{attributes = {id = 'tag_id'}, value = tag.id},
-    ("Are you sure you want to <strong>delete</strong> '%s'?"):format(tag.name),
-    '<br />',
-    theme.button{attributes = {id = 'confirm_submit'}, value = 'Confirm'},
-    '</table></div>',
+  add_js(('modules/%s/%s_form.js'):format(entity.type, entity.type))
+
+  return theme{'form',
+    attributes = {id = 'tag_delete_form'},
+    elements = {
+      {'hidden', attributes = {id = 'entity_id'}, value = entity.id},
+      {'markup', value = ("Are you sure you want to <strong>delete</strong> '%s'?"):format(entity.name)},
+      {'button', attributes = {id = 'confirm_submit'}, value = 'Confirm'},
+    },
   }
 end
 
@@ -459,7 +591,12 @@ function theme.tag_page(variables)
   local items = {}
 
   for _, v in pairs(rows) do
-    tinsert(items, theme{v.type .. '_teaser', [v.type] = v})
+    module_invoke_all('entity_render', v, false)
+    tinsert(items, theme{v.type .. '_teaser', entity = v})
+  end
+
+  if #rows < 1 then
+    return 'There is no content under this tag already.'
   end
 
   return function ()
@@ -480,9 +617,11 @@ function theme.tag_field(variables)
   attributes.multiple = 'multiple'
   attributes.required = 'required'
 
-  return theme{'select', attributes = attributes, options = get_tags(), choices = variables.tags or {}}
+  return theme{'select', attributes = attributes, options = _M.get_tags(), choices = variables.tags or {}}
 end
 
 function theme.tags_menu()
   return theme{'menu', id = 'tags_menu'}
 end
+
+return _M

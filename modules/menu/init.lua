@@ -31,6 +31,11 @@ function theme.menu(variables)
   local menu = get_menus()[menu_id] or {}
 
   local items = {}
+
+  if type(menu) == 'function' then
+    menu = menu()
+  end
+
   for route, v in pairs(menu) do
     if type(v) ~= 'table' then
       v = {v}

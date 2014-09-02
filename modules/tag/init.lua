@@ -219,7 +219,7 @@ function _M.load(entity_id)
 
   if err then
     return nil, err
-  else
+  elseif not empty(entity) then
     entity.type = _M.entity_type
     return entity
   end
@@ -368,6 +368,9 @@ function _M.page()
 
   if err then
     error(err)
+  elseif empty(tag) then
+    header('status', 404)
+    return page_not_found()
   else
     -- Get tables to join with
     rs, err = db_query('SELECT entity_type FROM field_tag WHERE tag_id = ? GROUP BY entity_type', tag.id)
@@ -418,13 +421,13 @@ function _M.page()
     if user_mod.access 'delete own tags' then
       tag.links = tag.links .. l('delete', ('tag/delete/%s'):format(tag.id))
     end
-  end
 
-  page_set_title(("%s (page %s)"):format(tag.name, _GET.page or 1))
+    page_set_title(("%s (page %s)"):format(tag.name, _GET.page or 1))
 
-  return function()
-    print_t{'tag_page', tag = tag, rows = output}
-    print_t{'pager', pages = pager(('tag/%s'):format(tag.id), num_pages, current_page)}
+    return function()
+      print_t{'tag_page', tag = tag, rows = output}
+      print_t{'pager', pages = pager(('tag/%s'):format(tag.id), num_pages, current_page)}
+    end
   end
 end
 

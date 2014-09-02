@@ -68,7 +68,7 @@ $(document).ready(function() {
       processData: false,
       success: function (data) {
         if (data.success) {
-          //~ window.location = baseRoute + 'admin/content/tags';
+          window.location = baseRoute + 'admin/content/tags';
         }
         else {
           $(this_button).removeAttr('disabled');

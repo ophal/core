@@ -13,6 +13,12 @@ function page_set_title(header_title, title)
   end
 end
 
+function page_not_found()
+  header('status', 404)
+  page_set_title 'Page not found.'
+  return ''
+end
+
 do
   local javascript = {}
   local order = {}

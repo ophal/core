@@ -465,8 +465,7 @@ function _M.edit_page()
     goto 'user/login'
   end
 
-  add_js 'libraries/jquery.min.js'
-  add_js 'modules/tag/tag.js'
+  add_js 'modules/tag/tag_form.js'
 
   entity, err = _M.load(trim(route_arg(2)))
   if err then
@@ -485,8 +484,7 @@ function _M.add_page()
     goto 'user/login'
   end
 
-  add_js 'libraries/jquery.min.js'
-  add_js 'modules/tag/tag.js'
+  add_js 'modules/tag/tag_form.js'
 
   page_set_title('Add new tag')
 
@@ -521,7 +519,7 @@ function _M.form_alter(form)
       form.attributes.id == entity_type .. '_create_form' or
       form.attributes.id == entity_type .. '_edit_form'
     then
-      add_js 'modules/tag/tag.js'
+      add_js 'modules/tag/tag_form.js'
       tinsert(form.elements, {'tag_field', title = 'Tags', tags = form.entity.tags, attributes = {id = 'field_tags', size = 10}})
       break
     end

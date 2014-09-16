@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" <?lua print_f('xml:lang="%s" lang="%s" dir="%s"', settings.language, settings.language, settings.language_dir) ?>>
 <head>
+<?lua if head then print(head) end ?>
+
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <?lua if core_version then ?>
 <meta name="generator" content="<?lua print(core_version)?>" />

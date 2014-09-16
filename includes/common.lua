@@ -135,6 +135,28 @@ do
   end
 end
 
+do
+  local head = {}
+
+  function init_head()
+    for k, v in pairs(theme.settings.head or {}) do
+      head[k] = v
+    end
+  end
+
+  function add_head(data)
+    if data ~= nil then
+      head[#head + 1] = data
+    end
+  end
+
+  function get_head()
+    return tcon(head, [[
+
+]])
+  end
+end
+
 function shutdown_ophal()
   -- call hook exit
   if module_invoke_all then

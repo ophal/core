@@ -38,6 +38,7 @@ end
 -- Set final theme settings
 theme.settings = settings.theme
 
+init_head()
 init_css()
 init_js()
 

@@ -285,6 +285,7 @@ function route_execute_active_handler()
     header_title = ophal.header_title,
     title = ophal.title,
     content = content,
+    head = get_head(),
     javascript = get_js(),
     css = get_css(),
     regions = theme_get_regions(),

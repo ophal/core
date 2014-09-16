@@ -346,7 +346,7 @@ function theme.file_info(variables)
 
   return tconcat{
     '<div class="file-info">',
-    '<span class="file-size">', entity.filename, '</span>',
+    '<span class="file-size">', entity.filename or '', '</span>',
     ' - ',
     '<span class="file-size">', format_size(entity.filesize), '</span>',
     ' - ',

@@ -182,10 +182,10 @@ Run the following SQL queries in strict order:
 1. Create schema:
 
   ```SQL
-  CREATE TABLE user(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255), mail VARCHAR(255), pass VARCHAR(255), active BOOLEAN, created UNSIGNED BIG INT);
-  CREATE UNIQUE INDEX unq_idx_user_name ON user (name);
-  CREATE INDEX idx_user_created ON user (created);
-  CREATE INDEX idx_user_mail ON user (mail);
+  CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255), mail VARCHAR(255), pass VARCHAR(255), active BOOLEAN, created UNSIGNED BIG INT);
+  CREATE UNIQUE INDEX unq_idx_user_name ON users (name);
+  CREATE INDEX idx_user_created ON users (created);
+  CREATE INDEX idx_user_mail ON users (mail);
 
   CREATE TABLE role(id VARCHAR(255) PRIMARY KEY, name VARCHAR(255), active BOOLEAN, weight INT);
   CREATE UNIQUE INDEX unq_idx_role_name ON role (name);
@@ -218,7 +218,7 @@ Run the following SQL queries in strict order:
 3. Create user 1:
 
   ```SQL
-  INSERT INTO user VALUES(1, 'root', 'test@example.com', 'your password hash', 1, strftime('%s', 'now'));
+  INSERT INTO users VALUES(1, 'root', 'test@example.com', 'your password hash', 1, strftime('%s', 'now'));
   ```
 
 4. Enable Form API:

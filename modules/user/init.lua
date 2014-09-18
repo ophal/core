@@ -93,7 +93,7 @@ function load_by_field(field, value)
       name = 'Anonymous',
     }
   elseif not empty(field) and not empty(value) then
-    rs = db_query('SELECT * FROM user WHERE ' .. field .. ' = ?', value)
+    rs = db_query('SELECT * FROM users WHERE ' .. field .. ' = ?', value)
     entity = rs:fetch(true)
   end
 

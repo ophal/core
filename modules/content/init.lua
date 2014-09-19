@@ -13,12 +13,13 @@ local set_global = set_global
 
 module 'ophal.modules.content'
 
-local user_mod
+local user_mod, db_query, db_limit, db_last_insert_id
 
 --[[ Implements hook init().
 ]]
 function init()
   db_query = env.db_query
+  db_limit = env.db_limit
   db_last_insert_id = env.db_last_insert_id
   user_mod = modules.user
 end
@@ -267,7 +268,7 @@ function frontpage()
   num_pages = ceil(count/ipp)
 
   -- Render list
-  query = ('SELECT * FROM content WHERE promote = 1 %s ORDER BY created DESC LIMIT ?, ?'):format(user_mod.is_logged_in() and '' or 'AND status = 1')
+  query = ('SELECT * FROM content WHERE promote = 1 %s ORDER BY created DESC' .. db_limit()):format(user_mod.is_logged_in() and '' or 'AND status = 1')
   rs, err = db_query(query, (current_page -1)*ipp, ipp)
   if err then
     error(err)

@@ -12,7 +12,7 @@ local type, empty, error, goto = type, seawolf.variable.empty, error, goto
 local _SESSION, tonumber, _GET, ceil = _SESSION, tonumber, _GET, math.ceil
 local pager, print_t, request_get_body = pager, print_t, request_get_body
 
-local db_query, db_last_insert_id, user_mod
+local db_query, db_limit, db_last_insert_id, user_mod
 
 
 function _M.get_tags()
@@ -35,6 +35,7 @@ end
 ]]
 function _M.init()
   db_query = env.db_query
+  db_limit = env.db_limit
   db_last_insert_id = env.db_last_insert_id
   user_mod = modules.user
 end
@@ -402,7 +403,7 @@ function _M.page()
 
     if count > 0 then
       -- Render list
-      sql = tconcat(query, ' UNION ').. ' ORDER BY created DESC LIMIT ?, ?'
+      sql = tconcat(query, ' UNION ') .. ' ORDER BY created DESC' .. db_limit()
       rs, err = db_query(sql, tag.id, (current_page -1)*ipp, ipp)
       if err then
         error(err)

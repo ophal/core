@@ -231,11 +231,11 @@ function _M.create(entity)
   local rs, err = (function(id, ...)
     if id then
       return db_query([[
-INSERT INTO tag(id, user_id, name, status, created)
+INSERT INTO tag(id, user_id, name, created, status)
 VALUES(?, ?, ?, ?, ?)]], id, ...)
     else
       local rs1, rs2 = db_query([[
-INSERT INTO tag(user_id, name, status, created)
+INSERT INTO tag(user_id, name, created, status)
 VALUES(?, ?, ?, ?)]], ...)
       entity.id = db_last_insert_id()
       return rs1, rs2

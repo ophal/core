@@ -250,7 +250,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
       entity.status,
       entity.sticky or false
     )
-    entity.id = db_last_insert_id()
+    entity.id = db_last_insert_id('comment', 'id')
   end
 
   if not err then

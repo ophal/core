@@ -225,7 +225,7 @@ function bootstrap(phase, main)
     -- 12. Database API,
     function ()
       if settings.db ~= nil then
-        require 'includes.database'
+        require 'includes.database.init'
         if settings.db.default ~= nil then
           db_connect()
           if settings.route_aliases_storage then

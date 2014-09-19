@@ -237,7 +237,7 @@ VALUES(?, ?, ?, ?, ?)]], id, ...)
       local rs1, rs2 = db_query([[
 INSERT INTO tag(user_id, name, created, status)
 VALUES(?, ?, ?, ?)]], ...)
-      entity.id = db_last_insert_id()
+      entity.id = db_last_insert_id('tag', 'id')
       return rs1, rs2
     end
   end)(
@@ -380,7 +380,7 @@ function _M.page()
       for v in rs:rows(true) do
         tinsert(tables, v.entity_type)
         tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
-        tinsert(query, 'SELECT e.*, "' .. v.entity_type .. '" type FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
+        tinsert(query, 'SELECT e.*, ' .. "'" .. v.entity_type .. "'" .. ' "type" FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
       end
     end
 

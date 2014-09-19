@@ -1,13 +1,13 @@
 dbh = {} -- Database handlers
 
-local DBI, db_id = require 'DBI', 'default'
+local DBI, db_id, drivers = require 'DBI', 'default', {}
 
 function db_set_db_id(id)
   db_id = id
 end
 
 function db_connect()
-  local err
+  local err, driver
   local connection = settings.db[db_id]
 
   if connection == nil then return end
@@ -22,6 +22,8 @@ function db_connect()
     connection.host,
     connection.port
   )
+
+  drivers[db_id] = require('includes.database.' .. connection.driver:lower())
 
   if err then
     return nil, err
@@ -48,14 +50,10 @@ function db_query(query, ...)
   return sth, err
 end
 
-function db_last_insert_id()
-  local sth, err, row
+function db_last_insert_id(...)
+  return drivers[db_id].last_insert_id(...)
+end
 
-  sth, err = db_query('SELECT last_insert_rowid()')
-  if err then
-    return nil, err
-  else
-    row = sth:fetch()
-    return row[1]
-  end
+function db_limit()
+  return drivers[db_id].limit()
 end

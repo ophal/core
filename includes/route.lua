@@ -56,7 +56,7 @@ VALUES(?, ?, ?)]],
       entity.alias,
       entity.language
     )
-    entity.id = db_last_insert_id()
+    entity.id = db_last_insert_id('route_alias', 'id')
   end
 
   if not err then

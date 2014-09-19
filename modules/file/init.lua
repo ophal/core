@@ -235,7 +235,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?)]], id, ...)
       local rs1, rs2 = db_query([[
 INSERT INTO file(user_id, filename, filepath, filemime, filesize, status, timestamp)
 VALUES(?, ?, ?, ?, ?, ?, ?)]], ...)
-      entity.id = db_last_insert_id()
+      entity.id = db_last_insert_id('file', 'id')
       return rs1, rs2
     end
   end)(

@@ -159,7 +159,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?)]],
       entity.promote or false,
       entity.created or time()
     )
-    entity.id = db_last_insert_id()
+    entity.id = db_last_insert_id('content', 'id')
   end
 
   if not err then

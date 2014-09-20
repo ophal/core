@@ -199,7 +199,7 @@ ORDER BY t.name]]
 FROM tag t JOIN field_tag ft ON t.id = ft.tag_id
 WHERE ft.entity_type = ? AND ft.entity_id = ?
 GROUP BY t.id
-ORDER BY t.name]], route_arg(0), route_arg(1))
+ORDER BY t.name]], route_arg(0), tonumber(route_arg(1)))
     local c, items = 0, {}
     for row in rs:rows(true) do
       c = c + 1

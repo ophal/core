@@ -139,7 +139,7 @@ function theme.select(variables)
   if variables == nil then variables = {} end
   if variables.class == nil then variables.class = {} end
 
-  local options, choices, attributes
+  local options, order, choices, attributes
 
   options = variables.options
   variables.options = nil
@@ -147,13 +147,21 @@ function theme.select(variables)
   choices = variables.choices
   variables.choices = nil
 
+  order = variables.order
+  variables.order = nil
+
   variables.class['form-select'] = true
   variables.class = render_classes(variables.class)
 
   return ('<select %s>%s</select>'):format(
     render_attributes(variables.attributes),
-    theme{'select_options', options = options, choices = choices}
+    theme{'select_options', options = options, order = order, choices = choices}
   )
+end
+
+function theme.select_option(variables)
+  local selected = variables.selected and ' selected="selected"' or ''
+  return ('<option value="%s"%s>%s</option>'):format(variables.key, selected, variables.value)
 end
 
 --[[
@@ -164,11 +172,18 @@ function theme.select_options(variables)
   if variables.options == nil then variables.options = {} end
   if variables.choices == nil then variables.choices = {} end
 
-  local options, choices, output = variables.options, variables.choices, {}
-  local selected
-  for k, v in pairs(options) do
-    selected = not empty(choices[k]) and ' selected="selected"' or ''
-    tinsert(output, ('<option value="%s"%s>%s</option>'):format(k, selected, v))
+  local options, order, choices, output = variables.options, variables.order, variables.choices, {}
+
+  if not empty(order) then
+    for k, key in pairs(order) do
+      local selected = not empty(choices[key])
+      tinsert(output, theme{'select_option', key = key, value = options[key], selected = selected})
+    end
+  else
+    for k, v in pairs(options) do
+      local selected = not empty(choices[k])
+      tinsert(output, theme{'select_option', key = k, value = v, selected = selected})
+    end
   end
 
   return tconcat(output)

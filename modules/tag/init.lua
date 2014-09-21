@@ -16,19 +16,20 @@ local db_query, db_limit, db_last_insert_id, user_mod
 
 
 function _M.get_tags()
-  local rs, err, tags
+  local rs, err, tags, order
 
-  rs, err = db_query 'SELECT * FROM tag'
+  rs, err = db_query 'SELECT * FROM tag ORDER BY name'
   if err then
     error(err)
   else
-    tags = {}
+    tags, order = {}, {}
     for tag in rs:rows(true) do
       tags[tag.id] = tag.name
+      order[#order + 1] = tag.id
     end
   end
 
-  return tags
+  return tags, order
 end
 
 --[[ Implements hook init().
@@ -439,7 +440,7 @@ function _M.manage_page()
     goto 'user/login'
   end
 
-  rs, err = db_query 'SELECT * FROM tag'
+  rs, err = db_query 'SELECT * FROM tag ORDER BY name'
   if err then
     error(err)
   else
@@ -619,7 +620,9 @@ function theme.tag_field(variables)
   attributes.multiple = 'multiple'
   attributes.required = 'required'
 
-  return theme{'select', attributes = attributes, options = _M.get_tags(), choices = variables.tags or {}}
+  local options, order = _M.get_tags()
+
+  return theme{'select', attributes = attributes, options = options, order = order, choices = variables.tags or {}}
 end
 
 function theme.tags_menu()

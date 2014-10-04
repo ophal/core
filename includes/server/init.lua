@@ -136,8 +136,12 @@ end
 
 -- Build base URL, system_root, route and path
 function build_base()
-  base.system_root = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
-  base.system_root = base.system_root .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
+  if not empty(settings.site.scheme) then
+    base.scheme = settings.site.scheme
+  else
+    base.scheme = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
+  end
+  base.system_root = base.scheme .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
   base.url = base.system_root
   base.path = request_path()
 

@@ -24,7 +24,7 @@ ophal.bootstrap(5, function ()
   end
 
   -- Force settings
-  settings.theme = 'install'
+  settings.theme = {name = 'install'}
 
   -- Detect phase
   local phase = tonumber(_GET.phase) or 1
@@ -255,6 +255,7 @@ return function(settings, vault)
   settings.output_buffering = false
   settings.sessionapi = true
   settings.formapi = false
+  settings.entityapi = false
   settings.date_format = '!%Y-%m-%d %H:%M UTC'
   settings.route_aliases_storage = false
   settings.route_aliases_prepend_language = false

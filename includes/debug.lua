@@ -16,5 +16,7 @@ end
 
 function debug.log(msg)
   local fh = io.open(temp_dir() .. '/ophal.log', 'a+')
-  return fh:write(("%s: %s\n"):format(os.date('%Y-%m-%d %H:%M:%S', os.time()), debug.print_r(msg, 1)))
+  if fh then
+    return fh:write(("%s: %s\n"):format(os.date('%Y-%m-%d %H:%M:%S', os.time()), debug.print_r(msg, 1)))
+  end
 end

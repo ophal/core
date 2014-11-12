@@ -76,6 +76,7 @@ settings = (function()
     },
     slash = string.sub(package.config,1,1),
     modules = {},
+    debugapi = true,
   }
 
   -- Load settings.lua and vault.lua

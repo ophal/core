@@ -16,7 +16,7 @@
 # http://www.robotstxt.org/robotstxt.html
 #
 # For syntax checking, see:
-# http://www.frobee.com/robots-txt-check
+# https://webmaster.yandex.com/robots.xml
 
 User-agent: *
 Crawl-delay: 10

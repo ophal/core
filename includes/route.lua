@@ -21,7 +21,7 @@ function route_aliases_load()
   for row in rs:rows(true) do
     alias = row.alias
     if (row.language or 'all') ~= 'all' and settings.route_aliases_prepend_language then
-      alias = row.language .. '/' ..row.alias
+      alias = row.language .. '/' .. row.alias
     end
     route_register_alias(row.source, alias)
   end
@@ -52,7 +52,7 @@ VALUES(?, ?, ?, ?)]],
     )
   else
     rs, err = db_query([[
-INSERT INTO route_alias(id, source, alias, language)
+INSERT INTO route_alias(source, alias, language)
 VALUES(?, ?, ?)]],
       entity.source,
       entity.alias,

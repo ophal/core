@@ -56,6 +56,7 @@ env = {
     modules = {},
     routes = {},
     aliases = {},
+    redirects = {},
     blocks = {},
     regions = {},
     title = '',
@@ -231,6 +232,9 @@ function bootstrap(phase, main)
           db_connect()
           if settings.route_aliases_storage then
             route_aliases_load()
+          end
+          if settings.route_redirects_storage then
+            route_redirects_load()
           end
         end
       end

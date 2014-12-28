@@ -18,6 +18,8 @@ return function(settings, vault)
   settings.date_format = '!%Y-%m-%d %H:%M UTC'
   settings.route_aliases_storage = false
   settings.route_aliases_prepend_language = false
+  settings.route_redirects_storage = false
+  settings.route_redirects_prepend_language = false
 
   --[[ Active/Disabled modules
     List of Ophal modules to load on bootstrap.

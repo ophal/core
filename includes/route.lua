@@ -1,10 +1,12 @@
 if not ophal.aliases.source then ophal.aliases.source = {} end
 if not ophal.aliases.alias then ophal.aliases.alias = {} end
-
+if not ophal.redirects.source then ophal.redirects.source = {} end
+if not ophal.redirects.target then ophal.redirects.target = {} end
 
 local explode = seawolf.text.explode
 local table_shift = seawolf.contrib.table_shift
 local aliases = ophal.aliases
+local redirects = ophal.redirects
 local route_set_title, pcall = route_set_title, pcall
 local empty = seawolf.variable.empty
 
@@ -37,7 +39,7 @@ function route_create_alias(entity)
 
   local rs, err
 
-  if entity.type == nil then entity.type = 'route' end
+  if entity.type == nil then entity.type = 'route_alias' end
 
   if entity.id then
     rs, err = db_query([[
@@ -76,6 +78,78 @@ end
 
 function route_delete_alias(id)
   return db_query('DELETE FROM route_alias WHERE id = ?', id)
+end
+
+function route_register_redirect(source, target)
+  redirects.source[source] = target
+  redirects.target[target] = source
+end
+
+function route_redirects_load()
+  local target
+  local rs, err = db_query 'SELECT * FROM route_redirect'
+  for row in rs:rows(true) do
+    target = row.target
+    if (row.language or 'all') ~= 'all' and settings.route_redirects_prepend_language then
+      target = row.language .. '/' .. target
+    end
+    route_register_redirect(row.source, target)
+  end
+end
+
+function route_create_redirect(entity)
+  if empty(entity.language) then
+    entity.language = 'all'
+  end
+
+  local rs, err
+
+  if entity.type == nil then entity.type = 'route_redirect' end
+
+  if entity.id then
+    rs, err = db_query([[
+INSERT INTO route_redirect(id, source, alias, language, type)
+VALUES(?, ?, ?, ?, ?)]],
+      entity.id,
+      entity.source,
+      entity.target,
+      entity.language,
+      entity.type
+    )
+  else
+    rs, err = db_query([[
+INSERT INTO route_redirect(source, target, language, type)
+VALUES(?, ?, ?, ?)]],
+      entity.source,
+      entity.target,
+      entity.language,
+      entity.type
+    )
+    entity.id = db_last_insert_id('route_redirect', 'id')
+  end
+
+  if not err then
+    module_invoke_all('entity_after_save', entity)
+  end
+  return entity.id, err
+end
+
+function route_read_redirect(id)
+  local rs = db_query('SELECT * FROM route_redirect WHERE id = ?', id)
+  return rs:fetch(true)
+end
+
+function route_update_redirect(id, entity)
+  local keys, placeholders = {}, {}
+  local record = route_read_redirect(id)
+  for _, v in pairs{'source', 'alias', 'language', 'type'} do
+    record[v] = entity[v]
+  end
+  return db_query('UPDATE route_redirect SET source = ?, target = ?, language = ?, type = ? WHERE id = ?', record.source, record.target, record.language, record.type, id)
+end
+
+function route_delete_redirect(id)
+  return db_query('DELETE FROM route_redirect WHERE id = ?', id)
 end
 
 do

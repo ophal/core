@@ -242,6 +242,7 @@ function bootstrap(phase, main)
 
     -- 13. Init,
     function ()
+      route_redirect()
       module_invoke_all 'init'
     end,
 

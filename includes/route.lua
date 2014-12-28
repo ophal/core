@@ -80,8 +80,15 @@ function route_delete_alias(id)
   return db_query('DELETE FROM route_alias WHERE id = ?', id)
 end
 
-function route_register_redirect(source, target)
-  redirects.source[source] = target
+function route_redirect()
+  local redirect = ophal.redirects.source[request_path()]
+  if redirect then
+    goto(redirect[1], redirect[2])
+  end
+end
+
+function route_register_redirect(source, target, http_code)
+  redirects.source[source] = {target, http_code}
   redirects.target[target] = source
 end
 
@@ -93,7 +100,7 @@ function route_redirects_load()
     if (row.language or 'all') ~= 'all' and settings.route_redirects_prepend_language then
       target = row.language .. '/' .. target
     end
-    route_register_redirect(row.source, target)
+    route_register_redirect(row.source, target, row.type)
   end
 end
 

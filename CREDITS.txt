@@ -44,11 +44,6 @@ Other software compatible with GPL license is included:
     --------
     Public Domain.
 
-    jssha256
-    --------
-    Copyright 2006 B. Poettering
-    http://point-at-infinity.org/jssha256/
-
     uuid.js
     -------
     Copyright (C) 2011 Alexey Silin <pinkoblomingo@gmail.com>

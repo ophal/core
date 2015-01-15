@@ -8,10 +8,9 @@ function pager_url(path, page, selector)
 
   if page > 1 then
     result:append{'?page=', page}
-  end
-
-  if selector then
-    result:append{'#', selector}
+    if selector then
+      result:append{'#', selector}
+    end
   end
 
   return result:concat()

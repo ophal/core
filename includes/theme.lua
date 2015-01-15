@@ -178,7 +178,7 @@ end
 local mt = {
   __call = function(t, arg)
     local meta = getmetatable(t)
-    local overrides = settings.theme.__overrides
+    local overrides = settings.theme.__overrides or {}
 
     -- Override theme functions
     for k in pairs(overrides) do

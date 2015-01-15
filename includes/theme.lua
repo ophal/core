@@ -24,6 +24,22 @@ local seawolf = require 'seawolf'.__build('variable', 'contrib')
 if settings.template_env == nil then settings.template_env = {} end
 
 if settings.theme == nil then settings.theme = {name = 'basic'} end
+do
+  local mt = {}
+  mt.__index = function(t, k)
+    if mt[k] ~= nil then
+      return mt[k]
+    end
+  end
+  mt.override = function(t, vars)
+    if t.__overrides == nil then
+      t.__overrides = {}
+    end
+    t.__overrides[vars[1]] = vars[2]
+  end
+  setmetatable(settings.theme, mt)
+end
+
 if settings.theme.css == nil then settings.theme.css = {} end
 setmetatable(settings.theme.css, seawolf.contrib.metahelper)
 
@@ -140,23 +156,46 @@ local function theme_execute(f, arg)
 end
 
 --[[
-  Theme metatable.
+  Call theme function
 ]]
-setmetatable(theme, {
-  __call = function(t, arg)
-    if not arg then arg = {} end
+local function theme_call(t, arg)
+  if not arg then arg = {} end
 
-    local f = arg[1]
+  local f = arg[1]
 
-    arg[1] = nil -- clean-up theme environment
+  arg[1] = nil -- clean-up theme environment
 
-    if t[f] == nil then
-      return theme_render(f, arg)
-    else
-      return theme_execute(f, arg)
-    end
+  if t[f] == nil then
+    return theme_render(f, arg)
+  else
+    return theme_execute(f, arg)
   end
-})
+end
+
+--[[
+  Theme metatable
+]]
+local mt = {
+  __call = function(t, arg)
+    local meta = getmetatable(t)
+    local overrides = settings.theme.__overrides
+
+    -- Override theme functions
+    for k in pairs(overrides) do
+      if (overrides and type(overrides) == 'table') then
+        local orig = t[k]
+        t[k] = function(...)
+          return overrides[k](..., orig, theme)
+        end
+      end
+    end
+
+    meta.__call = theme_call
+    return meta.__call(t, arg)
+  end,
+}
+
+setmetatable(theme, mt)
 
 --[[
   Translate given table key-value pairs to attr="value". 

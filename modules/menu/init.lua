@@ -1,6 +1,6 @@
 local module_invoke_all, empty, l = module_invoke_all, seawolf.variable.empty, l
 local tconcat, tinsert, theme, pairs = table.concat, table.insert, theme, pairs
-local type, tsort = type, table.sort
+local type, tsort, render_attributes = type, table.sort, render_attributes
 
 local debug = debug
 
@@ -31,6 +31,12 @@ function theme.menu(variables)
   local menu = get_menus()[menu_id] or {}
 
   local items = {}
+  local output = {}
+
+  local default_attributes = {
+    id = 'menu_' .. menu_id,
+  }
+  local attributes = render_attributes(variables.attributes, default_attributes)
 
   if type(menu) == 'function' then
     menu = menu()
@@ -56,14 +62,17 @@ function theme.menu(variables)
     return a.weight < b.weight
   end)
 
-  return
-    '<nav id="menu_' .. menu_id  .. '">' ..
+  output = {
+    '<nav', empty(attributes) and '' or ' ', attributes, '>',
     (function (items)
       local output = {}
       for k, v in pairs(items) do
         tinsert(output, v[1])
       end
       return tconcat(output, ' | ')
-    end)(items) .. 
-    '</nav>'
+    end)(items),
+    '</nav>',
+  }
+
+  return tconcat(output)
 end

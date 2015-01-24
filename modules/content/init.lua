@@ -3,7 +3,7 @@ local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
 local pager, l, page_set_title, arg = pager, l, page_set_title, route_arg
 local tonumber, format_date = tonumber, format_date
-local empty, add_js = seawolf.variable.empty, add_js
+local empty, add_js, ophal, t = seawolf.variable.empty, add_js, ophal, t
 local header, json, type, time = header, require 'dkjson', type, os.time
 local print_t, require, modules = print_t, require, ophal.modules
 local module_invoke_all, request_get_body = module_invoke_all, request_get_body
@@ -276,6 +276,10 @@ function frontpage()
     for row in rs:rows(true) do
       tinsert(rows, function () print_t{'content_teaser', entity = row} end)
     end
+  end
+
+  if num_pages > 1 then
+    page_set_title(("%s (page %s)"):format(t('Frontpage'), _GET.page or 1))
   end
 
   return function ()

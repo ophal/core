@@ -197,6 +197,7 @@ function bootstrap(phase, main)
     -- 9. Core API,
     function ()
       require 'includes.common'
+      require 'includes.locale'
       require 'includes.module'
       require 'includes.theme'
       require 'includes.pager'

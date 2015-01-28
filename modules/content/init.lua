@@ -204,7 +204,7 @@ function router()
 
     if empty(entity) then
       page_set_title 'Page not found'
-      header('header', 404)
+      header('status', 404)
       return ''
     elseif not entity_access(entity, 'read') then
       page_set_title 'Access denied'

@@ -13,7 +13,9 @@ return function(settings, vault)
   settings.debugapi = true
   settings.maintenance_mode = false
   settings.output_buffering = false
-  settings.sessionapi = true
+  settings.sessionapi = {
+    enabled = true,
+  }
   settings.formapi = false
   settings.date_format = '!%Y-%m-%d %H:%M UTC'
   settings.route_aliases_storage = false

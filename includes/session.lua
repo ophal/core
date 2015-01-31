@@ -111,3 +111,27 @@ function session_destroy()
   session.data = _SESSION -- global _SESSION is blank ATM
   session.id = nil
 end
+
+-- Delete expired sessions
+function session_destroy_expired()
+  local path = sessions_path()
+
+  for file in lfs.dir(path) do
+    local session_file = file:sub(-6) == '.ophal'
+    local lock_file = file:sub(-12) == '.ophal.lockt'
+
+    if session_file or lock_file then
+      local filepath = path .. '/' .. file
+      local attr = lfs.attributes(filepath)
+      local age = os.difftime(os.time(), attr.change)
+
+      if
+        (session_file and age > (settings.sessionapi.ttl or 86400)) or
+        (lock_file and age > (settings.sessionapi.lock_ttl or 120))
+      then
+        os.remove(filepath)
+      end
+
+    end
+  end
+end

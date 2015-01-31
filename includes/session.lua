@@ -7,6 +7,10 @@ local session
 
 -- Session handler
 if settings.sessionapi then
+  if type(settings.sessionapi) ~= 'table' then
+    settings.sessionapi = {enabled = true}
+  end
+
   -- Look for session cookie
   local session_id = ophal.cookies['session-id'] or ''
   -- if session ID is not valid then set a new ID

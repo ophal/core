@@ -182,7 +182,8 @@ function bootstrap(phase, main)
 
     -- 7. Session API,
     function ()
-      if settings.sessionapi then
+      local empty = seawolf.variable.empty
+      if not empty(settings.sessionapi) then
         require 'includes.session'
         session_start()
       end

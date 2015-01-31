@@ -8,4 +8,7 @@ ophal.bootstrap(nil, function ()
   if not settings.maintenance_mode then
     module_invoke_all 'cron'
   end
+
+  -- Output something to prevent error 500
+  print ''
 end)

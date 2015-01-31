@@ -2,7 +2,7 @@ local temp_dir = seawolf.behaviour.temp_dir
 local safe_open, safe_write = seawolf.fs.safe_open, seawolf.fs.safe_write
 local safe_close, table_dump = seawolf.fs.safe_close, seawolf.contrib.table_dump
 local time, base, rawset, tconcat = os.time, base, rawset, table.concat
-local format = string.format
+local format, empty = string.format, seawolf.variable.empty
 local session
 
 -- Session handler
@@ -31,13 +31,21 @@ if settings.sessionapi then
   session = ophal.session
 end
 
+function sessions_path()
+  if settings.sessionapi then
+    return settings.sessionapi.path or temp_dir()
+  end
+
+  return temp_dir()
+end
+
 -- Start new or resume existing session
 function session_start()
   local fh, sign, err, data, data_function, parsed
 
   if not session.open then
     -- Compute session filename
-    session.file.name = string.format('%s/%s.ophal' , temp_dir(), session.id)
+    session.file.name = string.format('%s/%s.ophal' , sessions_path(), session.id)
 
     -- Try to create/read session data
     fh, sign, err = safe_open(session.file.name)

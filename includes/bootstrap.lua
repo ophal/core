@@ -211,6 +211,9 @@ function bootstrap(phase, main)
     function ()
       local status, err
 
+      -- Always load the system module
+      settings.modules.system = true
+
       for k, v in pairs(settings.modules) do
         if v then
           status, err = pcall(require, 'modules.' .. k .. '.init')

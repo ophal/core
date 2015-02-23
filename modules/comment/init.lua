@@ -151,7 +151,8 @@ function fetch_service()
       else
         for k, row in pairs(list) do
           list[k].rendered = render_t{'comment', entity = row,
-            account = user.load(row.user_id)
+            account = user.load(row.user_id),
+            author = theme{'author', entity = row},
           }
         end
         output.list = list

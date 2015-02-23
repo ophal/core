@@ -1,5 +1,5 @@
 <div class="comment"><a name="comment-<?lua print(entity.id) ?>"></a>
-  <div class="submitted"><?lua print(l(account.name, 'user/' .. account.id)) ?> commented on <?lua print(format_date(entity.created))?></div>
+  <div class="submitted"><?lua print(author) ?> commented on <?lua print(format_date(entity.created))?></div>
   <div class="comment-body">
 <?lua print(entity.body)?>
   </div>

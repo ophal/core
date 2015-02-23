@@ -1,7 +1,7 @@
 local seawolf = require 'seawolf'.__build('other', 'variable')
 local json, hash, tonumber = require 'dkjson', seawolf.other.hash, tonumber
 local print, exit, _SESSION, config = print, exit, env._SESSION, settings.user
-local error, empty, header = error, seawolf.variable.empty, header
+local error, empty, header, l = error, seawolf.variable.empty, header, l
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
 local type, env, uuid, time, goto, pairs = type, env, uuid, os.time, goto, pairs
 local session_destroy, module_invoke_all = session_destroy, module_invoke_all
@@ -346,5 +346,18 @@ end
 function current()
   if _SESSION then
     return _SESSION.user
+  end
+end
+
+--[[ Render author.
+]]
+function theme.author(variables)
+  local entity = variables.entity or {}
+  local account = load(entity.user_id)
+
+  if empty(account.id) then
+    return account.name
+  else
+    return l(account.name, 'user/' .. account.id)
   end
 end

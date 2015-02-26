@@ -118,7 +118,7 @@ function session_destroy_expired()
 
   for file in lfs.dir(path) do
     local session_file = file:sub(-6) == '.ophal'
-    local lock_file = file:sub(-12) == '.ophal.lockt'
+    local lock_file = file:sub(-11) == '.ophal.lock'
 
     if session_file or lock_file then
       local filepath = path .. '/' .. file

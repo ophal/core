@@ -15,6 +15,8 @@ return function(settings, vault)
   settings.output_buffering = false
   settings.sessionapi = {
     enabled = true,
+    ttl = 86400,
+    lock_ttl = 120,
   }
   settings.formapi = false
   settings.date_format = '!%Y-%m-%d %H:%M UTC'

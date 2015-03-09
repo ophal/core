@@ -410,7 +410,6 @@ function _M.page()
         error(err)
       else
         for entity in rs:rows(true) do
-          rs, err = db_query('SELECT * FROM ' .. entity.type .. ' WHERE id = ?', entity.id)
           tinsert(output, entity)
         end
       end

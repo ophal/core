@@ -3,7 +3,7 @@ local time, date, exit = os.time, os.date, os.exit
 local tinsert, explode = table.insert, seawolf.text.explode
 local empty, ltrim = seawolf.variable.empty, seawolf.text.ltrim
 local trim, dirname = seawolf.text.trim, seawolf.fs.dirname
-local basename = seawolf.fs.basename
+local basename, parse_date = seawolf.fs.basename, seawolf.contrib.parse_date
 local rtrim, unescape = seawolf.text.rtrim, socket.url.unescape
 local tconcat, lower = table.concat, string.lower
 
@@ -27,11 +27,17 @@ if ophal.version then
   header('x-powered-by', ophal.version)
 end
 
--- Browser cache control
-if settings.cache and _SERVER 'HTTP_IF_MODIFIED_SINCE' ~= nil then
-  header('status', '304 Not Modified')
-  header('cache-control', 'must-revalidate')
-  exit()
+-- Browser micro cache control
+if settings.micro_cache and _SERVER 'HTTP_IF_MODIFIED_SINCE' ~= nil then
+  local parsed = parse_date(_SERVER 'HTTP_IF_MODIFIED_SINCE')
+  local last_access = tonumber(('%s%s%s%s%s%s'):format(parsed.year, parsed.month, parsed.day, parsed.hours, parsed.minutes, parsed.seconds))
+  local now = tonumber(os.date('%Y%m%d%H%M%S', time()))
+  if last_access + 5 >= now then
+    header('status', '304 Not Modified')
+    header('cache-control', 'must-revalidate')
+    print ''
+    exit()
+  end
 end
 
 -- Redirect to mobile domain name
@@ -48,7 +54,7 @@ end
 
 -- Set headers for dynamic content
 header('expires', 'Sun, 19 Jun 2011 23:09:50 GMT')
-header('last-modified', date('!%a, %d %b %Y %X GMT', time(date('*t')) - 15*60))
+header('last-modified', date('!%a, %d %b %Y %X GMT'))
 header('cache-control', 'store, no-cache, must-revalidate, post-check=0, pre-check=0')
 header('Keep-Alive', 'timeout=15, max=90')
 

@@ -249,7 +249,7 @@ return function(settings, vault)
     logo_path = 'images/ophalproject.png',
     files_path = '!files_path',
   }
-  settings.cache = false
+  settings.micro_cache = false
   settings.debugapi = true
   settings.maintenance_mode = false
   settings.output_buffering = false

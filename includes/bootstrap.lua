@@ -209,19 +209,7 @@ function bootstrap(phase, main)
 
     -- 10. Modules,
     function ()
-      local status, err
-
-      -- Always load the system module
-      settings.modules.system = true
-
-      for k, v in pairs(settings.modules) do
-        if v then
-          status, err = pcall(require, 'modules.' .. k .. '.init')
-          if not status then
-            print('bootstrap: ' .. err)
-          end
-        end
-      end
+      module_load_all()
     end,
 
     -- 11. Boot,

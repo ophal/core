@@ -1,4 +1,4 @@
-_M = {}
+local _M = {}
 ophal.modules.system = _M
 
 function _M.cron()

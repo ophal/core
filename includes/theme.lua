@@ -1,7 +1,7 @@
 local slash, tinsert, tconcat = settings.slash, table.insert, table.concat
 local pcall, settings, empty = pcall, settings, seawolf.variable.empty
 local assert, error, setfenv = assert, error, setfenv
-local currentdir = lfs.currentdir() .. slash
+local currentdir, xtable = lfs.currentdir() .. slash, seawolf.contrib.seawolf_table
 local base, l = base, l
 
 -- Calculate theme.name
@@ -298,11 +298,11 @@ function theme_regions_load()
   -- Default regions
   ophal.regions.sidebar_first = {
     id = 'sidebar_first',
-    blocks = {},
+    blocks = xtable(),
   }
   ophal.regions.sidebar_last = {
     id = 'sidebar_last',
-    blocks = {},
+    blocks = xtable(),
   }
 
   module_invoke_all('regions_alter', ophal.regions)

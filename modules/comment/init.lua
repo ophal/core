@@ -32,7 +32,11 @@ function entity_render(entity)
   if comment_access(nil, 'create') then
     if entity.links == nil then entity.links = {} end
     links = entity.links
-    links[1 + #links] = l('Add a new comment', 'comment/create/' .. entity.id)
+    links[1 + #links] = l(
+      'Add a new comment',
+      'comment/create/' .. entity.id,
+      {attributes = {rel = 'nofollow'}}
+    )
   end
 end
 

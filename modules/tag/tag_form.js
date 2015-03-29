@@ -29,7 +29,7 @@ $(document).ready(function() {
       processData: false,
       success: function (data) {
         if (data.success) {
-          window.location = '/tags';
+          window.location = '/admin/content/tags';
         }
         else {
           $(this_button).removeAttr('disabled');

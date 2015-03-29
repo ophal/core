@@ -1,4 +1,5 @@
-local config = settings.comment
+local config = settings.comment or {}
+if config.render_handler == nil then config.render_handler = 'onload' end
 local add_js, theme, header, arg, env, l = add_js, theme, header, route_arg, env, l
 local modules, tonumber, empty = ophal.modules, tonumber, seawolf.variable.empty
 local request_get_body, json, type = request_get_body, require 'dkjson', type
@@ -25,7 +26,8 @@ function entity_render(entity)
   if not config.entities[entity.type] then return end
 
   add_js 'modules/comment/comment.js'
-  add_js {type = 'settings', namespace = 'content', {current = {id = entity.id}}}
+  add_js {type = 'settings', namespace = 'entity', {current = {id = entity.id}}}
+  add_js {type = 'settings', namespace = 'comment', config}
 
   local links
 

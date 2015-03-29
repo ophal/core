@@ -1,13 +1,20 @@
 Ophal.extend('comment', function ($) {
 
-function load_comments() {
-  var content = Ophal.settings.content.current;
+var renderHandlers = {};
+
+renderHandlers.onload = function() {
+  /* Load comments if current page is an entity */
+  if (!('entity' in Ophal.settings)) {
+    return;
+  }
+
+  var entity = Ophal.settings.entity.current;
   var core = Ophal.settings.core;
 
   /* Fetch current content comments */
   $.ajax({
     type: 'GET',
-    url: core.base.route + 'comment/fetch/' + content.id,
+    url: core.base.route + 'comment/fetch/' + entity.id,
     contentType: 'application/json; charset=utf-8',
     processData: false,
     success: function (data) {
@@ -31,10 +38,9 @@ function load_comments() {
 }
 
 $(document).ready(function() {
-  /* Load comments if current page is an entity */
-  if (Ophal.settings.content) {
-    load_comments();
-  }
+  var config = Ophal.settings.comment;
+
+  renderHandlers[config.render_handler]();
 
   $('.comment-form').submit(function() {
     var id = $(this).attr('entity:id');

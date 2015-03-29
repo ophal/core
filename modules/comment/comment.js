@@ -3,11 +3,6 @@ Ophal.extend('comment', function ($) {
 var renderHandlers = {};
 
 renderHandlers.onload = function() {
-  /* Load comments if current page is an entity */
-  if (!('entity' in Ophal.settings)) {
-    return;
-  }
-
   var entity = Ophal.settings.entity.current;
   var core = Ophal.settings.core;
 
@@ -37,10 +32,23 @@ renderHandlers.onload = function() {
   });
 }
 
+renderHandlers.onclick = function() {
+  var wrapper = $('<a class="button" href="#comments-wrapper">Load comments</a>');
+  $('#content > div').append(wrapper);
+  $('#content > div .button').click(function() {
+    $(this).html('Loading...');
+    $('#content > div').html('');
+    renderHandlers.onload();
+  });
+}
+
 $(document).ready(function() {
   var config = Ophal.settings.comment;
 
-  renderHandlers[config.render_handler]();
+  /* Load comments if current page is an entity */
+  if ('entity' in Ophal.settings) {
+    renderHandlers[config.render_handler]();
+  }
 
   $('.comment-form').submit(function() {
     var id = $(this).attr('entity:id');

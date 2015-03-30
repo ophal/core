@@ -14,9 +14,17 @@ renderHandlers.onload = function() {
     processData: false,
     success: function (data) {
       if (data.success) {
-        var wrapper = $('<div class="comments-wrapper"></div>');
+        var count = 0;
+        var wrapper =
+          $('<div class="comments-wrapper"><span class="no-comments">' +
+          Ophal.t('There are no comments.') + '</span></div>')
+        ;
         for (k in data.list) {
+          if (count == 0) {
+            $('.no-comments', wrapper).remove();
+          }
           $(wrapper).prepend(data.list[k].rendered);
+          count++;
         }
         $('#content').append(wrapper);
         Ophal.scroll_down();

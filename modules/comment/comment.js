@@ -6,6 +6,8 @@ renderHandlers.onload = function() {
   var entity = Ophal.settings.entity.current;
   var core = Ophal.settings.core;
 
+  $('#content').append('<span class="loader">' + Ophal.t('Loading...') + '</span>');
+
   /* Fetch current content comments */
   $.ajax({
     type: 'GET',
@@ -26,6 +28,7 @@ renderHandlers.onload = function() {
           $(wrapper).prepend(data.list[k].rendered);
           count++;
         }
+        $('#content .loader').remove();
         $('#content').append(wrapper);
         Ophal.scroll_down();
         $(document).trigger('ophal:comments:load', [$('.comments-wrapper'), data]);
@@ -44,8 +47,7 @@ renderHandlers.onclick = function() {
   var wrapper = $('<a class="button" href="#comments-wrapper">'+ Ophal.t('Show comments') + '</a>');
   $('#content > div').append(wrapper);
   $('#content > div .button').click(function() {
-    $(this).html(Ophal.t('Loading...'));
-    $('#content > div').html('');
+    $('#content .button').remove();
     renderHandlers.onload();
   });
 }

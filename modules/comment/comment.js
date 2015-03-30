@@ -33,10 +33,10 @@ renderHandlers.onload = function() {
 }
 
 renderHandlers.onclick = function() {
-  var wrapper = $('<a class="button" href="#comments-wrapper">Load comments</a>');
+  var wrapper = $('<a class="button" href="#comments-wrapper">'+ Ophal.t('Show comments') + '</a>');
   $('#content > div').append(wrapper);
   $('#content > div .button').click(function() {
-    $(this).html('Loading...');
+    $(this).html(Ophal.t('Loading...'));
     $('#content > div').html('');
     renderHandlers.onload();
   });

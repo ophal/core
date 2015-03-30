@@ -43,4 +43,12 @@ this.progress = function(selector, value) {
   $(selector + ' .progress .meter').css('width', value + '%');
 };
 
+this.t = function(value) {
+  if ('locale' in this.settings && this.settings.locale[value]) {
+    return this.settings.locale[value];
+  }
+
+  return value;
+}
+
 }})(jQuery);

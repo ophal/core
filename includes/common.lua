@@ -60,6 +60,7 @@ do
     add_js 'libraries/jquery.min.js'
     add_js 'libraries/ophal.js'
     add_js {type = 'settings', {base = base}}
+    add_js {type = 'settings', namespace = 'locale', settings.locale}
     load_ophal_js = false
 
     for _, v in pairs(theme.settings.js or {}) do

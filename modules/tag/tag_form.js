@@ -30,7 +30,7 @@ $(document).ready(function() {
       processData: false,
       success: function (data) {
         if (data.success) {
-          window.location = '/admin/content/tags';
+          window.location = baseRoute + 'tag/' + data.tag_id;
         }
         else {
           $(this_button).removeAttr('disabled');

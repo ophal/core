@@ -9,6 +9,7 @@ $(document).ready(function() {
     var id = $('#entity_id', context).val();
     var entity = {
       name: $('#name_field', context).val(),
+      description: $('#description_field', context).val(),
       status: $('#status_field', context).is(':checked'),
       action: $('#action', context).val()
     }

@@ -274,10 +274,20 @@ Run the following SQL queries in strict order:
 
 ```SQL
 CREATE TABLE field_tag(entity_type VARCHAR(255), entity_id BIG INT, tag_id BIG INT, PRIMARY KEY (entity_type, entity_id, tag_id));
-CREATE TABLE tag(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id BIG INT, name VARCHAR(255), created UNSIGNED BIG INT, status BOOLEAN);
+CREATE TABLE tag(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id BIG INT,
+  name VARCHAR(255),
+  language VARCHAR(12), -- Language code
+  description TEXT, -- Tag description
+  created UNSIGNED BIG INT, -- Creation date
+  changed UNSIGNED BIG INT, -- Last change date
+  status BOOLEAN
+);
 CREATE UNIQUE INDEX unq_idx_tag_name ON tag (name);
 CREATE INDEX idx_tag_user ON tag (user_id);
 CREATE INDEX idx_tag_created ON tag (created DESC);
+CREATE INDEX idx_tag_changed ON tag (changed DESC);
 ```
 
 Add the following to settings.lua:

@@ -233,12 +233,12 @@ function _M.create(entity)
   local rs, err = (function(id, ...)
     if id then
       return db_query([[
-INSERT INTO tag(id, user_id, name, created, status)
-VALUES(?, ?, ?, ?, ?)]], id, ...)
+INSERT INTO tag(id, user_id, name, description, created, status)
+VALUES(?, ?, ?, ?, ?, ?)]], id, ...)
     else
       local rs1, rs2 = db_query([[
-INSERT INTO tag(user_id, name, created, status)
-VALUES(?, ?, ?, ?)]], ...)
+INSERT INTO tag(user_id, name, description, created, status)
+VALUES(?, ?, ?, ?, ?)]], ...)
       entity.id = db_last_insert_id('tag', 'id')
       return rs1, rs2
     end
@@ -246,6 +246,7 @@ VALUES(?, ?, ?, ?)]], ...)
     entity.id,
     entity.user_id or user_mod.current().id,
     entity.name,
+    entity.description,
     entity.created or time(),
     entity.status
   )
@@ -260,8 +261,10 @@ end
 function _M.update(entity)
   if entity.type == nil then entity.type = _M.entity_type end
 
-  local rs, err = db_query('UPDATE tag SET name = ?, status = ? WHERE id = ?',
+  local rs, err = db_query('UPDATE tag SET name = ?, description = ?, changed = ?, status = ? WHERE id = ?',
     entity.name,
+    entity.description,
+    time(),
     entity.status,
     entity.id
   )
@@ -415,12 +418,12 @@ function _M.page()
       end
     end
 
-    tag.links = ''
+    tag.links = {}
     if user_mod.access 'edit own tags' then
-      tag.links = tag.links .. l('edit', ('tag/edit/%s'):format(tag.id))
+      tag.links[1 + #tag.links] = l('edit', ('tag/edit/%s'):format(tag.id))
     end
     if user_mod.access 'delete own tags' then
-      tag.links = tag.links .. l('delete', ('tag/delete/%s'):format(tag.id))
+      tag.links[1 + #tag.links] = l('delete', ('tag/delete/%s'):format(tag.id))
     end
 
     page_set_title(("%s (page %s)"):format(tag.name, _GET.page or 1))
@@ -550,6 +553,21 @@ function theme.tags_manage_page(variables)
   return tconcat(output)
 end
 
+function theme.tag_links(variables)
+  local page, entity, links
+
+  page = variables.page
+  if page == nil then page = false end
+
+  entity = variables.entity
+  if entity == nil then entity = {} end
+
+  links = entity.links
+  if links == nil then links = {} end
+
+  return theme{'item_list', list = links, class = 'tag-links'}
+end
+
 function theme.tag_form(variables)
   local entity = variables.entity
 
@@ -561,7 +579,9 @@ function theme.tag_form(variables)
     {'hidden', attributes = {id = 'entity_id'}, value = entity.id},
     {'hidden', attributes = {id = 'action'}, value = empty(entity.id) and 'create' or 'update'},
     {'textfield', title = 'Name', attributes = {id = 'name_field'}, value = entity.name, weight = 20},
+    {'textarea', title = 'Description', attributes = {id = 'description_field', cols = 60, rows = 15}, value = entity.description, weight = 30},
     {'checkbox', title = 'Status', attributes = {id = 'status_field'}, value = entity.status, weight = 40},
+    {'markup', title = 'Created on', value = entity.created and format_date(entity.created) or '', weight = 50},
     {'button', attributes = {id = 'save_submit'}, value = 'Save', weight = 90},
   }
 
@@ -592,6 +612,11 @@ function theme.tag_page(variables)
   local rows = variables.rows
   local items = {}
 
+  print '<div>'
+  print(tag.description or '')
+  print_t{'tag_links', entity = tag}
+  print '</div>'
+
   for _, v in pairs(rows) do
     module_invoke_all('entity_render', v, false)
     tinsert(items, theme{v.type .. '_teaser', entity = v})
@@ -599,15 +624,6 @@ function theme.tag_page(variables)
 
   if #rows < 1 then
     return 'There is no content under this tag already.'
-  end
-
-  return function ()
-    tconcat{
-      '<div class="tag_page">',
-      tag.links and ('<div class="admin-links" align="center">%s</div>'):format(tag.links) or '',
-      theme{'item_list', list = items},
-      '</div>',
-    }
   end
 end
 

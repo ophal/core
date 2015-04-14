@@ -402,7 +402,7 @@ function _M.page()
 
     -- Calculate current page
     current_page = tonumber(_GET.page) or 1
-    ipp = 10
+    ipp = config.items_per_page or 10
     num_pages = ceil(count/ipp)
 
     if count > 0 then

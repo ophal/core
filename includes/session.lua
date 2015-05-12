@@ -17,11 +17,7 @@ if settings.sessionapi then
   if not uuid.isvalid(session_id) then
     session_id = uuid.new()
     -- Delegate cookie header to ophal.header
-    header('Set-Cookie', function ()
-      return headerCookieSetString(
-        'session-id', session_id, 3*60*60, base.route, _SERVER 'SERVER_NAME' or ''
-      )
-    end, false)
+    cookie_set('session-id', session_id, 3*60*60, base.route, _SERVER 'SERVER_NAME' or '')
   end
   -- init session table
   ophal.session = {

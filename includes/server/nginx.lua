@@ -17,27 +17,12 @@ env._SERVER = function (v)
   end
 end
 
-local cookies, parsed, tmp, key, value = ngx_req.get_headers()['Cookie'] or '', {}
-cookies = explode(';', cookies)
-for _, v in pairs(cookies) do
-  v = trim(v)
-  if #v > 0 then
-    tmp = explode('=', v)
-    key = unescape((tmp[1] or ''):gsub('+', ' '))
-    value = unescape((tmp[2] or ''):gsub('+', ' '))
-    parsed[key] = value
-  end
-end
-ophal.cookies = parsed
+ophal.raw_cookies = ngx_req.get_headers()['Cookie'] or ''
 
 function write(s)
   ngx.print(s)
 end
 io.write = write
-
-function headerCookieSetString(name, value, expires, path, domain)
-  return ('%s=%s; domain=%s; expires=%s; path=%s'):format(name, value, domain, ngx.cookie_time(expires+time()), path)
-end
 
 function header(n, v)
   if n == 'status' then

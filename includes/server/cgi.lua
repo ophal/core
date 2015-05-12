@@ -7,8 +7,7 @@ local basename = seawolf.fs.basename
 local rtrim, unescape = seawolf.text.rtrim, socket.url.unescape
 local tconcat, lower = table.concat, string.lower
 
-require 'cgic'
-cgic.init()
+ophal.raw_cookies = _SERVER 'HTTP_COOKIE'
 
 -- Output functions
 -- Make sure to print headers on the first output
@@ -16,7 +15,6 @@ write = function (s)
   io.write = io_write
   write = io_write
   ophal.header:print()
-  cgic.exit() -- free memory
   write "\n"
   write(s)
 end
@@ -28,7 +26,6 @@ do
     os.exit = exit_orig
     exit = exit_orig
     ophal.header:print()
-    cgic.exit() -- free memory
     exit_orig(code)
   end
   os.exit = exit
@@ -89,20 +86,6 @@ function header(...)
   ophal.header:set{...}
 end
 
--- Load list of cookies
-local cookies, cookies_list = {}, {}
-cgic.cookies(cookies)
-for k, v in pairs(cookies) do
-  cookies[k] = nil
-  cookies_list[v] = true
-end
-setmetatable(cookies, {
-  __index = function (t, k)
-    return cookies_list[k] and cgic.cookieString(k, 255) or ''
-  end
-})
-ophal.cookies = cookies
-
 --[[
  Redirect to raw destination URL. 
 ]]
@@ -111,10 +94,6 @@ function redirect(dest_url, http_response_code)
   header('location', dest_url)
   header('connection', 'close')
   write ''
-end
-
-function headerCookieSetString(...)
-  return cgic.headerCookieSetString(...)
 end
 
 function request_get_body()

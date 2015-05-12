@@ -85,9 +85,6 @@ $ sudo luarocks install luuid
 $ sudo luarocks install luafilesystem
 $ sudo luarocks install luasocket
 $ cd /tmp
-$ git clone --depth=1 git://github.com/ophal/cgic.git
-$ cd cgic && make && sudo make install
-$ cd /tmp
 $ git clone --depth=1 git://github.com/ophal/seawolf.git
 $ sudo mv seawolf /usr/local/share/lua/5.1/
 ```

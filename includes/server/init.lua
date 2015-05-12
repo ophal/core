@@ -227,3 +227,35 @@ function output_flush()
   -- of headers, don't use io_write()!
   write(output)
 end
+
+function cookie_set(name, value, expires, path, domain)
+  local cookie_string = ('%s=%s; domain=%s; expires=%s; path=%s'):format(
+    name,
+    value,
+    domain,
+    date('!%a, %d-%b-%Y %X GMT', expires + time()),
+    path
+  )
+
+  header('Set-Cookie', cookie_string, false)
+end
+
+function cookie_parse()
+  local parsed, cookies, tmp, key, value = {}
+
+  cookies = explode(';', ophal.raw_cookies)
+
+  for _, v in pairs(cookies) do
+    v = trim(v)
+    if #v > 0 then
+      tmp = explode('=', v)
+      key = unescape((tmp[1] or ''):gsub('+', ' '))
+      value = unescape((tmp[2] or ''):gsub('+', ' '))
+      parsed[key] = value
+    end
+  end
+
+  return parsed
+end
+
+ophal.cookies = cookie_parse()

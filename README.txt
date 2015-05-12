@@ -50,7 +50,6 @@ The reason for its name is a secret.
 == III. Dependencies
 Ophal has the following dependencies:
 - Seawolf (http://github.com/ophal/seawolf)
-- Lua-CGIC (http://github.com/ophal/cgic)
 - LuaSocket
 - LPEG
 - LuaFilesystem

@@ -2,7 +2,7 @@ local buffer = env.output_buffer
 local time, date, exit = os.time, os.date, os.exit
 local tinsert, explode = table.insert, seawolf.text.explode
 local empty, ltrim = seawolf.variable.empty, seawolf.text.ltrim
-local trim, dirname = seawolf.text.trim, seawolf.fs.dirname
+local base, trim, dirname = base, seawolf.text.trim, seawolf.fs.dirname
 local basename, parse_date = seawolf.fs.basename, seawolf.contrib.parse_date
 local rtrim, unescape = seawolf.text.rtrim, socket.url.unescape
 local tconcat, lower = table.concat, string.lower
@@ -147,7 +147,7 @@ function build_base()
   else
     base.scheme = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
   end
-  base.system_root = base.scheme .. '://' .. (_SERVER 'HTTP_HOST' or 'default')
+  base.system_root = base.scheme .. '://' .. (settings.site.domain_name or _SERVER 'HTTP_HOST' or 'default')
   base.url = base.system_root
   base.path = request_path()
 

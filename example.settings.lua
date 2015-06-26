@@ -2,6 +2,8 @@ return function(settings, vault)
   settings.language = 'en'
   settings.language_dir = 'ltr'
   settings.site = {
+    -- scheme = 'http',
+    -- domain_name = 'www.example.com',
     frontpage = 'lorem_ipsum',
     name = 'Ophal',
     hash = nil,

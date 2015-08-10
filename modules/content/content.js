@@ -20,7 +20,6 @@ $(document).ready(function() {
     }
     $(document).trigger('ophal:entity:save', {context: form, entity: content});
 
-    /* Fetch auth token */
     $.ajax({
       type: 'POST',
       url: endpoint,

@@ -67,5 +67,8 @@ RUN service apache2 restart
 VOLUME ["/var/www/"]
 EXPOSE 80 443
 
+# Create deploy user
+useradd deploy
+
 # Start supervisor
 CMD ["/usr/bin/supervisord"]

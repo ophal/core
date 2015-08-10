@@ -62,6 +62,7 @@ RUN echo '<VirtualHost *:80>\n\
 </VirtualHost>'\
 > /etc/apache2/sites-available/000-default.conf
 RUN a2enmod rewrite
+RUN a2enmod cgid
 RUN service apache2 restart
 VOLUME ["/var/www/"]
 EXPOSE 80 443

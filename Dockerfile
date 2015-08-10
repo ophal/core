@@ -60,7 +60,7 @@ RUN echo '<VirtualHost *:80>\n\
         CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
 \n\
 </VirtualHost>'\
->> /etc/apache2/sites-available/000-default.conf
+> /etc/apache2/sites-available/000-default.conf
 RUN a2enmod rewrite
 RUN service apache2 restart
 VOLUME ["/var/www/"]

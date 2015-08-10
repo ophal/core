@@ -33,7 +33,7 @@ $(document).ready(function() {
           window.location = '/content/' + data.id;
         }
         else {
-          if (data.success) {
+          if (data.error) {
             alert('Operation failed! Reason: ' + data.error);
           }
           else {

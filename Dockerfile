@@ -68,7 +68,7 @@ VOLUME ["/var/www/"]
 EXPOSE 80 443
 
 # Create deploy user
-useradd deploy
+RUN useradd deploy
 
 # Start supervisor
 CMD ["/usr/bin/supervisord"]

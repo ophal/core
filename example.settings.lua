@@ -6,7 +6,7 @@ return function(settings, vault)
     -- domain_name = 'www.example.com',
     frontpage = 'lorem_ipsum',
     name = 'Ophal',
-    hash = nil,
+    hash = vault.site.hash,
     logo_title = 'The Ophal Project',
     logo_path = 'images/ophalproject.png',
     files_path = 'files',
@@ -41,23 +41,8 @@ return function(settings, vault)
     lorem_ipsum = true,
   }
 
-  --[[ Database connection settings
-    Ophal automatically connects on bootstrap to a database if a the key
-    'db' is set with connection settings.
-
-    Example:
-
-    settings.db = {
-      default = {
-        driver = 'PostgreSQL',
-        database = 'database',
-        username = vault.db.default.username,
-        password = vault.db.default.password,
-        host = 'localhost',
-        port = '5432',
-      }
-    }
-  ]]
+  --[[ Database connection settings (see vault.lua) ]]
+  settings.db = vault.db
 
   --[[ Extend jailed environment
     Ophal code is jailed into an environment with few functions. Use the

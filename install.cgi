@@ -92,10 +92,6 @@ ophal.bootstrap(5, function ()
 
       -- Library checker
       libraries = {
-        cgic = {
-          name = 'Lua-CGIC',
-          required = true,
-        },
         ['socket.url'] = {
           name = 'LuaSocket',
           required = true,

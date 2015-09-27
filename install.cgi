@@ -189,8 +189,6 @@ $(document).ready(function() {
   $('#generate').click(function() {
     $('#settings').html($('#settings_template').html()
       .replace('!site_name', $('#sitename').val())
-      .replace('!db_filepath', $('#db_filepath').val())
-      .replace('!site_hash', uuid())
       .replace('!files_path', $('#files_path').val())
       .replace('!lorem_ipsum_module', $('#lorem_ipsum_module').is(':checked'))
       .replace('!content_module', $('#content_module').is(':checked'))
@@ -202,7 +200,10 @@ $(document).ready(function() {
       .replace('!boost_module', $('#boost_module').is(':checked'))
       .replace('!test_module', $('#test_module').is(':checked'))
     );
-    $('#check_settings').show();
+    $('#vault').html($('#vault_template').html()
+      .replace('!site_hash', uuid())
+      .replace('!db_filepath', $('#db_filepath').val())
+    );
     $('#install_pager').show();
   });
 });
@@ -242,7 +243,7 @@ return function(settings, vault)
     -- domain_name = 'www.example.com',
     frontpage = 'lorem_ipsum',
     name = '!site_name',
-    hash = '!site_hash',
+    hash = vault.site.hash,
     logo_title = 'The Ophal Project',
     logo_path = 'images/ophalproject.png',
     files_path = '!files_path',
@@ -301,12 +302,7 @@ return function(settings, vault)
       }
     }
   ]]
-  settings.db = {
-    default = {
-      driver = 'SQLite3',
-      database = '!db_filepath',
-    }
-  }
+  settings.db = vault.db
 
   --[[ Extend jailed environment
     Ophal code is jailed into an environment with few functions. Use the
@@ -367,6 +363,48 @@ return function(settings, vault)
     }
   ]]
 end
+</textarea></div>]=],
+        '<div id="vault"></div>',
+        [=[<div id="vault_template" style="display:none">
+<h3>Step 3. Create file vault.lua</h3>
+<p>Copy the following text into the file <i>vault.lua</i> and put it right in the exact same folder of file <i>index.cgi</i>:</p>
+<textarea cols="100" rows="10">
+--[[
+  This file is for storage of sensitive information ONLY.
+]]
+
+local m = {
+  --[[ Site settings ]]
+  site = {
+    hash = '!site_hash',
+  },
+
+  --[[ Database connection settings
+    Ophal automatically connects on bootstrap to a database if a the key
+    'db' is set with connection settings.
+
+    Example:
+
+    settings.db = {
+      default = {
+        driver = 'PostgreSQL',
+        database = 'database',
+        username = 'username',
+        password = 'password',
+        host = 'localhost',
+        port = '5432',
+      }
+    }
+  ]]
+  db = {
+    default = {
+      driver = 'SQLite3',
+      database = '!db_filepath',
+    }
+  },
+}
+
+return m
 </textarea></div>]=],
         theme{'install_pager', style = 'display: none;'}
       }

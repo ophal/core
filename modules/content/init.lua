@@ -91,7 +91,7 @@ function save_service()
 
     if not entity_access(entity, action) then
       header('status', 401)
-    elseif entity == 'update' and empty(entity) then
+    elseif action == 'update' and empty(entity) then
       header('status', 404)
       output.error = 'No such content.'
     else

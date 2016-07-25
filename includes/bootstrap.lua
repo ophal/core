@@ -1,7 +1,7 @@
 local version = {
   core = 'Ophal',
-  number = '0.1',
-  revision = 'beta3',
+  number = '0.2',
+  -- revision = 'dev',
   homepage = 'ophal.org',
 }
 

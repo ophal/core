@@ -23,11 +23,11 @@ function db_connect()
     connection.port
   )
 
-  drivers[db_id] = require('includes.database.' .. connection.driver:lower())
-
   if err then
-    return nil, err
+    error(err)
   end
+
+  drivers[db_id] = require('includes.database.' .. connection.driver:lower())
 
   -- commit the transaction
   dbh[db_id]:autocommit(connection.autocommit)
@@ -37,17 +37,23 @@ function db_connect()
 end
 
 function db_query(query, ...)
+  local err, sth
+
   if dbh[db_id] == nil then
-    return nil, 'No database connection'
+    error 'No database connection'
   end
 
   -- prepare a query
-  local sth = assert(dbh[db_id]:prepare(query))
+  sth = assert(dbh[db_id]:prepare(query))
 
   -- execute select with a bind variable
-  local success, err = sth:execute(...)
+  _, err = sth:execute(...)
 
-  return sth, err
+  if err then
+    error(err)
+  end
+
+  return sth
 end
 
 function db_last_insert_id(...)

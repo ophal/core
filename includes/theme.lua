@@ -165,6 +165,9 @@ local function theme_call(t, arg)
 
   arg[1] = nil -- clean-up theme environment
 
+  -- Let modules alter theme function arguments
+  module_invoke_all('theme_preprocess', f, arg)
+
   if t[f] == nil then
     return theme_render(f, arg)
   else

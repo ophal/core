@@ -30,8 +30,9 @@ ophal.bootstrap(5, function ()
   local phase = tonumber(_GET.phase) or 1
 
   -- Load Core API
-  require 'includes.route'
   require 'includes.common'
+  require 'includes.locale'
+  require 'includes.route'
   require 'includes.theme'
 
   -- Pager

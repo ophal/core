@@ -23,6 +23,7 @@ end
 
 -- Default headers
 header('content-type', 'text/html; charset=utf-8')
+header('x-frame-options', 'SAMEORIGIN')
 if ophal.version then
   header('x-powered-by', ophal.version)
 end

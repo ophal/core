@@ -6,7 +6,8 @@ local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
 local type, env, uuid, time, goto, pairs = type, env, uuid, os.time, goto, pairs
 local session_destroy, module_invoke_all = session_destroy, module_invoke_all
 local request_get_body, ophal, pcall = request_get_body, ophal, pcall
-local route_execute_callback = route_execute_callback
+local route_execute_callback, _GET = route_execute_callback, _GET
+local url_parse, _SERVER = socket.url.parse, _SERVER
 
 module 'ophal.modules.user'
 
@@ -341,6 +342,10 @@ function auth_service()
         output.authenticated = true
 	module_invoke_all('user_login', account, output)
         _SESSION.user = account
+
+	if _GET.redirect and url_parse(_GET.redirect).host == _SERVER 'HTTP_HOST' then
+	  output.redirect = _GET.redirect
+	end
       end
     end
   end

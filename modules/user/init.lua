@@ -339,6 +339,7 @@ function auth_service()
     if 'table' == type(account) and not empty(account.id) then
       if account.pass == hash(config.algorithm or 'sha256', parsed.pass or '') then
         output.authenticated = true
+	module_invoke_all('user_login', account, output)
         _SESSION.user = account
       end
     end

@@ -321,6 +321,12 @@ function auth_service()
   local output = {authenticated = false}
 
   input = request_get_body()
+
+  if input == nil then
+    output.authenticated = is_logged_in()
+    return output
+  end
+
   parsed, pos, err = json.decode(input, 1, nil)
 
   if err then

@@ -49,6 +49,31 @@ this.t = function(value) {
   }
 
   return value;
-}
+};
+
+/* Adapted from http://stackoverflow.com/a/5877077/2108644 */
+this.getURLParams = (function () {
+  let urlParams;
+
+  return function() {
+    if (urlParams) {
+      /* Nothing to do here */
+    }
+    else {
+      var result = {};
+      var params = (window.location.search.split('?')[1] || '').split('&');
+      for (var param in params) {
+	if (params.hasOwnProperty(param)) {
+	  paramParts = params[param].split('=');
+	  result[paramParts[0]] = decodeURIComponent(paramParts[1] || "");
+	}
+      }
+
+      urlParams = result;
+    }
+
+    return urlParams;
+  }
+})();
 
 }})(jQuery);

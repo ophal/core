@@ -96,8 +96,21 @@ function redirect(dest_url, http_response_code)
   write ''
 end
 
-function request_get_body()
-  return io.read '*a'
+do
+  local request_has_body = {
+    POST = true,
+    PUT = true,
+    CONNECT = true,
+    OPTIONS = true,
+    PATCH = true
+  }
+  function request_get_body()
+    if request_has_body[ _SERVER 'REQUEST_METHOD' ] then
+      return io.read '*a'
+    else
+      return nil
+    end
+  end
 end
 
 function server_exit()

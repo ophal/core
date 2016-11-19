@@ -272,7 +272,7 @@ function create(entity)
 
   if entity.id then
     rs, err = db_query([[
-INSERT INTO user(id, name, mail, pass, active, created)
+INSERT INTO users(id, name, mail, pass, active, created)
 VALUES(?, ?, ?, ?, ?, ?)]],
       entity.id,
       entity.name,
@@ -283,7 +283,7 @@ VALUES(?, ?, ?, ?, ?, ?)]],
     )
   else
     rs, err = db_query([[
-INSERT INTO user(name, mail, pass, active, created)
+INSERT INTO users(name, mail, pass, active, created)
 VALUES(?, ?, ?, ?, ?)]],
       entity.name,
       entity.mail,

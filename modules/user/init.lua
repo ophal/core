@@ -291,7 +291,7 @@ VALUES(?, ?, ?, ?, ?)]],
       entity.active or false,
       entity.created or time()
     )
-    entity.id = db_last_insert_id('user', 'id')
+    entity.id = db_last_insert_id('users', 'id')
   end
 
   if not err then

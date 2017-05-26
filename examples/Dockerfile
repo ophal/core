@@ -39,7 +39,7 @@ nodaemon=true\n\
 command=/usr/bin/pidproxy /var/run/apache2/apache2.pid /bin/bash -c "source /etc/apache2/envvars && /usr/sbin/apache2 -DFOREGROUND"\n\
 redirect_stderr=true\n'\
 >> /etc/supervisor/conf.d/supervisord.conf
-RUN mkdir /var/run/apache2 /var/lock/apache2 && chown www-data: /var/lock/apache2 /var/run/apache2
+RUN mkdir /var/run/apache2 && chown www-data: /var/run/apache2
 RUN echo '<VirtualHost *:80>\n\
 \n\
         ServerAdmin webmaster@localhost\n\

@@ -72,3 +72,5 @@ RUN useradd deploy
 
 # Start supervisor
 CMD ["/usr/bin/supervisord"]
+
+WORKDIR /var/www

@@ -25,8 +25,8 @@ RUN luarocks install bit32
 RUN luarocks install md5
 RUN luarocks install luasec OPENSSL_LIBDIR=/usr/lib/x86_64-linux-gnu/
 RUN luarocks install dkjson
-RUN luarocks install --server=http://rocks.moonscript.org/dev seawolf 1.0-0
-RUN luarocks install --server=http://rocks.moonscript.org/dev ophal-cli
+RUN luarocks install --server=http://luarocks.org/dev seawolf 1.0-0
+RUN luarocks install --server=http://luarocks.org/dev ophal-cli
 
 # Install Apache
 RUN apt-get install -y apache2-mpm-worker

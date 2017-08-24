@@ -13,6 +13,8 @@ Apache, Lighttpd and others that support CGI and URL rewriting. FastCGI support
 can be implemented with a FastCGI wrapper on Apache, Nginx, Lighttpd and several
 other web servers.
 
+NOTE: Ophal is compatible with SQLite and PostgreSQL only.
+
 ### Apache
 Enable mod_rewrite and mod_cgi, then use following configuration for reference:
 
@@ -101,13 +103,54 @@ into the same directory of index.cgi, make the desired changes an set it to read
 ### (Optional) Configure the Content module
 Run the following SQL queries in strict order:
 
+####SQLite
 ```SQL
-CREATE TABLE content(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id UNSIGNED BIG INT, language VARCHAR(12), title VARCHAR(255), teaser TEXT, body TEXT, created UNSIGNED BIG INT, changed UNSIGNED BIG INT, status BOOLEAN, sticky BOOLEAN, comment BOOLEAN, promote BOOLEAN);
+CREATE TABLE content(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id UNSIGNED BIG INT,
+  language VARCHAR(12),
+  title VARCHAR(255),
+  teaser TEXT,
+  body TEXT,
+  created UNSIGNED BIG INT,
+  changed UNSIGNED BIG INT,
+  status BOOLEAN,
+  sticky BOOLEAN,
+  comment BOOLEAN,
+  promote BOOLEAN
+);
 CREATE INDEX idx_content_created ON content (created DESC);
 CREATE INDEX idx_content_changed ON content (changed DESC);
 CREATE INDEX idx_content_frontpage ON content (promote, status, sticky, created DESC);
 CREATE INDEX idx_content_title ON content (title);
 CREATE INDEX idx_content_user ON content (user_id);
+```
+
+####PostgreSQL
+```SQL
+CREATE TABLE content(
+  id integer NOT NULL,
+  user_id bigint,
+  language character varying(12),
+  title character varying(255),
+  teaser text,
+  body text,
+  created bigint,
+  changed bigint,
+  status smallint,
+  sticky smallint,
+  comment smallint,
+  promote smallint
+);
+CREATE SEQUENCE content_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE content_id_seq OWNED BY content.id;
+ALTER TABLE ONLY content ALTER COLUMN id SET DEFAULT nextval('content_id_seq'::regclass);
+ALTER TABLE ONLY content ADD CONSTRAINT content_pkey PRIMARY KEY (id);
+CREATE INDEX idx_content_changed ON content USING btree (changed DESC);
+CREATE INDEX idx_content_created ON content USING btree (created DESC);
+CREATE INDEX idx_content_frontpage ON content USING btree (promote, status, sticky, created DESC);
+CREATE INDEX idx_content_title ON content USING btree (title);
+CREATE INDEX idx_content_user ON content USING btree (user_id);
 ```
 
 Add the following to settings.lua:
@@ -127,6 +170,7 @@ NOTE: Ophal is compatible with SQLite only.
 
 Run the following SQL queries in strict order:
 
+####SQLite
 ```SQL
 CREATE TABLE comment(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,6 +195,37 @@ CREATE INDEX idx_comment_tree_sticky ON comment (parent_id, status, sticky);
 CREATE INDEX idx_comment_full_tree ON comment (parent_id);
 CREATE INDEX idx_comment_full_tree_sticky ON comment (parent_id, sticky);
 CREATE INDEX idx_comment_user ON comment (user_id);
+```
+
+####PostgreSQL
+```SQL
+CREATE TABLE comment(
+  id integer NOT NULL,
+  entity_id bigint, -- Entity associated with this object
+  parent_id bigint, -- Parent object
+  user_id bigint, -- User ID of author
+  language character varying(12), -- Language code
+  body text, -- Comment body
+  created bigint, -- Creation date
+  changed bigint, -- Last change date
+  status smallint,
+  sticky smallint
+);
+CREATE SEQUENCE comment_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE comment_id_seq OWNED BY comment.id;
+ALTER TABLE ONLY comment ALTER COLUMN id SET DEFAULT nextval('comment_id_seq'::regclass);
+ALTER TABLE ONLY comment ADD CONSTRAINT comment_pkey PRIMARY KEY (id);
+CREATE INDEX idx_comment_created ON comment USING btree (created DESC);
+CREATE INDEX idx_comment_changed ON comment USING btree (changed DESC);
+CREATE INDEX idx_comment_linear ON comment USING btree (entity_id, status);
+CREATE INDEX idx_comment_linear_sticky ON comment USING btree (entity_id, status, sticky);
+CREATE INDEX idx_comment_full_linear ON comment USING btree (entity_id);
+CREATE INDEX idx_comment_full_linear_sticky ON comment USING btree (entity_id, sticky);
+CREATE INDEX idx_comment_tree ON comment USING btree (parent_id, status);
+CREATE INDEX idx_comment_tree_sticky ON comment USING btree (parent_id, status, sticky);
+CREATE INDEX idx_comment_full_tree ON comment USING btree (parent_id);
+CREATE INDEX idx_comment_full_tree_sticky ON comment USING btree (parent_id, sticky);
+CREATE INDEX idx_comment_user ON comment USING btree (user_id);
 ```
 
 Add the following to settings.lua:
@@ -178,23 +253,86 @@ Run the following SQL queries in strict order:
 
 1. Create schema:
 
+  ####SQLite
   ```SQL
-  CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(255), mail VARCHAR(255), pass VARCHAR(255), active BOOLEAN, created UNSIGNED BIG INT);
+  CREATE TABLE users(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(255),
+    mail VARCHAR(255),
+    pass VARCHAR(255),
+    active BOOLEAN,
+    created UNSIGNED BIG INT
+  );
   CREATE UNIQUE INDEX unq_idx_user_name ON users (name);
   CREATE INDEX idx_user_created ON users (created);
   CREATE INDEX idx_user_mail ON users (mail);
 
-  CREATE TABLE role(id VARCHAR(255) PRIMARY KEY, name VARCHAR(255), active BOOLEAN, weight INT);
+  CREATE TABLE role(
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255),
+    active BOOLEAN,
+    weight INT
+  );
   CREATE UNIQUE INDEX unq_idx_role_name ON role (name);
   CREATE INDEX idx_role_weight ON role (weight);
 
-  CREATE TABLE user_role(user_id UNSIGNED BIG INT, role_id VARCHAR(255), PRIMARY KEY (user_id, role_id));
+  CREATE TABLE user_role(
+    user_id UNSIGNED BIG INT,
+    role_id VARCHAR(255),
+    PRIMARY KEY (user_id, role_id)
+  );
 
-  CREATE TABLE role_permission(role_id VARCHAR(255), permission VARCHAR(255), module VARCHAR(255), PRIMARY KEY (role_id, permission));
+  CREATE TABLE role_permission(
+    role_id VARCHAR(255),
+    permission VARCHAR(255),
+    module VARCHAR(255),
+    PRIMARY KEY (role_id, permission)
+  );
   CREATE INDEX idx_role_permission_perm ON role_permission (permission);
   ```
 
-  NOTE: Ophal is compatible with SQLite only.
+  ####PostgreSQL
+  ```SQL
+  CREATE TABLE users(
+    id integer NOT NULL,
+    name character varying(255),
+    mail character varying(255),
+    pass character varying(255),
+    active smallint,
+    created bigint
+  );
+  CREATE SEQUENCE users_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+  ALTER SEQUENCE users_id_seq OWNED BY users.id;
+  ALTER TABLE ONLY users ALTER COLUMN id SET DEFAULT nextval('users_id_seq'::regclass);
+  ALTER TABLE ONLY users ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+  CREATE UNIQUE INDEX unq_idx_user_name ON users USING btree (name);
+  CREATE INDEX idx_user_created ON users USING btree (created);
+  CREATE INDEX idx_user_mail ON users USING btree (mail);
+
+  CREATE TABLE role (
+    id character varying(255) NOT NULL,
+    name character varying(255),
+    active smallint,
+    weight integer
+  );
+  ALTER TABLE ONLY role ADD CONSTRAINT role_pkey PRIMARY KEY (id);
+  CREATE UNIQUE INDEX unq_idx_role_name ON role USING btree (name);
+  CREATE INDEX idx_role_weight ON role USING btree (weight);
+
+  CREATE TABLE user_role (
+    user_id bigint NOT NULL,
+    role_id character varying(255) NOT NULL
+  );
+  ALTER TABLE ONLY user_role ADD CONSTRAINT user_role_pkey PRIMARY KEY (user_id, role_id);
+
+  CREATE TABLE role_permission (
+    role_id character varying(255) NOT NULL,
+    permission character varying(255) NOT NULL,
+    module character varying(255)
+  );
+  ALTER TABLE ONLY role_permission ADD CONSTRAINT role_permission_pkey PRIMARY KEY (role_id, permission);
+  CREATE INDEX idx_role_permission_perm ON role_permission USING btree (permission);
+  ```
 
 2. Generate a password for superuser with following script (requires ophal-cli):
 
@@ -214,8 +352,14 @@ Run the following SQL queries in strict order:
 
 3. Create user 1:
 
+  ####SQLite
   ```SQL
   INSERT INTO users VALUES(1, 'root', 'test@example.com', 'your password hash', 1, strftime('%s', 'now'));
+  ```
+
+  ####PostgreSQL
+  ```SQL
+  INSERT INTO users VALUES(1, 'root', 'test@example.com', 'your password hash', 1, extract(epoch from now() at time zone 'utc'));
   ```
 
 4. Enable Form API:
@@ -257,7 +401,7 @@ Run the following SQL queries in strict order:
   }
   ```
 
-  Or run the following SQL queries:
+  Or run the following SQL queries (valid for SQLite and PostgreSQL):
 
   ```SQL
   INSERT INTO role_permission VALUES('anonymous', 'access content', 'user');
@@ -269,8 +413,15 @@ Run the following SQL queries in strict order:
 ### (Optional) Configure the Tag module
 Run the following SQL queries in strict order:
 
+####SQLite
 ```SQL
-CREATE TABLE field_tag(entity_type VARCHAR(255), entity_id BIG INT, tag_id BIG INT, PRIMARY KEY (entity_type, entity_id, tag_id));
+CREATE TABLE field_tag(
+  entity_type VARCHAR(255),
+  entity_id BIG INT,
+  tag_id BIG INT,
+  PRIMARY KEY (entity_type, entity_id, tag_id)
+);
+
 CREATE TABLE tag(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id BIG INT,
@@ -285,6 +436,35 @@ CREATE UNIQUE INDEX unq_idx_tag_name ON tag (name);
 CREATE INDEX idx_tag_user ON tag (user_id);
 CREATE INDEX idx_tag_created ON tag (created DESC);
 CREATE INDEX idx_tag_changed ON tag (changed DESC);
+```
+
+####PostgreSQL
+```SQL
+CREATE TABLE field_tag(
+  entity_type character varying(255) NOT NULL,
+  entity_id bigint NOT NULL,
+  tag_id bigint NOT NULL
+);
+ALTER TABLE ONLY field_tag ADD CONSTRAINT field_tag_pkey PRIMARY KEY (entity_type, entity_id, tag_id);
+
+CREATE TABLE tag(
+  id integer NOT NULL,
+  user_id bigint,
+  name character varying(255),
+  language character varying(12), -- Language code
+  description text, -- Tag description
+  created bigint, -- Creation date
+  changed bigint, -- Last change date
+  status smallint
+);
+CREATE SEQUENCE tag_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE tag_id_seq OWNED BY tag.id;
+ALTER TABLE ONLY tag ALTER COLUMN id SET DEFAULT nextval('tag_id_seq'::regclass);
+ALTER TABLE ONLY tag ADD CONSTRAINT tag_pkey PRIMARY KEY (id);
+CREATE UNIQUE INDEX unq_idx_tag_name ON tag USING btree (name);
+CREATE INDEX idx_tag_user ON tag USING btree (user_id);
+CREATE INDEX idx_tag_created ON tag USING btree (created DESC);
+CREATE INDEX idx_tag_changed ON tag USING btree (changed DESC);
 ```
 
 Add the following to settings.lua:
@@ -307,10 +487,32 @@ semantic urls (i.e: /my-rocking-article instead of /content/7).
 
 1. Run the following SQL queries in strict order:
 
+  ####SQLite
   ```SQL
-  CREATE TABLE route_alias(id INTEGER PRIMARY KEY AUTOINCREMENT, source VARCHAR(255), alias VARCHAR(255), language VARCHAR(12));
+  CREATE TABLE route_alias(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source VARCHAR(255),
+    alias VARCHAR(255),
+    language VARCHAR(12)
+  );
   CREATE INDEX idx_route_alias_alias_language_id ON route_alias (alias, language, id);
   CREATE INDEX idx_route_alias_source_language_id ON route_alias (source, language, id);
+  ```
+
+  ####PostgreSQL
+  ```SQL
+  CREATE TABLE route_alias(
+    id integer NOT NULL,
+    source character varying(255),
+    alias character varying(255),
+    language character varying(12)
+  );
+  CREATE SEQUENCE route_alias_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+  ALTER SEQUENCE route_alias_id_seq OWNED BY route_alias.id;
+  ALTER TABLE ONLY route_alias ALTER COLUMN id SET DEFAULT nextval('route_alias_id_seq'::regclass);
+  ALTER TABLE ONLY route_alias ADD CONSTRAINT route_alias_pkey PRIMARY KEY (id);
+  CREATE INDEX idx_route_alias_alias_language_id ON route_alias USING btree (alias, language, id);
+  CREATE INDEX idx_route_alias_source_language_id ON route_alias USING btree (source, language, id);
   ```
 
 2. Enable database storage for route aliases
@@ -328,6 +530,7 @@ into the database.
 
 1. Run the following SQL queries in strict order:
 
+  ####SQLite
   ```SQL
   CREATE TABLE file(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -342,6 +545,27 @@ into the database.
   CREATE INDEX idx_file_user ON file (user_id);
   CREATE INDEX idx_file_status ON file (status);
   CREATE INDEX idx_file_timestamp ON file (timestamp);
+  ```
+
+  ####PostgreSQL
+  ```SQL
+  CREATE TABLE file(
+    id integer NOT NULL,
+    user_id bigint, -- User ID of author
+    filename character varying(255),
+    filepath character varying(255),
+    filemime character varying(255),
+    filesize bigint,
+    status smallint,
+    "timestamp" bigint
+  );
+  CREATE SEQUENCE file_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+  ALTER SEQUENCE file_id_seq OWNED BY file.id;
+  ALTER TABLE ONLY file ALTER COLUMN id SET DEFAULT nextval('file_id_seq'::regclass);
+  ALTER TABLE ONLY file ADD CONSTRAINT file_pkey PRIMARY KEY (id);
+  CREATE INDEX idx_file_user ON file USING btree (user_id);
+  CREATE INDEX idx_file_status ON file USING btree (status);
+  CREATE INDEX idx_file_timestamp ON file USING btree ("timestamp");
   ```
 
 2. Enable database storage for route aliases

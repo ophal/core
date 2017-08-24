@@ -362,6 +362,7 @@ function route_execute_active_handler()
 
   -- Render content
   print_t{handler.format,
+    format = handler.format,
     status = status,
     header_title = ophal.header_title,
     title = ophal.title,

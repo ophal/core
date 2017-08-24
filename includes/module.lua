@@ -1,3 +1,17 @@
+do
+  local mt = {
+    register = function(t, module_name, module_definition)
+      ophal.modules[module_name] = module_definition
+    end
+  }
+  mt.__index = function(t, k)
+    if mt[k] ~= nil then
+      return mt[k]
+    end
+  end
+  setmetatable(ophal.modules, mt)
+end
+
 function module_invoke_all(hook, ...)
   local err
   local result, r = {}

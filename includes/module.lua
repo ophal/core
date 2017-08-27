@@ -1,3 +1,5 @@
+local xtable = seawolf.contrib.seawolf_table
+
 do
   local mt = {
     register = function(t, module_name, module_definition)
@@ -12,11 +14,62 @@ do
   setmetatable(ophal.modules, mt)
 end
 
+do
+  local order, group
+  local list = xtable{'system'}
+
+  --[[ Return the a list of modules by weight and name
+  ]]
+  function module_list()
+    if nil == order then
+      local rawset = rawset
+
+      order, group = xtable(), xtable()
+
+      -- Force system module to stay first ALWAYS
+      settings.modules.system = nil
+
+      -- Group modules by their weight
+      for name, weight in pairs(settings.modules) do
+        -- Ignore disabled modules
+        if weight == false then return end
+
+        if weight == true then
+          weight = 1
+        end
+
+        if nil == group[weight] then
+          rawset(group, weight, xtable{name})
+          order:append(weight)
+        else
+          group[weight]:append(name)
+        end
+      end
+
+      -- Sort weights
+      order:sort()
+
+      -- Build list of module names
+      for k, weight in pairs(order) do
+        -- Sort alphabetically
+        group[weight]:sort()
+        -- Add modules in current group to the list of names
+        for j, name in pairs(group[weight]) do
+          list:append(name)
+        end
+      end
+    end
+
+    return list
+  end
+end
+
 function module_invoke_all(hook, ...)
   local err
   local result, r = {}
 
-  for name, m in pairs(ophal.modules) do
+  for _, name in pairs(module_list()) do
+    local m = ophal.modules[name]
     if m[hook] then
       r, err = m[hook](...) -- call hook implementation
       if err then
@@ -44,36 +97,7 @@ function module_load(name)
 end
 
 function module_load_all()
-  local xtable = seawolf.contrib.seawolf_table
-
-  -- Always load the system module first
-  module_load 'system'
-  settings.modules.system = nil
-
-  -- Sort by weight
-  local order = xtable{keys = xtable()}
-  xtable(settings.modules):each(function (k, v)
-    -- Ignore disabled modules
-    if v == false then return end
-
-    if v == true then
-      v = 1
-    end
-
-    if order[v] == nil then
-      order[v] = xtable{k}
-      order.keys:append(v)
-    else
-      order[v]:append(k)
-    end
-  end)
-  order.keys:sort()
-
-  for _, o in pairs(order.keys) do
-    local modules = order[o]
-    modules:sort() -- Sort alphabetically
-    modules:each(function (k, v)
-      module_load(v)
-    end)
+  for _, name in pairs(module_list()) do
+    module_load(name)
   end
 end

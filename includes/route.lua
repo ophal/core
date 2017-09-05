@@ -373,3 +373,19 @@ function route_execute_active_handler()
     regions = theme_get_regions(),
   }
 end
+
+function route_forbidden(variables)
+  if nil == variables then variables = {} end
+
+  -- Defaults
+  variables.header_title = variables.header_title or 'Access denied'
+  variables.title = variables.title or 'Access denied'
+  variables.body = variables.body or 'You have not access to this page.'
+
+  module_invoke_all('route_forbidden_alter', variables)
+
+  header('status', 401)
+  page_set_title(variables.header_title, variables.title)
+
+  return variables.body
+end

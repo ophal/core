@@ -1,6 +1,6 @@
-local seawolf = require 'seawolf'.__build('other', 'variable')
+local seawolf = require 'seawolf'.__build('other', 'variable', 'contrib')
 local json, hash, tonumber = require 'dkjson', seawolf.other.hash, tonumber
-local print, exit, _SESSION, config = print, exit, env._SESSION, settings.user
+local print, exit, _SESSION, config = print, exit, env._SESSION, settings.user or {}
 local error, empty, header, l = error, seawolf.variable.empty, header, l
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
 local type, env, uuid, time, goto, pairs = type, env, uuid, os.time, goto, pairs
@@ -8,6 +8,7 @@ local session_destroy, module_invoke_all = session_destroy, module_invoke_all
 local request_get_body, ophal, pcall = request_get_body, ophal, pcall
 local route_execute_callback, _GET = route_execute_callback, _GET
 local url_parse, _SERVER = socket.url.parse, _SERVER
+local xtable = seawolf.contrib.seawolf_table
 
 module 'ophal.modules.user'
 
@@ -63,26 +64,32 @@ function init()
   db_query = env.db_query
   db_last_insert_id = env.db_last_insert_id
 
-  -- Load user
-  if _SESSION and _SESSION.user == nil then
-    _SESSION.user = load(0)
+  -- Set anonymous user ID
+  if nil == _SESSION.user_id then
+    _SESSION.user_id = 0
   end
 end
 
 function is_logged_in()
-  if not empty(_SESSION.user) and not empty(_SESSION.user.id) then
-    return not empty(_SESSION.user.id)
-  end
-  -- No session or user is anonymous
-  return false
+  return not empty(_SESSION.user_id)
 end
 
 function is_anonymous()
   return not is_logged_in()
 end
 
-function load(id)
-  return load_by_field('id', id)
+do
+  local users = {}
+
+  --[[ Build user object for given user ID.
+  ]]
+  function load(user_id, reset)
+    if user_id and empty(users[user_id]) or reset then
+      users[user_id] = load_by_field('id', user_id)
+    end
+
+    return users[user_id]
+  end
 end
 
 function load_by_field(field, value)
@@ -101,58 +108,41 @@ function load_by_field(field, value)
   if not empty(entity) then
     entity.type = 'user'
     module_invoke_all('entity_load', entity)
-    load_permissions(entity)
   end
 
   return entity
 end
 
+--[[ Return the list of configured roles.
+]]
 do
-  local roles_permissions
-  local roles_permissions_cached
-  function load_roles_permissions(config, force_reload)
-    if config.role == nil then config.role = {} end
+  local roles
 
-    -- Return cached roles_permissions
-    if roles_permissions_cached and not force_reload then
-      return roles_permissions
-    end
+  function get_roles(reset)
+    if nil == config.roles then config.roles = {} end
 
-    roles_permissions = {}
+    if nil == roles or reset then
+      -- Default roles
+      roles = {
+        anonymous = 'Anonymous',
+        authenticated = 'Authenticated',
+      }
 
-    -- Traverse config.role to roles_permissions
-    for role_id, permissions in pairs(config.role) do
-      local buffer = {}
-      for _, perm in pairs(permissions) do
-        buffer[perm] = true
+      -- Load roles from settings
+      for id, name in pairs(config.roles) do
+        roles[id] = name
       end
-      roles_permissions[role_id] = buffer
-    end
 
-    -- Load permissions from database storage
-    if config.permissions_storage then
-      local rs, err = db_query [[
-SELECT rp.*
-FROM
-  role_permission AS rp LEFT JOIN
-  role AS r ON r.id = rp.role_id AND r.active = 1
-ORDER BY rp.role_id, rp.permission
-  ]]
-      for row in rs:rows(true) do
-        if roles_permissions[row.role_id] == nil then
-          roles_permissions[row.role_id] = {}
-        end
-
-        -- Do not override config from settings.lua
-        if roles_permissions[row.role_id][row.permission] == nil then
-          roles_permissions[row.role_id][row.permission] = true
+      -- Load roles from database storage
+      if config.permissions_storage then
+        local rs, err = db_query [[SELECT id, name FROM role WHERE active = 1 ORDER BY weight, id]]
+        for role in rs:rows(true) do
+          roles[role.id] = role.name
         end
       end
     end
 
-    roles_permissions_cached = true
-
-    return roles_permissions
+    return roles
   end
 end
 
@@ -160,82 +150,103 @@ do
   local users_roles = {
     [0] = {anonymous = true},
   }
-  local users_roles_cached
-  function load_users_roles(settings, force_reload)
-    if empty(config.user_role) then config.user_role = {} end
 
-    -- Return cached users_roles
-    if users_roles_cached and not force_reload then
-      return users_roles
-    end
+  --[[ Return the list of roles assigned for given user ID.
+  ]]
+  function get_user_roles(user_id, reset)
+    if nil == users_roles[user_id] or reset then
+      if empty(config.user_role) then config.user_role = {} end
 
-    -- Traverse config.user_role to users_roles
-    for user_id, roles in pairs(config.user_role) do
-      local buffer = {}
-      for _, role_id in pairs(permissions) do
-        buffer[role_id] = true
+      local user_roles = {}
+      local roles = get_roles()
+
+      -- Add default authenticated role
+      if _SESSION.user_id == user_id then
+        user_roles.authenticated = 'authenticated'
+      else
+        user_roles.anonymous = 'anonymous'
       end
-      users_roles[user_id] = buffer
-    end
 
-    -- Load user <--> role relationships from database storage
-    if config.permissions_storage then
-      local rs, err = db_query 'SELECT * FROM user_role'
-      for row in rs:rows(true) do
-        local user_id = tonumber(row.user_id)
-        if users_roles[user_id] == nil then
-          users_roles[user_id] = {}
-        end
-
-        -- Do not override config from settings.lua
-        if users_roles[user_id][row.role_id] == nil then
-          users_roles[user_id][row.role_id] = true
+      -- Traverse config.user_role to users_roles
+      for _, role_id in pairs(config.user_role[user_id] or {}) do
+        if roles[role_id] then
+          user_roles[role_id] = role_id
         end
       end
+
+      -- Load user <--> role relationships from database storage
+      if config.permissions_storage then
+        local rs, err = db_query([[
+SELECT ur.role_id
+FROM user_role ur JOIN role r ON ur.role_id = r.id
+WHERE user_id = ?]], user_id)
+        for row in rs:rows(true) do
+          user_roles[row.role_id] = row.role_id
+        end
+      end
+
+      users_roles[user_id] = user_roles
     end
 
-    users_roles_cached = true
-
-    return users_roles
+    return users_roles[user_id]
   end
 end
 
-function load_permissions(account, force_reload)
-  if empty(config) then config = {} end
-  if empty(config.role) then config.role = {} end
-  if empty(config.user_role) then config.user_role = {} end
+do
+  local users_permissions = {}
 
-  local roles_permissions = load_roles_permissions(config)
-  local users_roles = load_users_roles(config)
-  local permissions = {}
-  local roles = config.role
+  --[[ Load user permissions from roles in provided account object.
+  ]]
+  function get_user_permissions(user_id, reset)
+    if nil == users_permissions[user_id] or reset then
+      local permissions = {}
+      local user_roles = get_user_roles(user_id)
+      if nil == config.permissions then config.permissions = {} end
 
-  account.roles = users_roles[tonumber(account.id)] or {}
-  account.permissions = {}
-  for role, assigned in pairs(account.roles) do
-    if assigned then
-      for permission, granted in pairs(roles_permissions[role] or {}) do
-        if granted then
-          permissions[permission] = true
+      -- Load permissions from settings
+      for role_id, assigned in pairs(user_roles or {}) do
+        for _, perm in pairs(config.permissions[role_id] or {}) do
+          permissions[perm] = true
         end
       end
-    end
-  end
 
-  account.permissions = permissions
+      -- Load permissions from database storage
+      if config.permissions_storage then
+        local roles = xtable(get_user_roles(user_id) or {})
+
+        local rs, err = db_query([[
+SELECT permission
+FROM role_permission
+WHERE role_id IN (']] .. roles:concat("', '") .. [[')
+GROUP BY permission
+ORDER BY permission
+]])
+        for row in rs:rows(true) do
+          if nil == permissions[row.permission] then
+            permissions[row.permission] = true
+          end
+        end
+      end
+
+      users_permissions[user_id] = permissions
+    end
+
+    return users_permissions[user_id]
+  end
 end
 
-function access(perm)
-  local account
+function access(perm, user_id)
+  if nil == user_id then user_id = _SESSION.user_id end
+  local account = load(user_id)
 
-  if _SESSION and not empty(_SESSION.user) then
-    account = _SESSION.user
-    if tonumber(account.id) == 1 then
-      return true
-    elseif not empty(account.permissions) then
-      return account.permissions[perm] or false
-    end
+  local permissions = get_user_permissions(user_id)
+
+  if tonumber(user_id) == 1 then
+    return true
+  elseif not empty(permissions) then
+    return permissions[perm] or false
   end
+
   return false
 end
 
@@ -340,12 +351,12 @@ function auth_service()
     if 'table' == type(account) and not empty(account.id) then
       if account.pass == hash(config.algorithm or 'sha256', parsed.pass or '') then
         output.authenticated = true
-	module_invoke_all('user_login', account, output)
-        _SESSION.user = account
+        module_invoke_all('user_login', account, output)
+        _SESSION.user_id = account.id
 
-	if _GET.redirect and url_parse(_GET.redirect).host == _SERVER 'HTTP_HOST' then
-	  output.redirect = _GET.redirect
-	end
+        if _GET.redirect and url_parse(_GET.redirect).host == _SERVER 'HTTP_HOST' then
+          output.redirect = _GET.redirect
+        end
       end
     end
   end
@@ -356,9 +367,7 @@ end
 --[[ Return the current user from _SESSION.
 ]]
 function current()
-  if _SESSION then
-    return _SESSION.user
-  end
+  return load(_SESSION.user_id)
 end
 
 --[[ Render author.

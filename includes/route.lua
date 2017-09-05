@@ -389,3 +389,19 @@ function route_forbidden(variables)
 
   return variables.body
 end
+
+function route_not_found(variables)
+  if nil == variables then variables = {} end
+
+  -- Defaults
+  variables.header_title = variables.header_title or 'Page not found'
+  variables.title = variables.title or 'Page not found'
+  variables.body = variables.body or body 'The requested page could not be found.'
+
+  module_invoke_all('route_not_found_alter', variables)
+
+  header('status', 404)
+  page_set_title(variables.header_title, variables.title)
+
+  return variables.body
+end

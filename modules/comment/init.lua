@@ -10,14 +10,14 @@ local debug = debug
 
 module 'ophal.modules.comment'
 
-local user, db_query, db_last_insert_id
+local user_mod, db_query, db_last_insert_id
 
 --[[ Implements hook init().
 ]]
 function init()
   db_query = env.db_query
   db_last_insert_id = env.db_last_insert_id
-  user = modules.user
+  user_mod = modules.user
 end
 
 --[[ Implements hook entity_render().
@@ -99,20 +99,20 @@ function load_multiple_by(field_name, value)
 end
 
 function comment_access(entity, action)
-  local account = _SESSION.user
+  local account = user_mod.current()
 
-  if user.access 'administer comments' then
+  if user_mod.access 'administer comments' then
     return true
   end
 
   if action == 'create' then
-    return user.access 'post comments'
+    return user_mod.access 'post comments'
   elseif action == 'update' then
-    return user.access 'edit own comments' and entity.user_id == account.id
+    return user_mod.access 'edit own comments' and entity.user_id == account.id
   elseif action == 'read' then
-    return user.access 'access comments'
+    return user_mod.access 'access comments'
   elseif action == 'delete' then
-    return user.access 'delete own comments' and entity.user_id == account.id
+    return user_mod.access 'delete own comments' and entity.user_id == account.id
   end
 end
 
@@ -157,7 +157,7 @@ function fetch_service()
       else
         for k, row in pairs(list) do
           list[k].rendered = render_t{'comment', entity = row,
-            account = user.load(row.user_id),
+            account = user_mod.load(row.user_id),
             author = theme{'author', entity = row},
           }
         end
@@ -237,7 +237,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)]],
       entity.id,
       entity.entity_id,
       entity.parent_id,
-      entity.user_id or _SESSION.user.id,
+      entity.user_id or user_mod.current().id,
       entity.language or 'en',
       entity.body,
       entity.created or time(),
@@ -250,7 +250,7 @@ INSERT INTO comment(entity_id, parent_id, user_id, language, body, created, stat
 VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
       entity.entity_id,
       entity.parent_id,
-      entity.user_id or _SESSION.user.id,
+      entity.user_id or user_mod.current().id,
       entity.language or 'en',
       entity.body,
       entity.created or time(),

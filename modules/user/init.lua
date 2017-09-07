@@ -148,7 +148,7 @@ end
 
 do
   local users_roles = {
-    [0] = {anonymous = true},
+    [0] = {anonymous = 'anonymous'},
   }
 
   --[[ Return the list of roles assigned for given user ID.

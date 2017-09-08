@@ -1,5 +1,5 @@
-local empty, tinsert = seawolf.variable.empty, table.insert
-local tsort, tconcat = table.sort, table.concat
+local empty, tinsert, os_date = seawolf.variable.empty, table.insert, os.date
+local tsort, tconcat, os_time = table.sort, table.concat, os.time
 
 --[[
   Form theme function.
@@ -218,5 +218,33 @@ function theme.progress(variables)
   return ('<div class="progress" %s><span class="meter" style="width: %s%%"></span></div>'):format(
     render_attributes(variables.attributes),
     value
+  )
+end
+
+function form_date_to_unixtime(date_string)
+  local year, month, day, hour, min, sec = date_string:match("(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
+
+  return os.time{
+    year = year,
+    month = month,
+    day = day,
+    hour = hour,
+    min = min,
+    sec = sec
+  }
+end
+
+function theme.date(variables)
+  if variables == nil then variables = {} end
+
+  local offset = os_time() - os_time(os_date [[!*t]])
+  local text_value = os_date([[%Y-%m-%d %H:%M:%S]], variables.value)
+  local offset_string = offset > -1 and os_date([[!+%H:%M]], offset) or os_date([[!-%H:%M]], offset*-1)
+
+  return ([[%s
+  <br />
+  <small>Timezone: UTC %s</small>]]):format(
+    theme{'textfield', value = text_value, attributes = variables.attributes},
+    offset_string
   )
 end

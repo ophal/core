@@ -18,7 +18,7 @@ do
   local order, group
   local list = xtable{'system'}
 
-  --[[ Return the a list of modules by weight and name
+  --[[ Return the list of active modules by weight and name
   ]]
   function module_list()
     if nil == order then
@@ -32,7 +32,7 @@ do
       -- Group modules by their weight
       for name, weight in pairs(settings.modules) do
         -- Ignore disabled modules
-        if weight == false then return end
+        if weight == false then break end
 
         if weight == true then
           weight = 1
@@ -70,7 +70,7 @@ function module_invoke_all(hook, ...)
 
   for _, name in pairs(module_list()) do
     local m = ophal.modules[name]
-    if m[hook] then
+    if m and m[hook] then
       r, err = m[hook](...) -- call hook implementation
       if err then
         return nil, err

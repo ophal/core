@@ -95,6 +95,9 @@ $.extend(true, Ophal.settings, {"%s": %s});
 //--><!]]>
 </script>
 ]=]):format(j or '')
+        elseif options ~= nil and options.type == 'external' then
+          output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s"></script>
+]]):format(j or '')
         elseif is_file(j) then
           output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s%s?%s"></script>
 ]]):format(base.route, j, lfs.attributes(j, 'modification'))

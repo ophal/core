@@ -169,6 +169,7 @@ function bootstrap(phase, main)
     -- 5. Load Ophal server API
     function ()
       require 'includes.server.init'
+      build_base()
     end,
 
     -- 6. Check installer
@@ -192,7 +193,6 @@ function bootstrap(phase, main)
     -- 8. Route API,
     function ()
       require 'includes.route'
-      build_base()
     end,
 
     -- 9. Core API,

@@ -241,6 +241,8 @@ function route_build_routes()
         return nil, err
       end
       if type(r) == 'table' then
+        module_invoke_all('route_alter', name, r)
+
         for k, v in pairs(r) do
           route_build_handler(v, name) 
           routes[k] = v

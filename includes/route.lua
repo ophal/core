@@ -290,7 +290,7 @@ function l(text, route, options)
   local attributes = options.attributes or {}
   options.attributes = nil
 
-  return theme{'a', 
+  return theme{'a',
     text = text,
     route = url(route, options),
     attributes = attributes,

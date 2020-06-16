@@ -237,11 +237,11 @@ end
 
 function cookie_set(name, value, expires, path, domain)
   local cookie_string = ('%s=%s; domain=%s; expires=%s; path=%s'):format(
-    name,
-    value,
-    domain,
-    date('!%a, %d-%b-%Y %X GMT', expires + time()),
-    path
+    name or '',
+    value or '',
+    domain or '',
+    date('!%a, %d-%b-%Y %X GMT', expires + time()) or '',
+    path or ''
   )
 
   header('Set-Cookie', cookie_string, false)

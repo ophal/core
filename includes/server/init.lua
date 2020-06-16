@@ -229,6 +229,12 @@ function output_flush()
   write(output)
 end
 
+function get_cookie_domain()
+  return
+    (settings.site or {}).cookie_domain or
+    _SERVER 'SERVER_NAME'
+end
+
 function cookie_set(name, value, expires, path, domain)
   local cookie_string = ('%s=%s; domain=%s; expires=%s; path=%s'):format(
     name,

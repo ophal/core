@@ -244,7 +244,7 @@ function route_build_routes()
         module_invoke_all('route_alter', name, r)
 
         for k, v in pairs(r) do
-          route_build_handler(v, name) 
+          route_build_handler(v, name)
           routes[k] = v
         end
       elseif r then

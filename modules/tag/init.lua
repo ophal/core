@@ -1,7 +1,7 @@
 local _M = {
   entity_type = 'tag',
 }
-ophal.modules.tag = _M
+ophal.modules[_M.entity_type] = _M
 
 local modules, config = ophal.modules, settings.tag
 local theme, env, add_css, slash, l = theme, env, add_css, settings.slash, l
@@ -52,7 +52,7 @@ function _M.route()
     access_callback = {module = 'user', 'access', 'administer tags'},
   }
   items.tag = {
-    page_callback = 'page',
+    page_callback = 'entity_page',
     title = 'Tag page',
     access_callback = {module = 'user', 'access', 'access tags'},
   }
@@ -81,22 +81,15 @@ function _M.route()
   return items
 end
 
-function _M.entity_access(entity, action)
-  local account = user_mod.current()
-
-  if user_mod.access 'administer tags' then
-    return true
-  end
-
-  if action == 'create' then
-    return user_mod.access 'create tags'
-  elseif action == 'update' then
-    return user_mod.access 'edit own tags' and entity.user_id == account.id
-  elseif action == 'read' then
-    return user_mod.access 'access tags'
-  elseif action == 'delete' then
-    return user_mod.access 'delete own tags' and entity.user_id == account.id
-  end
+--[[ Implements hook entity().
+]]
+function _M.entity_type_info()
+  local info = {
+    [_M.entity_type] = {
+      name = {'tag', plural = 'tags'}
+    }
+  }
+  return info
 end
 
 --[[ Implements hook entity_load().
@@ -365,7 +358,7 @@ function _M.save_service()
   return output
 end
   
-function _M.page()
+function _M.entity_page()
   local rs, err, tag, current_page, ipp, num_pages, entity, attr, pagination, sql
   local count, tables, count_query, query, tags, output = 0, {}, {}, {}, {}, {}
 

@@ -285,6 +285,7 @@ Run the following SQL queries in strict order:
   CREATE TABLE role_permission(
     role_id VARCHAR(255),
     permission VARCHAR(255),
+    module VARCHAR(255),
     PRIMARY KEY (role_id, permission)
   );
   CREATE INDEX idx_role_permission_perm ON role_permission (permission);
@@ -326,7 +327,8 @@ Run the following SQL queries in strict order:
 
   CREATE TABLE role_permission (
     role_id character varying(255) NOT NULL,
-    permission character varying(255) NOT NULL
+    permission character varying(255) NOT NULL,
+    module character varying(255)
   );
   ALTER TABLE ONLY role_permission ADD CONSTRAINT role_permission_pkey PRIMARY KEY (role_id, permission);
   CREATE INDEX idx_role_permission_perm ON role_permission USING btree (permission);

@@ -112,29 +112,26 @@ function _M.entity_access(entity, action)
     entity = _M.parse_route_args()
   end
 
+  local wrapper = {}
+  setmetatable(wrapper, {__index = function(t, k)
+    return entity[k] or (function()
+      local entity_class = ophal.modules[rawget(t, 'type')]
+      local data = entity_class.load(rawget(t, 'id'))
+      return data and data[k] or nil
+    end)()
+  end})
+
   if
-    empty(entity.type) or (
+    empty(wrapper.type) or (
       ('update' == action or 'delete' == action) and
-      empty(entity.id)
+      empty(wrapper.id)
     )
   then
     return false
   end
 
-  if empty(entity.user_id) then
-    setmetatable(entity, {__index = function(t, k)
-      local entity_class = ophal.modules[t.type]
-      if entity_class then
-        t = entity_class.load(t.id)
-        if t then
-          return t[k]
-        end
-      end
-    end})
-  end
-
   local account = user_mod.current()
-  local info = _M.get_entity_type_info(entity.type)
+  local info = _M.get_entity_type_info(wrapper.type)
 
   if user_mod.access('administer ' .. (info.name.plural or info.name[1])) then
     return true
@@ -143,11 +140,11 @@ function _M.entity_access(entity, action)
   if action == 'create' then
     return user_mod.access('create ' .. (info.name.plural or info.name[1]))
   elseif action == 'update' then
-    return user_mod.access('edit own ' .. (info.name.plural or info.name[1])) and entity.user_id == account.id
+    return user_mod.access('edit own ' .. (info.name.plural or info.name[1])) and wrapper.user_id == account.id
   elseif action == 'read' then
     return user_mod.access('access ' .. (info.name.plural or info.name[1]))
   elseif action == 'delete' then
-    return user_mod.access('delete own ' .. (info.name.plural or info.name[1])) and entity.user_id == account.id
+    return user_mod.access('delete own ' .. (info.name.plural or info.name[1])) and wrapper.user_id == account.id
   end
 
   return false

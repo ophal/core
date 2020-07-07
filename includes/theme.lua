@@ -70,7 +70,10 @@ end
   Render theme template.
 ]]
 local function theme_render(f, env)
-  file = ('%sthemes%s%s%s%s.tpl.html'):format(currentdir, slash, theme.name, slash, f)
+  -- Set default output format
+  env.format = env.format or 'html'
+
+  file = ('%sthemes%s%s%s%s.tpl.%s'):format(currentdir, slash, theme.name, slash, f, env.format)
 
   local attr, err = lfs.attributes(file)
   if err then

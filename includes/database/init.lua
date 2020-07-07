@@ -63,3 +63,7 @@ end
 function db_limit()
   return drivers[db_id].limit()
 end
+
+function db_table_schema_sql()
+  return drivers[db_id].table_schema_sql()
+end

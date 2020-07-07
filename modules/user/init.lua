@@ -12,6 +12,8 @@ local xtable = seawolf.contrib.seawolf_table
 
 module 'ophal.modules.user'
 
+local db_query, db_field, db_last_insert_id
+
 --[[ Implements hook route().
 ]]
 function route()
@@ -62,6 +64,7 @@ end
 ]]
 function init()
   db_query = env.db_query
+  db_field = env.db_field
   db_last_insert_id = env.db_last_insert_id
 
   -- Set anonymous user ID
@@ -101,7 +104,8 @@ function load_by_field(field, value)
       name = 'Anonymous',
     }
   elseif not empty(field) and not empty(value) then
-    rs = db_query('SELECT * FROM users WHERE ' .. field .. ' = ?', value)
+    local sql = ('SELECT * FROM users WHERE %s = ?'):format(db_field('users', field))
+    rs = db_query(sql, value)
     entity = rs:fetch(true)
   end
 

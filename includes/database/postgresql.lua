@@ -16,4 +16,10 @@ function _M.limit()
   return ' OFFSET ? LIMIT ?'
 end
 
+function _M.table_schema_sql()
+  return [[SELECT column_name field_name
+FROM information_schema.columns
+WHERE table_name = ?]]
+end
+
 return _M

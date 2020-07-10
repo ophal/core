@@ -1,6 +1,7 @@
 dbh = {} -- Database handlers
 
 local DBI, db_id, drivers = require 'DBI', 'default', {}
+local xtable = seawolf.contrib.seawolf_table
 
 function db_set_db_id(id)
   db_id = id

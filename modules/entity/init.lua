@@ -115,8 +115,8 @@ function _M.entity_access(entity, action)
   local wrapper = {}
   setmetatable(wrapper, {__index = function(t, k)
     return entity[k] or (function()
-      local entity_class = ophal.modules[rawget(t, 'type')]
-      local data = entity_class.load(rawget(t, 'id'))
+      local entity_class = ophal.modules[rawget(entity, 'type')]
+      local data = entity_class.load(rawget(entity, 'id'))
       return data and data[k] or nil
     end)()
   end})

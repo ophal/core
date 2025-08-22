@@ -178,6 +178,7 @@ function _M.menus_alter(menus)
   menus.tags_menu = function()
     local rs, err = db_query [[SELECT t.id, t.name
 FROM tag t JOIN field_tag ft ON t.id = ft.tag_id
+WHERE t.status = 1
 GROUP BY t.id
 ORDER BY t.name]]
     local c, items = 0, {}
@@ -191,7 +192,7 @@ ORDER BY t.name]]
   menus.entity_tags_menu = function()
     local rs, err = db_query([[SELECT t.id, t.name
 FROM tag t JOIN field_tag ft ON t.id = ft.tag_id
-WHERE ft.entity_type = ? AND ft.entity_id = ?
+WHERE ft.entity_type = ? AND ft.entity_id = ? AND t.status = 1
 GROUP BY t.id
 ORDER BY t.name]], route_arg(0), tonumber(route_arg(1)))
     local c, items = 0, {}

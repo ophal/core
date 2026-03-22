@@ -92,7 +92,7 @@ end
 function module_load(name)
   local status, err = pcall(require, 'modules.' .. name .. '.init')
   if not status then
-    print('bootstrap: ' .. err)
+    error('module: ' .. err)
   end
 end
 

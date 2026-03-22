@@ -25,8 +25,8 @@ RUN luarocks install bit32
 RUN luarocks install md5
 RUN luarocks install luasec OPENSSL_LIBDIR=/usr/lib/x86_64-linux-gnu/
 RUN luarocks install dkjson
-RUN luarocks install --server=http://rocks.moonscript.org/dev seawolf 1.0-0
-RUN luarocks install --server=http://rocks.moonscript.org/dev ophal-cli
+RUN luarocks install --server=http://luarocks.org/dev seawolf 1.0-0
+RUN luarocks install --server=http://luarocks.org/dev ophal-cli
 
 # Install Apache
 RUN apt-get install -y apache2-mpm-worker
@@ -39,7 +39,7 @@ nodaemon=true\n\
 command=/usr/bin/pidproxy /var/run/apache2/apache2.pid /bin/bash -c "source /etc/apache2/envvars && /usr/sbin/apache2 -DFOREGROUND"\n\
 redirect_stderr=true\n'\
 >> /etc/supervisor/conf.d/supervisord.conf
-RUN mkdir /var/run/apache2 /var/lock/apache2 && chown www-data: /var/lock/apache2 /var/run/apache2
+RUN mkdir /var/run/apache2 && chown www-data: /var/run/apache2
 RUN echo '<VirtualHost *:80>\n\
 \n\
         ServerAdmin webmaster@localhost\n\
@@ -68,7 +68,9 @@ VOLUME ["/var/www/"]
 EXPOSE 80 443
 
 # Create deploy user
-RUN useradd deploy
+RUN useradd deploy; chsh -s /bin/bash deploy
 
 # Start supervisor
 CMD ["/usr/bin/supervisord"]
+
+WORKDIR /var/www

@@ -16,7 +16,7 @@
 # http://www.robotstxt.org/robotstxt.html
 #
 # For syntax checking, see:
-# https://webmaster.yandex.com/robots.xml
+# https://technicalseo.com/tools/robots-txt/
 
 User-agent: *
 Crawl-delay: 10

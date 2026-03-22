@@ -1,3 +1,8 @@
+local _M = {
+  entity_type = 'content',
+}
+ophal.modules[_M.entity_type] = _M
+
 local config = settings.content
 local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
@@ -58,7 +63,7 @@ function load(id)
   return entity
 end
 
-function entity_access(entity, action)
+function _M.entity_access(entity, action)
   local account = user_mod.current()
 
   if user_mod.access 'administer content' then
@@ -89,7 +94,7 @@ function save_service()
 
     entity = load(id)
 
-    if not entity_access(entity, action) then
+    if not _M.entity_access(entity, action) then
       header('status', 401)
     elseif action == 'update' and empty(entity) then
       header('status', 404)
@@ -186,7 +191,7 @@ function router()
 
   if not empty(arg1) then
     if arg1 == 'create' then
-      if not entity_access(entity, 'create') then
+      if not _M.entity_access(entity, 'create') then
         page_set_title 'Access denied'
         header('status', 401)
         return ''
@@ -206,14 +211,14 @@ function router()
       page_set_title 'Page not found'
       header('status', 404)
       return ''
-    elseif not entity_access(entity, 'read') then
+    elseif not _M.entity_access(entity, 'read') then
       page_set_title 'Access denied'
       header('status', 401)
       return ''
     end
 
     if arg(2) == 'edit' then
-      if not entity_access(entity, 'update') then
+      if not _M.entity_access(entity, 'update') then
         page_set_title 'Access denied'
         header('status', 401)
         return ''
@@ -304,7 +309,7 @@ function theme.content_links(variables)
     links[1 + #links] = l('Read more', 'content/' .. entity.id)
   end
 
-  if entity_access(entity, 'update') then
+  if _M.entity_access(entity, 'update') then
     links[1 + #links] = l('edit', 'content/' .. entity.id .. '/edit')
   end
 

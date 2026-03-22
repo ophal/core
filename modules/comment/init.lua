@@ -10,12 +10,13 @@ local debug = debug
 
 module 'ophal.modules.comment'
 
-local user_mod, db_query, db_last_insert_id
+local user_mod, db_query, db_field, db_last_insert_id
 
 --[[ Implements hook init().
 ]]
 function init()
   db_query = env.db_query
+  db_field = env.db_field
   db_last_insert_id = env.db_last_insert_id
   user_mod = modules.user
 end
@@ -89,7 +90,8 @@ function load_multiple_by(field_name, value)
   local rs, err
   local rows = {}
 
-  rs, err = db_query('SELECT * FROM comment WHERE ' .. field_name .. ' = ?', value)
+  local sql = ('SELECT * FROM comment WHERE %s = ?'):format(db_field('comment', field_name))
+  rs, err = db_query(sql, value)
 
   for row in rs:rows(true) do
     rows[1 + #rows] = row

@@ -4,6 +4,10 @@
 
 Ophal aimed to become a highly scalable web platform, easy to maintain, learn, extend and open to improvements.
 
+## Development
+
+Development workflow and release policy: [docs/branching-and-releases.md](docs/branching-and-releases.md).
+
 ## Dependencies
 
 Ophal has the following dependencies:

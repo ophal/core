@@ -14,12 +14,13 @@ local debug = debug
 
 module 'ophal.modules.file'
 
-local user_mod, db_query, db_last_insert_id
+local user_mod, db_query, db_field, db_last_insert_id
 
 --[[ Implements hook init().
 ]]
 function init()
   db_query = env.db_query
+  db_field = env.db_field
   db_last_insert_id = env.db_last_insert_id
   user_mod = modules.user
 end
@@ -55,7 +56,8 @@ function load_by_field(field, value)
     value = tonumber(value or 0)
   end
 
-  rs, err = db_query('SELECT * FROM file WHERE ' .. field .. ' = ?', value)
+  local sql = ('SELECT * FROM file WHERE %s = ?'):format(db_field('file', field))
+  rs, err = db_query(sql, value)
   if err then
     error(err)
   end

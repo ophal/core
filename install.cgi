@@ -30,9 +30,10 @@ ophal.bootstrap(5, function ()
   local phase = tonumber(_GET.phase) or 1
 
   -- Load Core API
+  require 'includes.route'
   require 'includes.common'
   require 'includes.locale'
-  require 'includes.route'
+  require 'includes.module'
   require 'includes.theme'
 
   -- Pager
@@ -180,7 +181,6 @@ ophal.bootstrap(5, function ()
         redirect(('%s%sinstall.cgi?phase=4'):format(base.system_root, base.route))
       end
 
-      require 'includes.module'
       require 'includes.form'
 
       add_js 'libraries/jquery.min.js'

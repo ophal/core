@@ -241,8 +241,10 @@ function route_build_routes()
         return nil, err
       end
       if type(r) == 'table' then
+        module_invoke_all('route_alter', name, r)
+
         for k, v in pairs(r) do
-          route_build_handler(v, name) 
+          route_build_handler(v, name)
           routes[k] = v
         end
       elseif r then
@@ -288,7 +290,7 @@ function l(text, route, options)
   local attributes = options.attributes or {}
   options.attributes = nil
 
-  return theme{'a', 
+  return theme{'a',
     text = text,
     route = url(route, options),
     attributes = attributes,
@@ -362,6 +364,7 @@ function route_execute_active_handler()
 
   -- Render content
   print_t{handler.format,
+    format = handler.format, -- Root template name same as output format
     status = status,
     header_title = ophal.header_title,
     title = ophal.title,
@@ -395,7 +398,7 @@ function route_not_found(variables)
   -- Defaults
   variables.header_title = variables.header_title or 'Page not found'
   variables.title = variables.title or 'Page not found'
-  variables.body = variables.body or body 'The requested page could not be found.'
+  variables.body = variables.body or 'The requested page could not be found.'
 
   module_invoke_all('route_not_found_alter', variables)
 

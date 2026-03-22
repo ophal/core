@@ -23,6 +23,7 @@ end
 
 -- Default headers
 header('content-type', 'text/html; charset=utf-8')
+header('x-frame-options', 'SAMEORIGIN')
 if ophal.version then
   header('x-powered-by', ophal.version)
 end
@@ -228,13 +229,19 @@ function output_flush()
   write(output)
 end
 
+function get_cookie_domain()
+  return
+    (settings.site or {}).cookie_domain or
+    _SERVER 'SERVER_NAME'
+end
+
 function cookie_set(name, value, expires, path, domain)
   local cookie_string = ('%s=%s; domain=%s; expires=%s; path=%s'):format(
-    name,
-    value,
-    domain,
-    date('!%a, %d-%b-%Y %X GMT', expires + time()),
-    path
+    name or '',
+    value or '',
+    domain or '',
+    date('!%a, %d-%b-%Y %X GMT', expires + time()) or '',
+    path or ''
   )
 
   header('Set-Cookie', cookie_string, false)

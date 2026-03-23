@@ -230,30 +230,58 @@ function route_build_handler(handler, module_name)
   end
 end
 
+local function route_freeze(routes)
+  setmetatable(routes, {
+    __newindex = function(_, k)
+      error(('route table is frozen; cannot set key "%s" after build'):format(tostring(k)))
+    end,
+  })
+  return routes
+end
+
 function route_build_routes()
   local err
-  local routes, r = {}
+  local collected = {}
+  local routes = {}
 
-  for name, m in pairs(ophal.modules) do
-    if m.route then
-      r, err = m.route() -- call hook implementation
+  -- Phase 1: Collect routes in resolved module order
+  for _, name in pairs(module_list()) do
+    local m = ophal.modules[name]
+    if m and m.route then
+      local r
+      r, err = m.route()
       if err then
         return nil, err
       end
       if type(r) == 'table' then
-        module_invoke_all('route_alter', name, r)
-
-        for k, v in pairs(r) do
-          route_build_handler(v, name)
-          routes[k] = v
-        end
-      elseif r then
-        table.insert(routes, r)
+        collected[#collected + 1] = {name = name, routes = r}
       end
     end
   end
 
-  return routes
+  -- Phase 2: Run route_alter in resolved module order
+  for _, entry in ipairs(collected) do
+    module_invoke_all('route_alter', entry.name, entry.routes)
+  end
+
+  -- Phase 3: Merge with conflict detection, then freeze
+  local owners = {}
+  for _, entry in ipairs(collected) do
+    for path, handler in pairs(entry.routes) do
+      route_build_handler(handler, entry.name)
+      if owners[path] then
+        io.stderr:write(
+          ('route conflict: "%s" claimed by "%s", overridden by "%s"\n'):format(
+            path, owners[path], entry.name
+          )
+        )
+      end
+      owners[path] = entry.name
+      routes[path] = handler
+    end
+  end
+
+  return route_freeze(routes)
 end
 
 --[[ Generates an internal or external URL.

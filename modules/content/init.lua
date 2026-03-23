@@ -81,6 +81,15 @@ function _M.entity_access(entity, action)
   end
 end
 
+function _M.entity_type_info()
+  return {
+    [_M.entity_type] = {
+      name = {'content', plural = 'content'},
+      module = _M.entity_type,
+    }
+  }
+end
+
 function save_service()
   local input, parsed, pos, err, output, account, action, id
   local entity
@@ -179,6 +188,15 @@ function update(entity)
   rs, err = db_query('UPDATE content SET title = ?, teaser = ?, body = ?, status = ?, promote = ?, changed = ? WHERE id = ?', entity.title, entity.teaser, entity.body, entity.status, entity.promote, time(), entity.id)
   if not err then
     module_invoke_all('entity_after_save', entity)
+  end
+  return rs, err
+end
+
+function delete(entity)
+  local rs, err
+  rs, err = db_query('DELETE FROM content WHERE id = ?', entity.id)
+  if not err then
+    module_invoke_all('entity_after_delete', entity)
   end
   return rs, err
 end

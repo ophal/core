@@ -215,7 +215,7 @@ end
 
   @see get_destination()
 ]]
-function goto(path, http_response_code, options)
+function go_to(path, http_response_code, options)
   path = path or ''
   http_response_code = http_response_code or 302
   options = options or {}
@@ -231,6 +231,8 @@ function goto(path, http_response_code, options)
 
   exit_ophal()
 end
+
+_G['goto'] = go_to
 
 --[[
   Format given unix timestamp by system date format.

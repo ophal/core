@@ -8,7 +8,7 @@ local theme, env, add_css, slash, l = theme, env, add_css, settings.slash, l
 local tinsert, tconcat, pairs, ophal = table.insert, table.concat, pairs, ophal
 local add_js, route_arg, trim, header = add_js, route_arg, seawolf.text.trim, header
 local page_set_title, json, time = page_set_title, require 'dkjson', os.time
-local type, empty, error, goto = type, seawolf.variable.empty, error, goto
+local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
 local _SESSION, tonumber, _GET, ceil = _SESSION, tonumber, _GET, math.ceil
 local pager, print_t, request_get_body = pager, print_t, request_get_body
 
@@ -433,7 +433,7 @@ function _M.manage_page()
   local tags, rs, err, operations
 
   if not user_mod.is_logged_in() then
-    goto 'user/login'
+    go_to 'user/login'
   end
 
   rs, err = db_query 'SELECT * FROM tag ORDER BY name'
@@ -460,7 +460,7 @@ function _M.edit_page()
   local entity, err
 
   if not user_mod.is_logged_in() then
-    goto 'user/login'
+    go_to 'user/login'
   end
 
   add_js 'modules/tag/tag_form.js'
@@ -479,7 +479,7 @@ function _M.add_page()
   local tag, rs, err
 
   if not user_mod.is_logged_in() then
-    goto 'user/login'
+    go_to 'user/login'
   end
 
   add_js 'modules/tag/tag_form.js'
@@ -493,7 +493,7 @@ function _M.delete_page()
   local entity, err
 
   if not user_mod.is_logged_in() then
-    goto 'user/login'
+    go_to 'user/login'
   end
 
   entity, err = _M.load(trim(route_arg(2)))

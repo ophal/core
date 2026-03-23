@@ -83,7 +83,7 @@ end
 function route_redirect()
   local redirect = ophal.redirects.source[request_path()]
   if redirect then
-    goto(redirect[1], redirect[2])
+    go_to(redirect[1], redirect[2])
   end
 end
 

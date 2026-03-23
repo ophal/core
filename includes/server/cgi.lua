@@ -1,118 +1,145 @@
-local io_write, buffer = io.write, env.output_buffer
-local time, date, exit = os.time, os.date, os.exit
-local tinsert, explode = table.insert, seawolf.text.explode
-local empty, ltrim = seawolf.variable.empty, seawolf.text.ltrim
-local trim, dirname = seawolf.text.trim, seawolf.fs.dirname
-local basename = seawolf.fs.basename
-local rtrim, unescape = seawolf.text.rtrim, socket.url.unescape
-local tconcat, lower = table.concat, string.lower
+local io_write = io.write
+local empty = seawolf.variable.empty
+local lower = string.lower
+local real_exit = os.exit
+local tinsert = table.insert
 
-ophal.raw_cookies = _SERVER 'HTTP_COOKIE'
+local request_has_body = {
+  POST = true,
+  PUT = true,
+  CONNECT = true,
+  OPTIONS = true,
+  PATCH = true,
+}
 
--- Output functions
--- Make sure to print headers on the first output
-write = function (s)
-  io.write = io_write
-  write = io_write
-  ophal.header:print()
-  write "\n"
-  write(s)
-end
-io.write = write
+local function request_headers()
+  local headers = {}
+  local known = {
+    HTTP_HOST = 'Host',
+    HTTP_COOKIE = 'Cookie',
+    HTTP_IF_MODIFIED_SINCE = 'If-Modified-Since',
+    HTTP_USER_AGENT = 'User-Agent',
+    HTTP_ACCEPT = 'Accept',
+    CONTENT_TYPE = 'Content-Type',
+    CONTENT_LENGTH = 'Content-Length',
+  }
 
-do
-  local exit_orig = exit
-  exit = function (code)
-    os.exit = exit_orig
-    exit = exit_orig
-    ophal.header:print()
-    exit_orig(code)
+  for key, header_name in pairs(known) do
+    local value = _SERVER(key)
+    if value ~= nil then
+      headers[header_name] = value
+    end
   end
-  os.exit = exit
+
+  return headers
 end
 
--- Headers handler
-ophal.header = {
-  sent = false,
+local header_state = {
   data = {},
-  set = function (t, header)
-    local replace
+  sent = false,
+}
 
-    local name = header[1]
-    local value = header[2]
-    if header[3] ~= nil then
-      replace = header[3]
-    else
+local function reset_headers()
+  header_state.data = {}
+  header_state.sent = false
+end
+
+local function print_headers()
+  if not header_state.sent then
+    for name, values in pairs(header_state.data) do
+      for _, value in pairs(values) do
+        if type(value) == 'function' then
+          value = value()
+        end
+        io_write(('%s: %s\n'):format(name, value))
+      end
+    end
+    header_state.sent = true
+    return true
+  end
+
+  return false
+end
+
+local adapter = {}
+
+function adapter.init()
+  reset_headers()
+end
+
+function adapter.request()
+  local method = _SERVER 'REQUEST_METHOD' or 'GET'
+  local query_string = _SERVER 'QUERY_STRING' or ''
+  local script_name = _SERVER 'SCRIPT_NAME' or '/index.cgi'
+  local raw_cookies = _SERVER 'HTTP_COOKIE' or ''
+  local uri = server_build_request_uri(_SERVER, script_name, query_string)
+
+  return {
+    method = method,
+    scheme = (_SERVER 'HTTPS' == 'on') and 'https' or 'http',
+    host = _SERVER 'HTTP_HOST' or _SERVER 'SERVER_NAME' or 'default',
+    script_name = script_name,
+    uri = uri,
+    path = server_normalize_path(uri, script_name),
+    query = server_parse_query(query_string),
+    headers = request_headers(),
+    cookies = server_parse_cookies(raw_cookies),
+    body = request_has_body[method] and io.read '*a' or nil,
+    raw_query = query_string,
+    raw_cookies = raw_cookies,
+  }
+end
+
+function adapter.header(name, value, replace)
+  if replace == nil then
+    replace = true
+  end
+
+  if not empty(name) and type(name) == 'string' and
+    (type(value) == 'string' or type(value) == 'number' or type(value) == 'function')
+  then
+    name = lower(name)
+    if name == 'status' then
       replace = true
     end
 
-    local headers = t.data
-
-    if not empty(name) and type(name) == 'string' and
-      (type(value) == 'string' or type(value) == 'number' or type(value) == 'function')
-    then
-      name = lower(name)
-      if name == 'status' then
-        replace = true -- always replace status header
-      end
-      if replace then
-        headers[name] = {value}
-      else
-        if headers[name] == nil then
-          headers[name] = {}
-        end
-        tinsert(headers[name], value)
-      end
-    end
-  end,
-  print = function (t)
-    if not t.sent then
-      for n, d in pairs(t.data) do
-        for _, v in pairs(d) do
-          if type(v) == 'function' then
-            v()
-          else
-            io_write(([[%s: %s
-]]):format(n, v))
-          end
-        end
-      end
-      t.sent = true
-    end
-  end
-}
-
-function header(...)
-  ophal.header:set{...}
-end
-
---[[
- Redirect to raw destination URL. 
-]]
-function redirect(dest_url, http_response_code)
-  header('status', http_response_code)
-  header('location', dest_url)
-  header('connection', 'close')
-  write ''
-end
-
-do
-  local request_has_body = {
-    POST = true,
-    PUT = true,
-    CONNECT = true,
-    OPTIONS = true,
-    PATCH = true
-  }
-  function request_get_body()
-    if request_has_body[ _SERVER 'REQUEST_METHOD' ] then
-      return io.read '*a'
+    if replace then
+      header_state.data[name] = {value}
     else
-      return nil
+      if header_state.data[name] == nil then
+        header_state.data[name] = {}
+      end
+      tinsert(header_state.data[name], value)
     end
   end
 end
 
-function server_exit()
-  os.exit()
+function adapter.cookie(name, value, options)
+  adapter.header('Set-Cookie', server_cookie_string(name, value, options), false)
 end
+
+function adapter.write(chunk)
+  if print_headers() then
+    io_write('\n')
+  end
+  io_write(tostring(chunk or ''))
+end
+
+function adapter.redirect(target, status)
+  adapter.header('status', status or 302)
+  adapter.header('location', target)
+  adapter.header('connection', 'close')
+end
+
+function adapter.finish(status)
+  if status ~= nil then
+    adapter.header('status', status)
+  end
+
+  if print_headers() then
+    io_write('\n')
+  end
+  return real_exit()
+end
+
+server_register_adapter('cgi', adapter)

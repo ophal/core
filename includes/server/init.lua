@@ -1,11 +1,38 @@
 local buffer = env.output_buffer
-local time, date, exit = os.time, os.date, os.exit
-local tinsert, explode = table.insert, seawolf.text.explode
-local empty, ltrim = seawolf.variable.empty, seawolf.text.ltrim
+local time, date = os.time, os.date
+local tinsert = table.insert
+local empty = seawolf.variable.empty
 local base, trim, dirname = base, seawolf.text.trim, seawolf.fs.dirname
-local basename, parse_date = seawolf.fs.basename, seawolf.contrib.parse_date
-local rtrim, unescape = seawolf.text.rtrim, socket.url.unescape
+local parse_date = seawolf.contrib.parse_date
 local tconcat, lower = table.concat, string.lower
+
+local function request_header(name)
+  local headers = (server_get_request().headers or {})
+  return headers[name] or headers[lower(name)]
+end
+
+function write(s)
+  return server_get_adapter().write(s)
+end
+io.write = write
+
+function header(name, value, replace)
+  return server_get_adapter().header(name, value, replace)
+end
+
+function redirect(dest_url, http_response_code)
+  return server_get_adapter().redirect(dest_url, http_response_code)
+end
+
+function server_exit(status)
+  return server_get_adapter().finish(status)
+end
+os.exit = server_exit
+
+local request = server_get_request()
+_GET = request.query or {}
+ophal.raw_cookies = request.raw_cookies or ''
+ophal.cookies = request.cookies or {}
 
 --[[ Ophal's print function.
 
@@ -29,25 +56,28 @@ if ophal.version then
 end
 
 -- Browser micro cache control
-if settings.micro_cache and _SERVER 'HTTP_IF_MODIFIED_SINCE' ~= nil then
-  local parsed = parse_date(_SERVER 'HTTP_IF_MODIFIED_SINCE')
-  local last_access = tonumber(('%s%s%s%s%s%s'):format(parsed.year, parsed.month, parsed.day, parsed.hours, parsed.minutes, parsed.seconds))
-  local now = tonumber(os.date('%Y%m%d%H%M%S', time()))
-  if last_access + 5 >= now then
-    header('status', '304 Not Modified')
-    header('cache-control', 'must-revalidate')
-    print ''
-    exit()
+do
+  local if_modified_since = request_header 'If-Modified-Since'
+
+  if settings.micro_cache and if_modified_since ~= nil then
+    local parsed = parse_date(if_modified_since)
+    local last_access = tonumber(('%s%s%s%s%s%s'):format(parsed.year, parsed.month, parsed.day, parsed.hours, parsed.minutes, parsed.seconds))
+    local now = tonumber(os.date('%Y%m%d%H%M%S', time()))
+    if last_access + 5 >= now then
+      header('status', '304 Not Modified')
+      header('cache-control', 'must-revalidate')
+      print ''
+      os.exit()
+    end
   end
 end
 
 -- Redirect to mobile domain name
 if settings.mobile then
   local domain_name = settings.mobile.domain_name
-  local uri = _SERVER 'REQUEST_URI'
-  if settings.mobile.redirect and mobile.detect.isMobile() and _SERVER 'HTTP_HOST' ~= domain_name then
-    local redirect_url = domain_name .. (_SERVER 'REQUEST_URI' or '')
-    header('Location', 'http://' .. redirect_url)
+  if settings.mobile.redirect and mobile.detect.isMobile() and request.host ~= domain_name then
+    local redirect_url = domain_name .. (request.uri or '')
+    header('location', 'http://' .. redirect_url)
     print(('Redirecting to <a href="http://%s">http://%s</a>.'):format(redirect_url, redirect_url))
     os.exit()
   end
@@ -59,100 +89,34 @@ header('last-modified', date('!%a, %d %b %Y %X GMT'))
 header('cache-control', 'store, no-cache, must-revalidate, post-check=0, pre-check=0')
 header('Keep-Alive', 'timeout=15, max=90')
 
---[[
-  Since _SERVER['REQUEST_URI'] is only available on Apache, we
-  generate an equivalent using other environment variables.
-
-  Copied and adapted from Drupal 8.x request_uri().
- ]]
 function request_uri(omit_query_string)
-  local uri
-
-  if _SERVER 'REQUEST_URI' ~= nil then
-    uri = _SERVER 'REQUEST_URI'
-  else
-    if _SERVER 'QUERY_STRING' ~= nil then
-      uri = _SERVER 'SCRIPT_NAME' .. '?' .. _SERVER 'QUERY_STRING'
-    else
-      uri = _SERVER 'SCRIPT_NAME' or ''
-    end
-  end
-  -- Prevent multiple slashes to avoid cross site requests via the FAPI.
-  uri = '/'.. ltrim(uri, '/')
+  local uri = server_get_request().uri or '/'
 
   if omit_query_string then
-    for _, v in pairs(explode('?', uri)) do
-      if v ~= '' then
-        return v
-      end
-    end
+    return uri:match('^[^?]+') or uri
   end
 
   return uri
 end
 
-do
-  local path
-
-  --[[
-    Returns the requested URL path of the page being viewed.
-
-    Examples:
-    - http://example.com/article/306 returns "article/306".
-    - http://example.com/ophalfolder/article/306 returns "article/306" while
-      base.route() returns "/ophalfolder/".
-    - http://example.com/path/alias (which is a path alias for article/306)
-      returns "path/alias" as opposed to the internal path.
-    - http://example.com/index.cgi returns an empty string, meaning: front page.
-    - http://example.com/index.cgi?page=1 returns an empty string.
-
-     Copied and adapted from Drupal 8.x request_path().
-   ]]
-  function request_path()
-    local request_path, base_route_len, script
-
-    if path ~= nil then
-      return path
-    end
-
-    -- Get the part of the URI between the base path of the Drupal installation
-    -- and the query string, and unescape it.
-    request_path = request_uri(true)
-    base_route_len = rtrim(dirname(_SERVER 'SCRIPT_NAME'), '\\/'):len()
-    path = unescape(request_path):sub(base_route_len + 1)
-
-    -- Depending on server configuration, the URI might or might not include the
-    -- script name. For example, the front page might be accessed as
-    -- http://example.com or as http://example.com/index.cgi, and the "user"
-    -- page might be accessed as http://example.com/user or as
-    -- http://example.com/index.cgi/user. Strip the script name from $path.
-    script = basename(_SERVER 'SCRIPT_NAME')
-    if path == script then
-      path = ''
-    elseif path:find(script .. '/') == 0 then
-      path = substr(path, strlen(script) + 1)
-    end
-
-    -- Extra slashes can appear in URLs or under some conditions, added by
-    -- the web server, so normalize.
-    path = trim(path, '/')
-
-    return path
-  end
+function request_path()
+  return server_get_request().path or ''
 end
 
 -- Build base URL, system_root, route and path
 function build_base()
+  local req = server_get_request()
+
   if not empty((settings.site or {}).scheme) then
     base.scheme = settings.site.scheme
   else
-    base.scheme = (_SERVER 'HTTPS' ~= nil and _SERVER 'HTTPS' == 'on') and 'https' or 'http'
+    base.scheme = req.scheme or 'http'
   end
-  base.system_root = base.scheme .. '://' .. ((settings.site or {}).domain_name or _SERVER 'HTTP_HOST' or 'default')
+  base.system_root = base.scheme .. '://' .. ((settings.site or {}).domain_name or req.host or 'default')
   base.url = base.system_root
-  base.path = request_path()
+  base.path = req.path or ''
 
-  local dir = seawolf.text.trim(seawolf.fs.dirname(_SERVER 'SCRIPT_NAME' or '/index.cgi'), [[\,/]])
+  local dir = trim(dirname(req.script_name or '/index.cgi'), [[\,/]])
   if dir ~= '' then
     base.route = '/' .. dir
     base.url = base.url .. base.route
@@ -160,27 +124,10 @@ function build_base()
   end
 end
 
--- Parse query string
-local list = explode('&', _SERVER 'QUERY_STRING' or '')
-
-local parsed = {}
-if list then
-  local tmp, key, value
-  for _, v in pairs(list) do
-    if #v > 0 then
-      tmp = explode('=', v)
-      key = unescape((tmp[1] or ''):gsub('+', ' '))
-      value = unescape((tmp[2] or ''):gsub('+', ' '))
-      parsed[key] = value
-    end
-  end
-end
-_GET = parsed
-
 -- output buffering
 do
   local write_orig = write
-  local exit_orig = exit
+  local exit_orig = server_exit
   if settings.output_buffering then
     write = function (s)
       local type_ = type(s)
@@ -190,11 +137,10 @@ do
       tinsert(buffer, #buffer + 1, s)
     end
     io.write = write
-    exit = function (code)
+    os.exit = function (code)
       output_flush()
-      exit_orig(code)
+      return exit_orig(code)
     end
-    os.exit = exit
     local error_orig = error
     error = function (s)
       output_flush()
@@ -203,13 +149,11 @@ do
   end
 
   function output_clean()
-    for k, v in pairs(buffer) do
-      buffer[k] = nil -- wipe buffer
+    for k in pairs(buffer) do
+      buffer[k] = nil
     end
-    -- restore output function
     write = write_orig
     io.write = write_orig
-    -- turn off output buffering
     settings.output_buffering = false
   end
 end
@@ -221,48 +165,36 @@ function output_get_clean()
 end
 
 function output_flush()
-  -- WARNING! need to get output first and then write it, since output function
-  -- is controlled by output_clean()
   local output = output_get_clean()
-  -- NOTICE! most times this is the first ever call to write(), which takes care
-  -- of headers, don't use io_write()!
   write(output)
+end
+
+function request_get_body()
+  return server_get_request().body
 end
 
 function get_cookie_domain()
   return
     (settings.site or {}).cookie_domain or
+    server_get_request().host or
     _SERVER 'SERVER_NAME'
 end
 
 function cookie_set(name, value, expires, path, domain)
-  local cookie_string = ('%s=%s; domain=%s; expires=%s; path=%s'):format(
-    name or '',
-    value or '',
-    domain or '',
-    date('!%a, %d-%b-%Y %X GMT', expires + time()) or '',
-    path or ''
-  )
+  local options = {
+    domain = domain or '',
+    path = path or '',
+  }
 
-  header('Set-Cookie', cookie_string, false)
+  if expires ~= nil then
+    options.expires = expires + time()
+  end
+
+  return server_get_adapter().cookie(name, value, options)
 end
 
 function cookie_parse()
-  local parsed, cookies, tmp, key, value = {}
-
-  cookies = explode(';', ophal.raw_cookies)
-
-  for _, v in pairs(cookies) do
-    v = trim(v)
-    if #v > 0 then
-      tmp = explode('=', v)
-      key = unescape((tmp[1] or ''):gsub('+', ' '))
-      value = unescape((tmp[2] or ''):gsub('+', ' '))
-      parsed[key] = value
-    end
-  end
-
-  return parsed
+  return server_parse_cookies(server_get_request().raw_cookies or '')
 end
 
 ophal.cookies = cookie_parse()

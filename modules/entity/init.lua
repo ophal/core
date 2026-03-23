@@ -233,7 +233,7 @@ function _M.delete_page()
       entity = ophal.modules[info.module].load(entity.id)
       if confirm then
         ophal.modules[info.module].delete(entity)
-        goto ''
+        go_to ''
       else
         title = t('Delete %s: %s'):format(
           entity.type,

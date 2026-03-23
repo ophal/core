@@ -152,6 +152,7 @@ function bootstrap(phase, main)
 
     -- 3. Load native server API
     function ()
+      require 'includes.server.adapter'
       if ngx then
         require 'includes.server.nginx'
       else
@@ -279,5 +280,10 @@ bootstrap[main]: ]] .. (err or ''))
   end
 
   -- The end
-  exit_ophal()
+  if type(exit_ophal) == 'function' then
+    return exit_ophal()
+  end
+
+  -- Early bootstrap failures can happen before server/init defines exit_ophal.
+  return
 end

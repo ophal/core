@@ -3,7 +3,7 @@ local json, hash, tonumber = require 'dkjson', seawolf.other.hash, tonumber
 local print, exit, _SESSION, config = print, exit, env._SESSION, settings.user or {}
 local error, empty, header, l = error, seawolf.variable.empty, header, l
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
-local type, env, uuid, time, goto, pairs = type, env, uuid, os.time, goto, pairs
+local type, env, uuid, time, go_to, pairs = type, env, uuid, os.time, go_to, pairs
 local session_destroy, module_invoke_all = session_destroy, module_invoke_all
 local request_get_body, ophal, pcall = request_get_body, ophal, pcall
 local route_execute_callback, _GET = route_execute_callback, _GET
@@ -256,7 +256,7 @@ end
 
 function default_page()
   if not is_logged_in() then
-    goto 'user/login'
+    go_to 'user/login'
   end
 end
 
@@ -276,7 +276,7 @@ end
 function logout_page()
   if is_logged_in then
     session_destroy()
-    goto ''
+    go_to ''
   end
 end
 

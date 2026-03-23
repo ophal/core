@@ -283,6 +283,8 @@ function _M.delete(entity)
     return nil, err
   end
 
+  module_invoke_all('entity_after_delete', entity)
+
   return true
 end
 

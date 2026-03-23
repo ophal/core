@@ -132,6 +132,7 @@ function _M.entity_access(entity, action)
 
   local account = user_mod.current()
   local info = _M.get_entity_type_info(wrapper.type)
+  if not info then return false end
 
   if user_mod.access('administer ' .. (info.name.plural or info.name[1])) then
     return true
@@ -155,7 +156,7 @@ function _M.delete(entity)
 
   rs, err = db_query('DELETE FROM ' .. entity.type .. ' WHERE id = ?', entity.id)
 
-  for parent in pairs((config[entity.type] or {}).parents) do
+  for _, parent in ipairs((config[entity.type] or {}).parents or {}) do
     local query = ('DELETE FROM rel_%s_%s WHERE %s_id = ?'):format(entity.type, parent, entity.type)
     rs, err = db_query(query, entity.id)
   end

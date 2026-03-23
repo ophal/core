@@ -317,7 +317,7 @@ end
 
 function update(entity)
   local rs, err
-  rs, err = db_query('UPDATE content SET name = ?, mail = ?, pass = ?, active = ?, created = ? WHERE id = ?',
+  rs, err = db_query('UPDATE users SET name = ?, mail = ?, pass = ?, active = ?, created = ? WHERE id = ?',
     entity.name,
     entity.mail,
     entity.pass,

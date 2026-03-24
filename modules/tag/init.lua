@@ -41,6 +41,25 @@ function _M.init()
   user_mod = modules.user
 end
 
+--[[ Route-level access gate.
+  Checks admin override first, then the specific permission.
+  Called with no permission from tag/service, which admits any user
+  holding at least one tag-mutation permission; the handler's
+  entity_access() does the real per-entity ownership check.
+]]
+function _M.tag_access(perm)
+  if user_mod.access 'administer tags' then
+    return true
+  end
+  if perm then
+    return user_mod.access(perm) or false
+  end
+  -- tag/service: any mutation permission passes the gate
+  return user_mod.access 'create tags' or
+         user_mod.access 'edit own tags' or
+         user_mod.access 'delete own tags' or false
+end
+
 --[[ Implements hook route().
 ]]
 function _M.route()
@@ -54,28 +73,28 @@ function _M.route()
   items.tag = {
     page_callback = 'entity_page',
     title = 'Tag page',
-    access_callback = {module = 'user', 'access', 'access tags'},
+    access_callback = {module = 'tag', 'tag_access', 'access tags'},
   }
   items['tag/add'] = {
     page_callback = 'add_page',
     title = 'Add new tag',
-    access_callback = {module = 'user', 'access', 'create tags'},
+    access_callback = {module = 'tag', 'tag_access', 'create tags'},
   }
   items['tag/edit'] = {
     page_callback = 'edit_page',
     title = 'Edit tag',
-    access_callback = {module = 'user', 'access', 'edit own tags'},
+    access_callback = {module = 'tag', 'tag_access', 'edit own tags'},
   }
   items['tag/service'] = {
     page_callback = 'save_service',
     title = 'Tag web service',
-    access_callback = {module = 'user', 'access', 'create tags'},
+    access_callback = 'tag_access',
     format = 'json',
   }
   items['tag/delete'] = {
     page_callback = 'delete_page',
     title = 'Delete tag',
-    access_callback = {module = 'user', 'access', 'delete own tags'},
+    access_callback = {module = 'tag', 'tag_access', 'delete own tags'},
   }
 
   return items
@@ -86,10 +105,31 @@ end
 function _M.entity_type_info()
   local info = {
     [_M.entity_type] = {
-      name = {'tag', plural = 'tags'}
+      name = {'tag', plural = 'tags'},
+      module = _M.entity_type,
     }
   }
   return info
+end
+
+function _M.entity_access(entity, action)
+  local account = user_mod.current()
+
+  if user_mod.access 'administer tags' then
+    return true
+  end
+
+  if action == 'create' then
+    return user_mod.access 'create tags'
+  elseif action == 'update' then
+    return user_mod.access 'edit own tags' and entity.user_id == account.id
+  elseif action == 'read' then
+    return user_mod.access 'access tags'
+  elseif action == 'delete' then
+    return user_mod.access 'delete own tags' and entity.user_id == account.id
+  end
+
+  return false
 end
 
 --[[ Implements hook entity_load().
@@ -415,10 +455,10 @@ function _M.entity_page()
     end
 
     tag.links = {}
-    if user_mod.access 'edit own tags' then
+    if _M.entity_access(tag, 'update') then
       tag.links[1 + #tag.links] = l('edit', ('tag/edit/%s'):format(tag.id))
     end
-    if user_mod.access 'delete own tags' then
+    if _M.entity_access(tag, 'delete') then
       tag.links[1 + #tag.links] = l('delete', ('tag/delete/%s'):format(tag.id))
     end
 
@@ -465,12 +505,18 @@ function _M.edit_page()
     go_to 'user/login'
   end
 
-  add_js 'modules/tag/tag_form.js'
-
   entity, err = _M.load(trim(route_arg(2)))
   if err then
     error(err)
   end
+
+  if not _M.entity_access(entity, 'update') then
+    header('status', 401)
+    page_set_title 'Access denied'
+    return ''
+  end
+
+  add_js 'modules/tag/tag_form.js'
 
   page_set_title(("Edit tag '%s'"):format(entity.name))
 
@@ -502,8 +548,14 @@ function _M.delete_page()
   if err then
     error(err)
   elseif empty(entity) then
-      header('status', 404)
+    header('status', 404)
     return 'Page not found'
+  end
+
+  if not _M.entity_access(entity, 'delete') then
+    header('status', 401)
+    page_set_title 'Access denied'
+    return ''
   end
 
   return theme{'tag_delete_form', entity = entity}

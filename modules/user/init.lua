@@ -148,6 +148,10 @@ do
 
     return roles
   end
+
+  function roles_cache_clear()
+    roles = nil
+  end
 end
 
 do
@@ -194,6 +198,10 @@ WHERE user_id = ?]], user_id)
 
     return users_roles[user_id]
   end
+
+  function user_roles_cache_clear()
+    users_roles = {[0] = {anonymous = 'anonymous'}}
+  end
 end
 
 do
@@ -237,6 +245,18 @@ ORDER BY permission
 
     return users_permissions[user_id]
   end
+
+  function user_permissions_cache_clear()
+    users_permissions = {}
+  end
+end
+
+--[[ Clear all user-related caches (roles, user_roles, permissions).
+]]
+function cache_clear()
+  roles_cache_clear()
+  user_roles_cache_clear()
+  user_permissions_cache_clear()
 end
 
 function access(perm, user_id)

@@ -177,6 +177,10 @@ do
 
     return arguments[index]
   end
+
+  function route_arg_reset()
+    arguments = nil
+  end
 end
 
 local slash = settings.slash
@@ -205,6 +209,15 @@ do
     end
     return route_tree, route
   end
+
+  function init_route_reset()
+    route_tree, route = nil, nil
+  end
+end
+
+function route_reset_request()
+  route_arg_reset()
+  init_route_reset()
 end
 
 function route_build_handler(handler, module_name)
@@ -237,6 +250,18 @@ local function route_freeze(routes)
     end,
   })
   return routes
+end
+
+-- Route cache: stores frozen route table across requests in persistent runtimes.
+-- In CGI mode, the process dies per-request so this has no effect.
+local cached_routes
+
+function route_cache_get()
+  return cached_routes
+end
+
+function route_cache_clear()
+  cached_routes = nil
 end
 
 function route_build_routes()
@@ -281,7 +306,9 @@ function route_build_routes()
     end
   end
 
-  return route_freeze(routes)
+  routes = route_freeze(routes)
+  cached_routes = routes
+  return routes
 end
 
 --[[ Generates an internal or external URL.

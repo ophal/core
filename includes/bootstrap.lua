@@ -130,6 +130,13 @@ function bootstrap(phase, main)
   env._G = env
   env.env = env
 
+  -- Reset per-request state for persistent runtimes.
+  -- On first boot ophal_request_reset does not exist yet; on subsequent
+  -- requests in a persistent VM it clears stale globals and closure locals.
+  if type(ophal_request_reset) == 'function' then
+    ophal_request_reset()
+  end
+
   local phases = {
     -- 1. Lua and Seawolf libraries
     function ()
@@ -203,6 +210,7 @@ function bootstrap(phase, main)
       require 'includes.module'
       require 'includes.theme'
       require 'includes.pager'
+      require 'includes.cache'
       if settings.formapi then
         require 'includes.form'
       end
@@ -242,9 +250,9 @@ function bootstrap(phase, main)
 
     -- 14. Full,
     function ()
-      -- call hook route to load handlers
-      -- TODO: implement route cache
-      ophal.routes = route_build_routes()
+      -- Use cached routes when available (persistent runtimes);
+      -- fall back to building fresh routes on cold start or after cache_clear_all().
+      ophal.routes = route_cache_get() or route_build_routes()
 
       theme_blocks_load()
       theme_regions_load()

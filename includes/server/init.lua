@@ -198,3 +198,61 @@ function cookie_parse()
 end
 
 ophal.cookies = cookie_parse()
+
+--[[ Reset all per-request state for persistent runtimes.
+  In CGI mode this is a no-op (process dies after each request).
+  In OpenResty with lua_code_cache on, the Lua VM persists across
+  requests so globals and closure locals from the previous request
+  must be cleared before handling a new one.
+]]
+function ophal_request_reset()
+  -- Fresh request object from adapter
+  local request = server_get_request(true)
+
+  -- Re-set request-derived globals
+  _GET = request.query or {}
+  ophal.raw_cookies = request.raw_cookies or ''
+  ophal.cookies = request.cookies or {}
+
+  -- Clear page state
+  ophal.title = nil
+  ophal.header_title = nil
+
+  -- Clear theme state (rebuilt in bootstrap phase 14)
+  ophal.blocks = {}
+  ophal.regions = {}
+
+  -- Clear output buffer
+  for k in pairs(buffer) do
+    buffer[k] = nil
+  end
+
+  -- Re-derive base URL from new request
+  build_base()
+
+  -- Re-set default response headers
+  header('content-type', 'text/html; charset=utf-8')
+  header('x-frame-options', 'SAMEORIGIN')
+  if ophal.version then
+    header('x-powered-by', ophal.version)
+  end
+  header('expires', 'Sun, 19 Jun 2011 23:09:50 GMT')
+  header('last-modified', date('!%a, %d %b %Y %X GMT'))
+  header('cache-control', 'store, no-cache, must-revalidate, post-check=0, pre-check=0')
+  header('Keep-Alive', 'timeout=15, max=90')
+
+  -- Reset route parsing state
+  if type(route_reset_request) == 'function' then
+    route_reset_request()
+  end
+
+  -- Reset JS/CSS/head accumulators
+  if type(common_reset_request) == 'function' then
+    common_reset_request()
+  end
+
+  -- Reset session for new request
+  if settings.sessionapi and type(session_init) == 'function' then
+    session_init()
+  end
+end

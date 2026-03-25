@@ -383,6 +383,71 @@ The roadmap is only complete if these scenarios are validated along the way:
 - No feature module depends directly on `ngx` or raw CGI variables once phase 1
   is complete
 
+## Progress
+
+### Phase 1: Extract The Runtime Contract — Complete
+
+Commit: `ba7a358` on branch `0.2.x`
+
+Introduced `includes/server/adapter.lua` with the runtime adapter contract.
+CGI (`includes/server/cgi.lua`) and OpenResty (`includes/server/openresty.lua`)
+both implement the contract. Core helpers delegate through the active adapter.
+Feature modules no longer depend on transport-specific branching.
+
+Tests: CGI smoke tests, OpenResty smoke tests.
+
+### Phase 2: Make Extension Order Deterministic — Complete
+
+Commit: `8c39422` on branch `0.2.x`
+
+Module order resolved by dependency topology, weight, then name. Hook
+invocation follows resolved module order. Route building uses explicit collect,
+alter, and finalize phases with deterministic conflict warnings. Route table
+frozen after build.
+
+Tests: 29 unit tests for module order and route determinism.
+
+### Phase 3: Harden The Entity Compatibility Layer — Complete
+
+Commits: `fa88eaf`, `591fa77`, `f4d1842` on branch `0.2.x`
+
+Shared entity contract published and implemented. Entity access enforced at
+route, service, and entity layers. Tag module route gates updated to check
+`administer tags` and per-action permissions. Relation cleanup fixed. Lifecycle
+hooks fire consistently.
+
+Tests: 76 unit tests for entity contract, regression tests for access gates.
+
+### Phase 4: Cache Infrastructure And The First Persistent Runtime — Complete
+
+Branch `0.2.x`, not yet committed.
+
+Implemented in three slices:
+
+- **Slice 4A — Per-request state reset:** Added `ophal_request_reset()` in
+  `includes/server/init.lua` that clears all per-request globals (`_GET`,
+  cookies, title, blocks, regions, output buffer) and delegates to
+  `route_reset_request()`, `common_reset_request()`, and `session_init()`.
+  Refactored `includes/session.lua` so cookie lookup runs per-request instead
+  of at `require` time. Makes `lua_code_cache on` safe.
+
+- **Slice 4B — Caches and unified clear:** Route cache in `includes/route.lua`,
+  template compile cache (keyed by file path and mtime) in `includes/theme.lua`,
+  module list cache clear in `includes/module.lua`, schema cache clear in
+  `includes/database/init.lua`, entity type info cache clear in
+  `modules/entity/init.lua`, user permission cache clear in
+  `modules/user/init.lua`. Unified `cache_clear_all()` in new
+  `includes/cache.lua`.
+
+- **Slice 4C — Persistent runtime:** `nginx.ophal.conf` set to
+  `lua_code_cache on`. Six persistent-mode smoke tests verify state isolation
+  across sequential requests (GET params, titles, route args).
+
+Tests: 29 unit tests for request reset, 17 unit tests for caches, 6
+persistent-mode OpenResty smoke tests.
+
+### Phase 5: Raise Security And Operations Baseline — Not Started
+
 ## Decision Summary
 
 If efficiency, legacy support, and performance remain the priorities, the

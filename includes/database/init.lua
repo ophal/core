@@ -71,6 +71,10 @@ end
 
 local schema_cache = {}
 
+function db_schema_cache_clear()
+  schema_cache = {}
+end
+
 function db_field(tbl_name, field_name)
   if schema_cache[tbl_name] then
     return schema_cache[tbl_name][field_name]

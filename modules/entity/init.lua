@@ -64,6 +64,10 @@ do
     end
     return infos
   end
+
+  function _M.entity_type_info_cache_clear()
+    infos = {}
+  end
 end
 
 --[[ Implements hook blocks_alter().

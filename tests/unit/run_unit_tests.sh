@@ -24,5 +24,7 @@ cd "$ROOT"
 
 lua5.1 "$ROOT/tests/unit/test_module_order.lua"
 lua5.1 "$ROOT/tests/unit/test_entity_contract.lua"
+lua5.1 "$ROOT/tests/unit/test_request_reset.lua"
+lua5.1 "$ROOT/tests/unit/test_cache.lua"
 
 printf 'all unit tests passed\n'

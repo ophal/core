@@ -66,6 +66,14 @@ function theme_print(v)
   end
 end
 
+-- Template compile cache: stores loadstring() result keyed by file path + mtime.
+-- In persistent runtimes this avoids file I/O and compilation on warm renders.
+local template_cache = {}
+
+function template_cache_clear()
+  template_cache = {}
+end
+
 --[[
   Render theme template.
 ]]
@@ -81,18 +89,28 @@ local function theme_render(f, env)
   end
 
   if attr ~= nil and attr.mode == 'file' then
-    -- read file contents
-    local fh = assert(io.open(file))
-    local src = ('print [[%s]]'):format(fh:read('*a'))
-    fh:close()
+    -- Check template compile cache (keyed by file path + mtime)
+    local cached = template_cache[file]
+    local prog
+    if cached and cached.mtime == attr.modification then
+      prog = cached.prog
+    else
+      -- read file contents
+      local fh = assert(io.open(file))
+      local src = ('print [[%s]]'):format(fh:read('*a'))
+      fh:close()
 
-    -- translate lua template tag
-    src = src:gsub('(<%?lua)(.-)(%?>)', "]]; %2 print[[")
+      -- translate lua template tag
+      src = src:gsub('(<%?lua)(.-)(%?>)', "]]; %2 print[[")
 
-    -- load source code
-    local prog, err = loadstring(src, file)
-    if not prog then
-      return ("template '%s': %s"):format(file, err)
+      -- load source code
+      prog, err = loadstring(src, file)
+      if not prog then
+        return ("template '%s': %s"):format(file, err)
+      end
+
+      -- Store in cache
+      template_cache[file] = {prog = prog, mtime = attr.modification}
     end
 
     -- extend env

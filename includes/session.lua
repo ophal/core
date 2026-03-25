@@ -10,7 +10,12 @@ if settings.sessionapi then
   if type(settings.sessionapi) ~= 'table' then
     settings.sessionapi = {enabled = true}
   end
+end
 
+-- Initialize session for the current request.
+-- Moved from module-level so that persistent runtimes re-read
+-- the session cookie on every request instead of only once.
+function session_init()
   -- Look for session cookie
   local session_id = ophal.cookies['session-id'] or ''
   -- if session ID is not valid then set a new ID
@@ -27,6 +32,11 @@ if settings.sessionapi then
   session = ophal.session
 end
 
+-- Run session_init on first load (CGI path)
+if settings.sessionapi then
+  session_init()
+end
+
 function sessions_path()
   if settings.sessionapi then
     return settings.sessionapi.path or temp_dir()
@@ -37,6 +47,13 @@ end
 
 -- Start new or resume existing session
 function session_start()
+  -- In persistent runtimes, session_init() is called by
+  -- ophal_request_reset() before bootstrap phase 7.
+  -- On first boot the module-level call above handles it.
+  if not session or not session.id then
+    session_init()
+  end
+
   local fh, sign, err, data, data_function, parsed
 
   if not session.open then

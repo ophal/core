@@ -35,7 +35,9 @@ PY2
 }
 
 SMOKE_PORT=$(pick_port)
+PERSISTENT_PORT=$(pick_port)
 BASE_URL="http://127.0.0.1:${SMOKE_PORT}"
+PERSISTENT_URL="http://127.0.0.1:${PERSISTENT_PORT}"
 
 cleanup() {
   openresty -p "$SMOKE_PREFIX" -c "$SMOKE_CONF" -s stop >/dev/null 2>&1 || true
@@ -276,6 +278,42 @@ http {
       content_by_lua_file \$request_filename;
     }
   }
+
+  ## Persistent runtime server (lua_code_cache on) — tests state isolation.
+  server {
+    listen 127.0.0.1:$PERSISTENT_PORT;
+    server_name example.com;
+    root $SMOKE_DOCROOT;
+
+    location = / {
+      index index.cgi;
+    }
+
+    location / {
+      index index.cgi;
+
+      if (!-f \$request_filename) {
+        rewrite ^(.*)$ /index.cgi last;
+        break;
+      }
+
+      if (!-d \$request_filename) {
+        rewrite ^(.*)$ /index.cgi last;
+        break;
+      }
+    }
+
+    error_page 404 /index.cgi;
+
+    location ~ \.cgi$ {
+      lua_code_cache on;
+      default_type text/html;
+      rewrite_by_lua_block {
+        require('lfs').chdir(ngx.var.document_root)
+      }
+      content_by_lua_file \$request_filename;
+    }
+  }
 }
 EOF
 }
@@ -412,6 +450,58 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_regex '^X-Frame-Options: SAMEORIGIN'
 report_ok cron_smoke
+
+# ================================================================
+# Persistent runtime tests (lua_code_cache on)
+# Verify no state leaks across sequential requests.
+# ================================================================
+
+# Wait for persistent port to be ready
+for _ in $(seq 1 50); do
+  if port_ready "$PERSISTENT_PORT"; then
+    break
+  fi
+  sleep 0.1
+done
+
+# persistent_get_isolation: _GET from request 1 must not leak into request 2
+run_request persistent_get_isolation_req1 "$PERSISTENT_URL/?foo=bar"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'Lorem Ipsum'
+report_ok persistent_get_isolation_req1
+
+run_request persistent_get_isolation_req2 "$PERSISTENT_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'Lorem Ipsum'
+report_ok persistent_get_isolation_req2
+
+# persistent_title_isolation: title from frontpage must not leak into 404
+run_request persistent_title_req1 "$PERSISTENT_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'Lorem Ipsum'
+report_ok persistent_title_req1
+
+run_request persistent_title_req2 "$PERSISTENT_URL/does-not-exist"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+assert_contains 'The requested page could not be found.'
+report_ok persistent_title_req2
+
+# persistent_route_isolation: route_arg from request 1 must not leak
+run_request persistent_route_req1 "$PERSISTENT_URL/loremipsum"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'Lorem Ipsum'
+report_ok persistent_route_req1
+
+run_request persistent_route_req2 "$PERSISTENT_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'Lorem Ipsum'
+report_ok persistent_route_req2
 
 printf 'all openresty smoke scenarios passed
 '

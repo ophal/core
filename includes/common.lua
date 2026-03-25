@@ -57,6 +57,10 @@ do
 
 
   function init_js()
+    javascript = {}
+    order = {}
+    load_ophal_js = false
+
     add_js 'libraries/jquery.min.js'
     add_js 'libraries/ophal.js'
     add_js {type = 'settings', {base = base}}
@@ -113,6 +117,8 @@ do
   local css = {}
 
   function init_css()
+    css = {}
+
     css[('themes/%s/style.css'):format(theme.name)] = {}
 
     for _, v in pairs(theme.settings.css or {}) do
@@ -143,6 +149,8 @@ do
   local head = {}
 
   function init_head()
+    head = {}
+
     for k, v in pairs(theme.settings.head or {}) do
       head[k] = v
     end
@@ -158,6 +166,14 @@ do
     return tcon(head, [[
 
 ]])
+  end
+end
+
+function common_reset_request()
+  if type(theme) == 'table' and theme.settings then
+    init_head()
+    init_css()
+    init_js()
   end
 end
 

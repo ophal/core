@@ -146,6 +146,10 @@ do
 
     return list
   end
+
+  function module_cache_clear()
+    list = nil
+  end
 end
 
 function module_invoke_all(hook, ...)

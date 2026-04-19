@@ -12,6 +12,7 @@ local empty, add_js, ophal, t = seawolf.variable.empty, add_js, ophal, t
 local header, json, type, time = header, require 'dkjson', type, os.time
 local print_t, require, modules = print_t, require, ophal.modules
 local module_invoke_all, request_get_body = module_invoke_all, request_get_body
+local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 local error = error
 
 local set_global = set_global
@@ -103,18 +104,19 @@ function save_service()
 
     entity = load(id)
 
-    if not _M.entity_access(entity, action) then
+    output.success = false
+    input = request_get_body()
+    parsed, pos, err = json.decode(input, 1, nil)
+    if err then
+      output.error = err
+    elseif not csrf_validate_request(parsed) then
+      csrf_denied(output)
+    elseif not _M.entity_access(entity, action) then
       header('status', 401)
     elseif action == 'update' and empty(entity) then
       header('status', 404)
       output.error = 'No such content.'
-    else
-      output.success = false
-      input = request_get_body()
-      parsed, pos, err = json.decode(input, 1, nil)
-      if err then
-        output.error = err
-      elseif 'table' == type(parsed) and not empty(parsed) then
+    elseif 'table' == type(parsed) and not empty(parsed) then
         parsed.id = id
         parsed.type = 'content'
 
@@ -137,7 +139,6 @@ function save_service()
           output.id = id
           output.success = true
         end
-      end
     end
   end
 

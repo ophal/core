@@ -180,14 +180,35 @@ function get_cookie_domain()
     _SERVER 'SERVER_NAME'
 end
 
-function cookie_set(name, value, expires, path, domain)
+function cookie_set(name, value, expires, path, domain, extra_options)
+  local defaults = (settings.cookie_defaults or {})
+  local function default_option(value, fallback)
+    if value ~= nil then
+      return value
+    end
+    return fallback
+  end
+
   local options = {
     domain = domain or '',
     path = path or '',
+    http_only = default_option(defaults.http_only, true),
+    same_site = defaults.same_site or 'Lax',
   }
+
+  if base.scheme == 'https' then
+    options.secure = default_option(defaults.secure, true)
+  end
 
   if expires ~= nil then
     options.expires = expires + time()
+  end
+
+  -- Caller overrides (e.g. {http_only = false} for JS-readable cookies)
+  if type(extra_options) == 'table' then
+    for k, v in pairs(extra_options) do
+      options[k] = v
+    end
   end
 
   return server_get_adapter().cookie(name, value, options)

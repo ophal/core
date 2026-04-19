@@ -9,6 +9,7 @@ local os_remove, modules, time = os.remove, ophal.modules, os.time
 local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
 local render_attributes, format_size = render_attributes, format_size
 local format_date, sleep = format_date, socket.sleep
+local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 
 local debug = debug
 
@@ -95,6 +96,11 @@ function upload_service()
     success = false,
   }
 
+  if not csrf_validate_request() then
+    csrf_denied(output)
+    return output
+  end
+
   if config.filedb_storage then
     if not empty(load_by_field('filename', file.filename)) then
       output.error = 'File uploaded already!'
@@ -157,6 +163,11 @@ function merge_service()
     success = false,
   }
 
+  if not csrf_validate_request() then
+    csrf_denied(output)
+    return output
+  end
+
   target_fh, err = io_open(file.filepath, 'w+')
   if err then
     output.error = err
@@ -209,6 +220,11 @@ function delete_service()
   local rs, err
   local file_id = _GET.id
   local output = {success = false}
+
+  if not csrf_validate_request() then
+    csrf_denied(output)
+    return output
+  end
 
   if not empty(file_id) then
     entity = load(file_id)

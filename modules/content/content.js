@@ -17,6 +17,7 @@ $(document).ready(function() {
       body: $('#content_body', form).val(),
       status: $('#content_status', form).is(':checked'),
       promote: $('#content_promote', form).is(':checked'),
+      csrf_token: Ophal.settings.core.csrf_token,
     }
     $(document).trigger('ophal:entity:save', {context: form, entity: content});
 

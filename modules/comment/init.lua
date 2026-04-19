@@ -3,6 +3,7 @@ if config.render_handler == nil then config.render_handler = 'onload' end
 local add_js, theme, header, arg, env, l = add_js, theme, header, route_arg, env, l
 local modules, tonumber, empty = ophal.modules, tonumber, seawolf.variable.empty
 local request_get_body, json, type = request_get_body, require 'dkjson', type
+local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 local _SESSION, time, module_invoke_all = _SESSION, os.time, module_invoke_all
 local pairs, render_t, url = pairs, render_t, url
 
@@ -179,19 +180,21 @@ function save_service()
   action = empty(id) and 'create' or 'update'
   output = {success = false}
 
-  comment = load(id)
+  input = request_get_body()
+  parsed, pos, err = json.decode(input, 1, nil)
 
-  if not comment_access(comment, action) then
-    header('status', 401)
-  elseif action == 'update' and empty(comment) then
-    header('status', 404)
-    output.error = 'No such comment.'
+  if err then
+    output.error = err
+  elseif not csrf_validate_request(parsed) then
+    csrf_denied(output)
   else
-    output.success = false
-    input = request_get_body()
-    parsed, pos, err = json.decode(input, 1, nil)
-    if err then
-      output.error = err
+    comment = load(id)
+
+    if not comment_access(comment, action) then
+      header('status', 401)
+    elseif action == 'update' and empty(comment) then
+      header('status', 404)
+      output.error = 'No such comment.'
     elseif
       'table' == type(parsed) and
       not empty(parsed) and

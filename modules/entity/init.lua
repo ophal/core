@@ -4,6 +4,7 @@ ophal.modules.entity = _M
 local t, module_invoke_all, route_arg = t, module_invoke_all, route_arg
 local l, theme, empty = l, theme, seawolf.variable.empty
 local xtable, config = seawolf.contrib.seawolf_table, settings.entity
+local csrf_token, csrf_validate_request, csrf_denied = csrf_token, csrf_validate_request, csrf_denied
 
 local user_mod
 
@@ -237,8 +238,14 @@ function _M.delete_page()
     if info then
       entity = ophal.modules[info.module].load(entity.id)
       if confirm then
-        ophal.modules[info.module].delete(entity)
-        go_to ''
+        if csrf_validate_request() then
+          ophal.modules[info.module].delete(entity)
+          go_to ''
+        else
+          csrf_denied()
+          page_set_title 'Access denied'
+          return ''
+        end
       else
         title = t('Delete %s: %s'):format(
           entity.type,
@@ -248,7 +255,7 @@ function _M.delete_page()
         return (xtable{
           '<h1>', title, '</h1>',
           '<div>', t('Are you sure?'), '</div>',
-          l('Confirm', ('entity/delete/%s/%s/confirm'):format(entity.type, entity.id), {attributes = {class = 'button'}}),
+          l('Confirm', ('entity/delete/%s/%s/confirm?csrf_token=%s'):format(entity.type, entity.id, csrf_token() or ''), {attributes = {class = 'button'}}),
           ' ',
           l('Cancel', ('%s/%s'):format(entity.type, entity.id)),
         }):concat()

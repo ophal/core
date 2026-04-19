@@ -11,6 +11,7 @@ local page_set_title, json, time = page_set_title, require 'dkjson', os.time
 local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
 local _SESSION, tonumber, _GET, ceil = _SESSION, tonumber, _GET, math.ceil
 local pager, print_t, request_get_body = pager, print_t, request_get_body
+local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 
 local db_query, db_limit, db_last_insert_id, user_mod
 
@@ -349,19 +350,25 @@ function _M.save_service()
       end
     end
 
-    if not _M.entity_access(entity, action) then
-      header('status', 401)
-    elseif entity == 'update' and empty(entity) then
-      header('status', 404)
-      output.error = 'No such entity.'
-    else
-      input = request_get_body()
-      data, pos, err = json.decode(input, 1, nil)
-      data.id = entity.id
+    input = request_get_body()
+    data, pos, err = json.decode(input, 1, nil)
 
-      if err then
-        output.error = err
+    if err then
+      output.error = err
+    elseif not csrf_validate_request(data) then
+      csrf_denied(output)
+    else
+      if data.action == 'delete' then
+        action = 'delete'
+      end
+
+      if not _M.entity_access(entity, action) then
+        header('status', 401)
+      elseif action == 'update' and empty(entity) then
+        header('status', 404)
+        output.error = 'No such entity.'
       elseif 'table' == type(data) and not empty(data) then
+        data.id = entity.id
         data.type = _M.entity_type
 
         if type(data.status) == 'boolean' then

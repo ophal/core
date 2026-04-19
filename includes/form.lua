@@ -1,5 +1,6 @@
 local empty, tinsert, os_date = seawolf.variable.empty, table.insert, os.date
 local tsort, tconcat, os_time = table.sort, table.concat, os.time
+local lower = string.lower
 
 --[[
   Form theme function.
@@ -9,11 +10,25 @@ function theme.form(variables)
 
   local default_options = {
     ['accept-charset'] = 'UTF-8',
-    method = 'get',
+    method = variables.method or 'get',
     action = variables.action,
   }
 
   module_invoke_all('form_alter', variables)
+
+  if
+    lower(default_options.method or '') == 'post' and
+    type(csrf_token) == 'function' and
+    csrf_token()
+  then
+    variables.elements = variables.elements or {}
+    tinsert(variables.elements, {
+      'hidden',
+      attributes = {id = 'csrf_token', name = 'csrf_token'},
+      value = csrf_token(),
+      weight = -1000,
+    })
+  end
 
   return ('<form %s>%s</form>'):format(
     render_attributes(variables.attributes, default_options),

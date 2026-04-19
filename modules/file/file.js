@@ -43,6 +43,10 @@
 
   const BYTES_PER_CHUNK = Ophal.settings.core.BYTES_PER_CHUNK;
 
+  function csrfQuery() {
+    return "&csrf_token=" + encodeURIComponent(Ophal.settings.core.csrf_token || "");
+  }
+
   /**
    * Calculates slices and indirectly uploads a chunk of a file via uploadFile()
    */
@@ -108,7 +112,8 @@
     var endpoint = "/file/upload?" +
       "name=" + encodeURIComponent(blob.name) + "&" + /* filename */
       "id=" + blob.uniq_id + "&" +
-      "index=" + blob.index /* part identifier */
+      "index=" + blob.index + /* part identifier */
+      csrfQuery()
     ;
 
     if (blob.webkitSlice) {
@@ -189,7 +194,8 @@
       "name=" + encodeURIComponent(blob.name) + "&" + /* filename */
       "id=" + blob.uniq_id + "&" + /* unique upload identifier */
       "size=" + blob.size + "&" + /* full size */
-      "index=" + blob.slicesTotal /* part identifier */
+      "index=" + blob.slicesTotal + /* part identifier */
+      csrfQuery()
     ;
 
     var statusDiv = $('.form-upload-status', context);
@@ -229,7 +235,8 @@
    */
   function deleteFile(element, context) {
     var endpoint = "/file/delete?" +
-      "id=" + element.entity_id
+      "id=" + element.entity_id +
+      csrfQuery()
     ;
 
     var statusDiv = $('.form-upload-status', context);

@@ -26,5 +26,7 @@ lua5.1 "$ROOT/tests/unit/test_module_order.lua"
 lua5.1 "$ROOT/tests/unit/test_entity_contract.lua"
 lua5.1 "$ROOT/tests/unit/test_request_reset.lua"
 lua5.1 "$ROOT/tests/unit/test_cache.lua"
+lua5.1 "$ROOT/tests/unit/test_cookie_security.lua"
+lua5.1 "$ROOT/tests/unit/test_csrf.lua"
 
 printf 'all unit tests passed\n'

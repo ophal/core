@@ -11,7 +11,8 @@ $(document).ready(function() {
       name: $('#name_field', context).val(),
       description: $('#description_field', context).val(),
       status: $('#status_field', context).is(':checked'),
-      action: $('#action', context).val()
+      action: $('#action', context).val(),
+      csrf_token: Ophal.settings.core.csrf_token
     }
     var endpoint = 'tag/service';
 
@@ -54,7 +55,8 @@ $(document).ready(function() {
   $('#confirm_submit', context).click(function() {
     var this_button = $(this);
     var file = {
-      action: 'delete'
+      action: 'delete',
+      csrf_token: Ophal.settings.core.csrf_token
     }
     var endpoint = 'tag/service/' + $('#entity_id', context).val();
 

@@ -64,6 +64,9 @@ do
     add_js 'libraries/jquery.min.js'
     add_js 'libraries/ophal.js'
     add_js {type = 'settings', {base = base}}
+    if type(csrf_token) == 'function' then
+      add_js {type = 'settings', {csrf_token = csrf_token()}}
+    end
     add_js {type = 'settings', namespace = 'locale', settings.locale}
     load_ophal_js = false
 

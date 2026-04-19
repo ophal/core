@@ -434,6 +434,13 @@ local function setup_tag_env()
   format_date = function() return '' end
   page_not_found = function() return '' end
   url = function(s) return s end
+  csrf_validate_request = function() return true end
+  csrf_denied = function(output)
+    header('status', 401)
+    if type(output) == 'table' then
+      output.error = 'Invalid CSRF token.'
+    end
+  end
   _SESSION = {user_id = 1}
 
   -- Wrap module_invoke_all to log hook calls
@@ -550,10 +557,17 @@ local function setup_tag_page_env(opts)
   add_js = function() end
   pager = function() return {} end
   print_t = function() end
-  request_get_body = function() return '{}' end
+  request_get_body = function() return opts.request_body or '{}' end
   format_date = function() return '' end
   page_not_found = function() return '' end
   url = function(s) return s end
+  csrf_validate_request = opts.csrf_validate_request or function() return true end
+  csrf_denied = function(output)
+    header('status', 401)
+    if type(output) == 'table' then
+      output.error = 'Invalid CSRF token.'
+    end
+  end
   _SESSION = {user_id = 1}
 
   -- Set route_arg and header BEFORE dofile so tag module captures them
@@ -690,6 +704,38 @@ assert_eq('route_tag_delete_module', routes37['tag/delete'].access_callback.modu
 assert_eq('route_tag_service_is_string', routes37['tag/service'].access_callback, 'tag_access')
 -- admin route stays on user module (no ownership logic needed)
 assert_eq('route_admin_tags_module', routes37['admin/content/tags'].access_callback.module, 'user')
+
+-- 38. tag save_service delete requires delete access, not edit access
+local user38, hlog38 = setup_tag_page_env({
+  route_arg_values = {[2] = '42'},
+  load_entity = {id = 42, type = 'tag', name = 'Test Tag', user_id = 1},
+  request_body = '{"action":"delete","csrf_token":"token"}',
+  csrf_validate_request = function() return true end,
+})
+user38._set_perms({['edit own tags'] = true})
+local result38 = ophal.modules.tag.save_service()
+local got_401_38 = false
+for _, h in ipairs(hlog38) do
+  if h.k == 'status' and h.v == 401 then got_401_38 = true; break end
+end
+assert_eq('tag_service_delete_denies_edit_only', got_401_38, true)
+assert_eq('tag_service_delete_edit_only_success', result38.success, false)
+
+-- 39. tag save_service delete allows owner with delete access
+local user39, hlog39 = setup_tag_page_env({
+  route_arg_values = {[2] = '42'},
+  load_entity = {id = 42, type = 'tag', name = 'Test Tag', user_id = 1},
+  request_body = '{"action":"delete","csrf_token":"token"}',
+  csrf_validate_request = function() return true end,
+})
+user39._set_perms({['delete own tags'] = true})
+local result39 = ophal.modules.tag.save_service()
+local got_401_39 = false
+for _, h in ipairs(hlog39) do
+  if h.k == 'status' and h.v == 401 then got_401_39 = true; break end
+end
+assert_eq('tag_service_delete_allows_delete_owner', got_401_39, false)
+assert_eq('tag_service_delete_owner_success', result39.success, true)
 
 
 -- ================================================================ summary

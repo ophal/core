@@ -1,9 +1,9 @@
 local seawolf = require 'seawolf'.__build('other', 'variable', 'contrib')
-local json, hash, tonumber = require 'dkjson', seawolf.other.hash, tonumber
+local json, require, tonumber = require 'dkjson', require, tonumber
 local print, exit, _SESSION, config = print, exit, env._SESSION, settings.user or {}
 local error, empty, header, l = error, seawolf.variable.empty, header, l
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
-local type, env, uuid, time, go_to, pairs = type, env, uuid, os.time, go_to, pairs
+local type, env, uuid, time, go_to, pairs, tostring = type, env, uuid, os.time, go_to, pairs, tostring
 local session_destroy, module_invoke_all = session_destroy, module_invoke_all
 local request_get_body, ophal, pcall = request_get_body, ophal, pcall
 local route_execute_callback, _GET = route_execute_callback, _GET
@@ -13,6 +13,195 @@ local xtable = seawolf.contrib.seawolf_table
 module 'ophal.modules.user'
 
 local db_query, db_field, db_last_insert_id
+local password_hash_prefix = 'ophal$1$'
+local hash
+
+do
+  local digest_modules = {}
+
+  local function load_digest_module(name)
+    if digest_modules[name] == nil then
+      local ok, module_impl = pcall(require, name)
+      digest_modules[name] = ok and module_impl or false
+    end
+
+    return digest_modules[name] or nil
+  end
+
+  local function fallback_hash(algo, data, raw_output)
+    local digest
+
+    if raw_output then
+      error(('[user] raw hash output is unsupported for algorithm "%s"'):format(algo))
+    end
+
+    if algo == 'md5' then
+      local md5 = load_digest_module('md5')
+      digest = md5 and md5.sumhexa
+    elseif algo == 'sha1' then
+      local sha1 = load_digest_module('sha1')
+      digest = sha1 and sha1.sha1
+    elseif algo == 'sha224' then
+      local lsha2 = load_digest_module('lsha2')
+      digest = lsha2 and lsha2.hash224
+    elseif algo == 'sha256' then
+      local lsha2 = load_digest_module('lsha2')
+      local sha2 = load_digest_module('sha2')
+      local sha256 = load_digest_module('includes.sha256')
+      digest = lsha2 and lsha2.hash256 or sha2 and sha2.sha256hex or sha256 and sha256.hash256
+    elseif algo == 'sha384' then
+      local sha2 = load_digest_module('sha2')
+      digest = sha2 and sha2.sha384hex
+    elseif algo == 'sha512' then
+      local sha2 = load_digest_module('sha2')
+      digest = sha2 and sha2.sha512hex
+    end
+
+    if nil == digest then
+      error(('[user] unknown hash algorithm "%s"'):format(algo))
+    end
+
+    return digest(data)
+  end
+
+  hash = seawolf.other and type(seawolf.other.hash) == 'function' and seawolf.other.hash or fallback_hash
+end
+
+local function secure_equals(left, right)
+  local max_len, mismatch
+  left, right = tostring(left or ''), tostring(right or '')
+  max_len = #left
+  mismatch = #left == #right and 0 or 1
+
+  if #right > max_len then
+    max_len = #right
+  end
+
+  for i = 1, max_len do
+    if (left:byte(i) or 0) ~= (right:byte(i) or 0) then
+      mismatch = mismatch + 1
+    end
+  end
+
+  return mismatch == 0
+end
+
+local function password_hash_config()
+  local hash_config = config.password_hash or {}
+  local algorithm = hash_config.algorithm or 'sha256'
+  local iterations = tonumber(hash_config.iterations) or 10000
+
+  if iterations < 1 then
+    iterations = 1
+  end
+
+  return {
+    algorithm = algorithm,
+    iterations = iterations,
+  }
+end
+
+local function password_legacy_hash(password)
+  return hash(config.algorithm or 'sha256', password or '')
+end
+
+local function password_hash_parse(stored_password)
+  local version, algorithm, iterations, salt, digest
+
+  if type(stored_password) ~= 'string' then
+    return nil
+  end
+
+  version, algorithm, iterations, salt, digest = stored_password:match(
+    '^ophal%$(%d+)%$([^$]+)%$(%d+)%$([^$]+)%$([0-9a-fA-F]+)$'
+  )
+
+  if version == '1' then
+    return {
+      version = 1,
+      algorithm = algorithm,
+      iterations = tonumber(iterations) or 1,
+      salt = salt,
+      digest = digest:lower(),
+    }
+  end
+
+  return nil
+end
+
+local function password_digest(password, options)
+  local digest = hash(options.algorithm, ('%s$%s'):format(options.salt, password or ''))
+
+  for _ = 2, options.iterations do
+    digest = hash(options.algorithm, ('%s$%s$%s'):format(digest, options.salt, password or ''))
+  end
+
+  return digest
+end
+
+local function password_rehash_account(account, password)
+  local new_password_hash = password_hash(password)
+  local rs, err = db_query('UPDATE users SET pass = ? WHERE id = ?', new_password_hash, account.id)
+
+  if not err then
+    account.pass = new_password_hash
+  end
+
+  return rs, err
+end
+
+function password_hash(password, options)
+  local hash_options = password_hash_config()
+
+  if type(options) == 'table' then
+    hash_options = {
+      algorithm = options.algorithm or hash_options.algorithm,
+      iterations = tonumber(options.iterations) or hash_options.iterations,
+      salt = options.salt,
+    }
+  end
+
+  if hash_options.iterations < 1 then
+    hash_options.iterations = 1
+  end
+
+  if empty(hash_options.salt) then
+    hash_options.salt = (uuid.new() or ''):gsub('%-', '')
+  end
+
+  return ('%s%s$%d$%s$%s'):format(
+    password_hash_prefix,
+    hash_options.algorithm,
+    hash_options.iterations,
+    hash_options.salt,
+    password_digest(password, hash_options)
+  )
+end
+
+function password_needs_rehash(stored_password)
+  local parsed = password_hash_parse(stored_password)
+  local hash_options = password_hash_config()
+
+  if nil == parsed then
+    return true
+  end
+
+  return parsed.algorithm ~= hash_options.algorithm or
+    parsed.iterations ~= hash_options.iterations
+end
+
+function password_verify(password, stored_password)
+  local parsed = password_hash_parse(stored_password)
+  local verified
+
+  if parsed then
+    verified = secure_equals(stored_password, password_hash(password, parsed))
+    return verified, verified and password_needs_rehash(stored_password)
+  end
+
+  verified = secure_equals(stored_password, password_legacy_hash(password))
+  return verified, verified
+end
 
 --[[ Implements hook route().
 ]]
@@ -353,7 +542,7 @@ end
 
 
 function auth_service()
-  local input, parsed, pos, err, account
+  local input, parsed, pos, err, account, authenticated, needs_rehash
   local output = {authenticated = false}
 
   input = request_get_body()
@@ -373,8 +562,15 @@ function auth_service()
   then
     account = load_by_field('name', parsed.user)
     if 'table' == type(account) and not empty(account.id) then
-      if account.pass == hash(config.algorithm or 'sha256', parsed.pass or '') then
+      authenticated, needs_rehash = password_verify(parsed.pass or '', account.pass)
+
+      if authenticated then
         output.authenticated = true
+
+        if needs_rehash then
+          password_rehash_account(account, parsed.pass or '')
+        end
+
         module_invoke_all('user_login', account, output)
         _SESSION.user_id = account.id
 

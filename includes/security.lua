@@ -1,4 +1,32 @@
 local empty = seawolf.variable.empty
+local lower = string.lower
+
+local function request_header(name)
+  local request = type(server_get_request) == 'function' and server_get_request()
+  local headers = request and request.headers or {}
+  local wanted = lower(name)
+
+  return headers[name] or headers[wanted] or (function()
+    for k, v in pairs(headers) do
+      if lower(k) == wanted then
+        return v
+      end
+    end
+  end)()
+end
+
+local function form_body_token()
+  local content_type = request_header('content-type') or ''
+
+  if
+    type(request_get_body) == 'function' and
+    type(server_parse_query) == 'function' and
+    content_type:find('application/x-www-form-urlencoded', 1, true)
+  then
+    local data = server_parse_query(request_get_body() or '')
+    return data.csrf_token or data.csrfToken
+  end
+end
 
 function csrf_enabled()
   local config = settings.csrf
@@ -41,8 +69,16 @@ function csrf_validate_request(data)
     token = data.csrf_token or data.csrfToken
   end
 
+  if empty(token) then
+    token = request_header('x-csrf-token')
+  end
+
   if empty(token) and type(_GET) == 'table' then
     token = _GET.csrf_token
+  end
+
+  if empty(token) then
+    token = form_body_token()
   end
 
   return csrf_validate(token)

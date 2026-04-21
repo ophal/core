@@ -362,6 +362,41 @@ do
 end
 
 -- ================================================================
+io.write '\n-- request reset session ordering --\n'
+-- ================================================================
+
+do
+  setup_env()
+  settings.sessionapi = {enabled = true}
+
+  local real_io_write = io.write
+  dofile('includes/server/init.lua')
+  io.write = real_io_write
+
+  local order = {}
+  local csrf_seen_by_common
+
+  session_init = function()
+    order[#order + 1] = 'session_init'
+    _SESSION = {csrf_token = 'current-request-token'}
+  end
+  session_start = function()
+    order[#order + 1] = 'session_start'
+  end
+  common_reset_request = function()
+    order[#order + 1] = 'common_reset_request'
+    csrf_seen_by_common = _SESSION and _SESSION.csrf_token
+  end
+
+  ophal_request_reset()
+
+  assert_eq('reset_order_session_init', order[1], 'session_init')
+  assert_eq('reset_order_session_start', order[2], 'session_start')
+  assert_eq('reset_order_common', order[3], 'common_reset_request')
+  assert_eq('reset_common_sees_current_session', csrf_seen_by_common, 'current-request-token')
+end
+
+-- ================================================================
 io.write '\n-- session_init per-request --\n'
 -- ================================================================
 

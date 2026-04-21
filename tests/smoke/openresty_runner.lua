@@ -59,6 +59,11 @@ local scenarios = {
       write(render{'SMOKE_BUFFERED_OUTPUT=ok'})
     end)
   end,
+  csrf_token = function()
+    return run_bootstrap(function()
+      write(render{'SMOKE_CSRF_TOKEN=' .. (csrf_token() or '')})
+    end)
+  end,
 }
 
 local scenario = get_scenario()

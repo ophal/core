@@ -17,13 +17,13 @@ $(document).ready(function() {
       body: $('#content_body', form).val(),
       status: $('#content_status', form).is(':checked'),
       promote: $('#content_promote', form).is(':checked'),
-      csrf_token: Ophal.settings.core.csrf_token,
     }
     $(document).trigger('ophal:entity:save', {context: form, entity: content});
 
     $.ajax({
       type: 'POST',
       url: endpoint,
+      headers: {'X-CSRF-Token': Ophal.settings.core.csrf_token || ''},
       contentType: 'application/json; charset=utf-8',
       data: JSON.stringify(content),
       dataType: 'json',

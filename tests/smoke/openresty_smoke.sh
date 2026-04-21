@@ -129,6 +129,11 @@ assert_regex() {
   printf '%s' "$LAST_OUTPUT" | grep -Eqi -- "$pattern" || fail "missing expected pattern: $pattern"
 }
 
+extract_marker() {
+  local marker=$1
+  printf '%s\n' "$LAST_OUTPUT" | sed -n "s/^${marker}=//p" | tail -n 1
+}
+
 prepare_tree() {
   mkdir -p "$SMOKE_DOCROOT" "$SMOKE_PREFIX/logs" "$SMOKE_PREFIX/client_body_temp"     "$SMOKE_PREFIX/proxy_temp" "$SMOKE_PREFIX/fastcgi_temp" "$SMOKE_PREFIX/uwsgi_temp"     "$SMOKE_PREFIX/scgi_temp" "$SMOKE_ROOT/files" "$SMOKE_ROOT/sessions"
   ln -s "$ROOT/includes" "$SMOKE_DOCROOT/includes"
@@ -287,6 +292,15 @@ http {
 
     location = / {
       index index.cgi;
+    }
+
+    location = /__smoke__ {
+      lua_code_cache on;
+      default_type text/html;
+      rewrite_by_lua_block {
+        require('lfs').chdir(ngx.var.document_root)
+      }
+      content_by_lua_file $ROOT/tests/smoke/openresty_runner.lua;
     }
 
     location / {
@@ -502,6 +516,26 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains 'Lorem Ipsum'
 report_ok persistent_route_req2
+
+# persistent_csrf_isolation: JS-visible CSRF token must belong to the current
+# session, not a previous request handled by the same worker.
+cookie_a="$SMOKE_ROOT/cookie-a.txt"
+cookie_b="$SMOKE_ROOT/cookie-b.txt"
+
+run_request persistent_csrf_req1 -c "$cookie_a" -b "$cookie_a" "$PERSISTENT_URL/__smoke__?scenario=csrf_token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+token_a=$(extract_marker 'SMOKE_CSRF_TOKEN')
+[[ -n "$token_a" ]] || fail 'missing CSRF token for persistent request 1'
+report_ok persistent_csrf_req1
+
+run_request persistent_csrf_req2 -c "$cookie_b" -b "$cookie_b" "$PERSISTENT_URL/__smoke__?scenario=csrf_token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+token_b=$(extract_marker 'SMOKE_CSRF_TOKEN')
+[[ -n "$token_b" ]] || fail 'missing CSRF token for persistent request 2'
+[[ "$token_a" != "$token_b" ]] || fail 'persistent request 2 reused request 1 CSRF token'
+report_ok persistent_csrf_req2
 
 printf 'all openresty smoke scenarios passed
 '

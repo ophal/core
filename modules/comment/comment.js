@@ -75,7 +75,6 @@ $(document).ready(function() {
       entity_id: entityId,
       parent_id: parentId,
       body: $('textarea', this).val(),
-      csrf_token: Ophal.settings.core.csrf_token,
     }
     $(document).trigger('ophal:entity:save', {context: this, entity: entity});
 
@@ -83,6 +82,7 @@ $(document).ready(function() {
     $.ajax({
       type: 'POST',
       url: endpoint,
+      headers: {'X-CSRF-Token': Ophal.settings.core.csrf_token || ''},
       contentType: 'application/json; charset=utf-8',
       data: JSON.stringify(entity),
       dataType: 'json',

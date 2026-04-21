@@ -44,6 +44,25 @@ local function setup_security_env()
   _G.header = function(k, v)
     _G.last_header = {k = k, v = v}
   end
+  _G.request_body = ''
+  _G.request_headers = {}
+  _G.server_get_request = function()
+    return {
+      headers = _G.request_headers,
+      body = _G.request_body,
+    }
+  end
+  _G.request_get_body = function()
+    return _G.request_body
+  end
+  _G.server_parse_query = function(query_string)
+    local parsed = {}
+    for item in (query_string or ''):gmatch('[^&]+') do
+      local key, value = item:match('([^=]*)=?(.*)')
+      parsed[key] = value
+    end
+    return parsed
+  end
   _G.last_header = nil
 
   dofile('includes/security.lua')
@@ -86,11 +105,18 @@ assert_eq('csrf_token_reused', csrf_token(), 'csrf-token-1')
 assert_eq('csrf_validate_token', csrf_validate('csrf-token-1'), true)
 assert_eq('csrf_reject_missing', csrf_validate(nil), false)
 assert_eq('csrf_validate_body_token', csrf_validate_request({csrf_token = 'csrf-token-1'}), true)
+request_headers = {['X-CSRF-Token'] = 'csrf-token-1'}
+assert_eq('csrf_validate_header_token', csrf_validate_request(), true)
+request_headers = {['Content-Type'] = 'application/x-www-form-urlencoded'}
+request_body = 'csrf_token=csrf-token-1'
+assert_eq('csrf_validate_form_body_token', csrf_validate_request(), true)
 _GET.csrf_token = 'csrf-token-1'
 assert_eq('csrf_validate_query_token', csrf_validate_request(), true)
 
 local output = {}
 _GET.csrf_token = 'bad'
+request_headers = {}
+request_body = ''
 assert_eq('csrf_denies_bad_query', csrf_validate_request(), false)
 csrf_denied(output)
 assert_eq('csrf_denied_status', last_header.v, 401)

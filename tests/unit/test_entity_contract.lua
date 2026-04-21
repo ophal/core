@@ -338,6 +338,12 @@ local function setup_entity_env_with_route_arg(fn)
   reset_all()
   settings.modules = { entity = true, mockmod = true }
   route_arg = fn
+  csrf_token = function() return 'csrf-token-1' end
+  csrf_validate_request = function() return true end
+  csrf_denied = function()
+    header('status', 401)
+  end
+  url = function(s) return '/' .. s end
   local real_mia = module_invoke_all
   module_invoke_all = function(hook, ...)
     hook_log[#hook_log + 1] = {hook = hook, args = {...}}
@@ -348,7 +354,7 @@ local function setup_entity_env_with_route_arg(fn)
     entity_type_info = function()
       return { mockmod = { name = {'mock', plural = 'mocks'}, module = 'mockmod' } }
     end,
-    load = function(id) return {id = id, type = 'mockmod'} end,
+    load = function(id) return {id = id, type = 'mockmod', title = 'Mock ' .. id} end,
   }
   ophal.modules.user = {
     current = function() return {id = 1} end,
@@ -400,6 +406,18 @@ local items20 = {mockmod = {page_callback = 'legacy_handler', title = 'Legacy'}}
 ophal.modules.entity.route_alter('mockmod', items20)
 assert_eq('legacy_route_preserved', items20['mockmod'].page_callback, 'legacy_handler')
 assert_eq('legacy_route_title', items20['mockmod'].title, 'Legacy')
+
+-- 21. delete_page confirmation uses POST form token, not URL token
+setup_entity_env_with_route_arg(function(n)
+  if n == 2 then return 'mockmod' end
+  if n == 3 then return '42' end
+  return nil
+end)
+local delete_form = ophal.modules.entity.delete_page()
+assert_match('delete_confirm_post_form', delete_form, 'method="POST"')
+assert_match('delete_confirm_hidden_token', delete_form, 'name="csrf_token"')
+assert_match('delete_confirm_token_value', delete_form, 'value="csrf%-token%-1"')
+assert_eq('delete_confirm_no_url_token', delete_form:find('csrf_token='), nil)
 
 
 -- ================================================ TAG ENTITY_ACCESS CONTRACT TESTS

@@ -11,8 +11,7 @@ $(document).ready(function() {
       name: $('#name_field', context).val(),
       description: $('#description_field', context).val(),
       status: $('#status_field', context).is(':checked'),
-      action: $('#action', context).val(),
-      csrf_token: Ophal.settings.core.csrf_token
+      action: $('#action', context).val()
     }
     var endpoint = 'tag/service';
 
@@ -25,6 +24,7 @@ $(document).ready(function() {
     $.ajax({
       type: 'POST',
       url: baseRoute + endpoint,
+      headers: {'X-CSRF-Token': Ophal.settings.core.csrf_token || ''},
       contentType: 'application/json; charset=utf-8',
       data: JSON.stringify(entity),
       dataType: 'json',
@@ -55,8 +55,7 @@ $(document).ready(function() {
   $('#confirm_submit', context).click(function() {
     var this_button = $(this);
     var file = {
-      action: 'delete',
-      csrf_token: Ophal.settings.core.csrf_token
+      action: 'delete'
     }
     var endpoint = 'tag/service/' + $('#entity_id', context).val();
 
@@ -65,6 +64,7 @@ $(document).ready(function() {
     $.ajax({
       type: 'POST',
       url: baseRoute +  endpoint,
+      headers: {'X-CSRF-Token': Ophal.settings.core.csrf_token || ''},
       contentType: 'application/json; charset=utf-8',
       data: JSON.stringify(file),
       dataType: 'json',

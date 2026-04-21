@@ -267,13 +267,17 @@ function ophal_request_reset()
     route_reset_request()
   end
 
-  -- Reset JS/CSS/head accumulators
-  if type(common_reset_request) == 'function' then
-    common_reset_request()
-  end
-
-  -- Reset session for new request
+  -- Reset and open the current request session before rebuilding JS settings.
+  -- CSRF tokens are stored in _SESSION and must belong to this request.
   if settings.sessionapi and type(session_init) == 'function' then
     session_init()
+    if type(session_start) == 'function' then
+      session_start()
+    end
+  end
+
+  -- Reset JS/CSS/head accumulators after session state is current.
+  if type(common_reset_request) == 'function' then
+    common_reset_request()
   end
 end

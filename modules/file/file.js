@@ -43,10 +43,6 @@
 
   const BYTES_PER_CHUNK = Ophal.settings.core.BYTES_PER_CHUNK;
 
-  function csrfQuery() {
-    return "&csrf_token=" + encodeURIComponent(Ophal.settings.core.csrf_token || "");
-  }
-
   /**
    * Calculates slices and indirectly uploads a chunk of a file via uploadFile()
    */
@@ -112,8 +108,7 @@
     var endpoint = "/file/upload?" +
       "name=" + encodeURIComponent(blob.name) + "&" + /* filename */
       "id=" + blob.uniq_id + "&" +
-      "index=" + blob.index + /* part identifier */
-      csrfQuery()
+      "index=" + blob.index /* part identifier */
     ;
 
     if (blob.webkitSlice) {
@@ -141,6 +136,7 @@
     $.ajax({
       url: endpoint,
       type: 'POST',
+      headers: {'X-CSRF-Token': Ophal.settings.core.csrf_token || ''},
       /* Ajax events */
       success: function(data) {
         if (data.success) {
@@ -194,17 +190,17 @@
       "name=" + encodeURIComponent(blob.name) + "&" + /* filename */
       "id=" + blob.uniq_id + "&" + /* unique upload identifier */
       "size=" + blob.size + "&" + /* full size */
-      "index=" + blob.slicesTotal + /* part identifier */
-      csrfQuery()
+      "index=" + blob.slicesTotal /* part identifier */
     ;
 
     var statusDiv = $('.form-upload-status', context);
     var progressBar = $('.form-upload-progress', context);
 
-    /* Fetch auth token */
+    /* Merge uploaded chunks */
     $.ajax({
-      type: 'GET',
+      type: 'POST',
       url: endpoint,
+      headers: {'X-CSRF-Token': Ophal.settings.core.csrf_token || ''},
       success: function (data) {
         if (data.success) {
           $('.form-upload-entity-id', context).val(data.id);
@@ -235,16 +231,16 @@
    */
   function deleteFile(element, context) {
     var endpoint = "/file/delete?" +
-      "id=" + element.entity_id +
-      csrfQuery()
+      "id=" + element.entity_id
     ;
 
     var statusDiv = $('.form-upload-status', context);
 
-    /* Fetch auth token */
+    /* Delete uploaded file */
     $.ajax({
-      type: 'GET',
+      type: 'POST',
       url: endpoint,
+      headers: {'X-CSRF-Token': Ophal.settings.core.csrf_token || ''},
       success: function (data) {
         if (data.success) {
           $('.form-upload-entity-id', context).val('deleted');

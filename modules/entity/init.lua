@@ -255,7 +255,10 @@ function _M.delete_page()
         return (xtable{
           '<h1>', title, '</h1>',
           '<div>', t('Are you sure?'), '</div>',
-          l('Confirm', ('entity/delete/%s/%s/confirm?csrf_token=%s'):format(entity.type, entity.id, csrf_token() or ''), {attributes = {class = 'button'}}),
+          ('<form method="POST" action="%s">'):format(url(('entity/delete/%s/%s/confirm'):format(entity.type, entity.id))),
+          ('<input type="hidden" name="csrf_token" value="%s" />'):format(csrf_token() or ''),
+          '<input class="button" type="submit" value="Confirm" />',
+          '</form>',
           ' ',
           l('Cancel', ('%s/%s'):format(entity.type, entity.id)),
         }):concat()

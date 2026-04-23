@@ -111,7 +111,13 @@ function module_resolve_order(enabled)
 
   -- Cycle fallback
   if #output ~= #enabled then
-    io.stderr:write('module: dependency cycle detected; falling back to weight order for remaining modules\n')
+    if type(log_warn) == 'function' then
+      log_warn('module dependency cycle detected; falling back to weight order for remaining modules', {
+        event = 'module_dependency_cycle',
+      })
+    else
+      io.stderr:write('module: dependency cycle detected; falling back to weight order for remaining modules\n')
+    end
     for _, name in ipairs(enabled) do
       if in_deg[name] and in_deg[name] > 0 then
         output:append(name)
@@ -180,6 +186,13 @@ end
 function module_load(name)
   local status, err = pcall(require, 'modules.' .. name .. '.init')
   if not status then
+    if type(log_error) == 'function' then
+      log_error('module load failed', {
+        event = 'module_load_failed',
+        module = name,
+        error = err,
+      })
+    end
     error('module: ' .. err)
   end
 end

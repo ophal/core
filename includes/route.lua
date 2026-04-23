@@ -295,11 +295,20 @@ function route_build_routes()
     for path, handler in pairs(entry.routes) do
       route_build_handler(handler, entry.name)
       if owners[path] then
-        io.stderr:write(
-          ('route conflict: "%s" claimed by "%s", overridden by "%s"\n'):format(
-            path, owners[path], entry.name
+        if type(log_warn) == 'function' then
+          log_warn('route conflict', {
+            event = 'route_conflict',
+            route = path,
+            previous_module = owners[path],
+            module = entry.name,
+          })
+        else
+          io.stderr:write(
+            ('route conflict: "%s" claimed by "%s", overridden by "%s"\n'):format(
+              path, owners[path], entry.name
+            )
           )
-        )
+        end
       end
       owners[path] = entry.name
       routes[path] = handler

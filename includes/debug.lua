@@ -15,6 +15,13 @@ function debug.print_r(val, return_)
 end
 
 function debug.log(msg)
+  if type(log_debug) == 'function' then
+    return log_debug('debug log', {
+      event = 'debug_log',
+      value = debug.print_r(msg, 1),
+    })
+  end
+
   local fh = io.open(temp_dir() .. '/ophal.log', 'a+')
   if fh then
     return fh:write(("%s: %s\n"):format(os.date('%Y-%m-%d %H:%M:%S', os.time()), debug.print_r(msg, 1)))

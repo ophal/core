@@ -25,6 +25,14 @@ function db_connect()
   )
 
   if err then
+    if type(log_error) == 'function' then
+      log_error('database connection failed', {
+        event = 'database_connection_failed',
+        database = connection.database,
+        driver = connection.driver,
+        host = connection.host,
+      })
+    end
     error(err)
   end
 
@@ -41,16 +49,38 @@ function db_query(query, ...)
   local err, sth
 
   if dbh[db_id] == nil then
+    if type(log_error) == 'function' then
+      log_error('database query without connection', {
+        event = 'database_query_without_connection',
+      })
+    end
     error 'No database connection'
   end
 
   -- prepare a query
-  sth = assert(dbh[db_id]:prepare(query))
+  sth, err = dbh[db_id]:prepare(query)
+  if err or nil == sth then
+    if type(log_error) == 'function' then
+      log_error('database prepare failed', {
+        event = 'database_prepare_failed',
+        error = err,
+        query = query,
+      })
+    end
+    error(err or 'Database prepare failed')
+  end
 
   -- execute select with a bind variable
   _, err = sth:execute(...)
 
   if err then
+    if type(log_error) == 'function' then
+      log_error('database execute failed', {
+        event = 'database_execute_failed',
+        error = err,
+        query = query,
+      })
+    end
     error(err)
   end
 

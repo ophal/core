@@ -13,6 +13,7 @@ env = {
   type = type,
   module = module,
   pcall = pcall,
+  xpcall = xpcall,
   nopcall = function(f, ...) return true, f(...) end,
   loadstring = loadstring,
   setfenv = setfenv,
@@ -122,6 +123,7 @@ function bootstrap(phase, main)
   if type(main) ~= 'function' then main = function() end end
 
   local status, err, exit_bootstrap
+  local traceback
 
   -- Jail
   setfenv(0, env) -- global environment
@@ -129,6 +131,31 @@ function bootstrap(phase, main)
   setfenv(main, env) -- script environment
   env._G = env
   env.env = env
+
+  require 'includes.log'
+
+  local function protected_call(callback)
+    local raw_error
+
+    if pcall == nopcall then
+      return pcall(callback)
+    end
+
+    local function error_handler(e)
+      raw_error = e
+      if debug and type(debug.traceback) == 'function' then
+        return debug.traceback(tostring(e), 2)
+      end
+      return tostring(e)
+    end
+
+    local ok, result = xpcall(callback, error_handler)
+    if ok then
+      return true, result
+    end
+
+    return false, raw_error or result, result
+  end
 
   -- Reset per-request state for persistent runtimes.
   -- On first boot ophal_request_reset does not exist yet; on subsequent
@@ -265,8 +292,13 @@ function bootstrap(phase, main)
 
   -- Loop over phase
   for p = 1, (phase or #phases) do
-    status, err = pcall(phases[p])
+    status, err, traceback = protected_call(phases[p])
     if not status then
+      log_exception('bootstrap phase failed', err, {
+        event = 'bootstrap_phase_failed',
+        phase = p,
+        traceback = (settings.logging or settings.log or {}).tracebacks == true and traceback or nil,
+      })
       io.write(([[
 
 bootstrap[%s]: %s]]):format(p, err or ''))
@@ -280,8 +312,12 @@ bootstrap[%s]: %s]]):format(p, err or ''))
 
   -- execute script
   if not exit_bootstrap then
-    status, err = pcall(main)
+    status, err, traceback = protected_call(main)
     if not status then
+      log_exception('main callback failed', err, {
+        event = 'main_callback_failed',
+        traceback = (settings.logging or settings.log or {}).tracebacks == true and traceback or nil,
+      })
       io.write([[
 
 bootstrap[main]: ]] .. (err or ''))

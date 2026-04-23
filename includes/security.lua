@@ -85,6 +85,13 @@ function csrf_validate_request(data)
 end
 
 function csrf_denied(output)
+  if type(log_warn) == 'function' then
+    log_warn('CSRF validation failed', {
+      event = 'csrf_denied',
+      method = type(server_get_request) == 'function' and (server_get_request().method or nil) or nil,
+      path = type(request_path) == 'function' and request_path() or nil,
+    })
+  end
   header('status', 401)
   if type(output) == 'table' then
     output.error = 'Invalid CSRF token.'

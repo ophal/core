@@ -334,11 +334,10 @@ Run the following SQL queries in strict order:
   CREATE INDEX idx_role_permission_perm ON role_permission USING btree (permission);
   ```
 
-2. Generate a bootstrap password hash for superuser with following script
-   (requires ophal-cli):
+2. Generate a bootstrap password hash for superuser with the included CLI:
 
   ```sh
-  $ ophal sha256 mypassword
+  $ ./ophal sha256 mypassword
   89e01536ac207279409d4de1e5253e01f4a1769e696db0d6062ca9b8f56767c8
   ```
 

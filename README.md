@@ -20,3 +20,17 @@ Ophal has the following dependencies:
 - luuid
 - dkjson
 - LuaCrypto (only if user module is enabled)
+
+## CLI
+
+The repository includes a small `ophal` command-line entrypoint:
+
+```sh
+./ophal help
+./ophal cache clear
+./ophal sha256 mypassword
+```
+
+`install`, `migrate`, and `module enable/disable` are reserved command shapes
+for the operations roadmap and currently return an explicit "not implemented"
+status instead of silently doing nothing.

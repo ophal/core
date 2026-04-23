@@ -1,0 +1,5 @@
+#!/usr/bin/env lua5.1
+
+local cli = require 'includes.cli'
+
+os.exit(cli.main(arg))

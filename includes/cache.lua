@@ -21,11 +21,12 @@ function cache_clear_all()
   end
 
   -- Module caches
-  local entity_mod = (ophal.modules or {}).entity
+  local modules = (ophal and ophal.modules) or {}
+  local entity_mod = modules.entity
   if entity_mod and type(entity_mod.entity_type_info_cache_clear) == 'function' then
     entity_mod.entity_type_info_cache_clear()
   end
-  local user_mod = (ophal.modules or {}).user
+  local user_mod = modules.user
   if user_mod and type(user_mod.cache_clear) == 'function' then
     user_mod.cache_clear()
   end

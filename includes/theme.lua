@@ -4,6 +4,10 @@ local assert, error, setfenv = assert, error, setfenv
 local currentdir, xtable = lfs.currentdir() .. slash, seawolf.contrib.seawolf_table
 local base, l = base, l
 
+if type(html_escape) ~= 'function' then
+  pcall(require, 'includes.escape')
+end
+
 -- Calculate theme.name
 if
   settings.mobile and
@@ -241,7 +245,13 @@ function render_attributes(options, default_options)
   local attr = {}
 
   for k, v in pairs(options) do
-    tinsert(attr, ('%s="%s"'):format(k, v))
+    local name = tostring(k)
+    if v ~= nil and v ~= false and name:match('^[%w_:%-]+$') and not name:lower():match('^on') then
+      if v == true then
+        v = name
+      end
+      tinsert(attr, ('%s="%s"'):format(name, html_attr_escape(v)))
+    end
   end
   return tconcat(attr, " ")
 end
@@ -365,7 +375,7 @@ end
 function theme.a(variables)
   if variables == nil then variables = {} end
 
-  local attributes = variables.attributes
+  local attributes = variables.attributes or {}
   variables.attributes = nil
 
   -- Support HTML5 download attribute
@@ -374,10 +384,15 @@ function theme.a(variables)
   if download == true then
     download = ' download'
   elseif type(download) == 'string' then
-    download = (' download="%s"'):format(download)
+    download = (' download="%s"'):format(html_attr_escape(download))
   end
 
-  return ('<a href="%s"%s %s>%s</a>'):format(variables.route, download or '', render_attributes(attributes), variables.text)
+  return ('<a href="%s"%s %s>%s</a>'):format(
+    html_url_escape(variables.route),
+    download or '',
+    render_attributes(attributes),
+    (variables.html or html_is_safe(variables.text)) and html_unwrap(variables.text) or html_escape(variables.text)
+  )
 end
 
 --[[
@@ -392,7 +407,7 @@ function theme.img(variables)
   else
     path = base.route .. path
   end
-  return ('<img src="%s" %s />'):format(path, render_attributes(options))
+  return ('<img src="%s" %s />'):format(html_url_escape(path), render_attributes(options))
 end
 
 --[[
@@ -401,7 +416,7 @@ end
 function theme.logo()
   local site = settings.site
   local logo_path = ('%s/%s'):format(path_to_theme(), site.logo_path)
-  return l(theme{'img', path = logo_path, options = {alt = site.logo_title, title = site.logo_title, border = 0}}, '', {absolute = true, attributes = {id = 'logo'}})
+  return l(theme{'img', path = logo_path, options = {alt = site.logo_title, title = site.logo_title, border = 0}}, '', {absolute = true, html = true, attributes = {id = 'logo'}})
 end
 
 --[[

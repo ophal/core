@@ -2,6 +2,10 @@ local empty, tinsert, os_date = seawolf.variable.empty, table.insert, os.date
 local tsort, tconcat, os_time = table.sort, table.concat, os.time
 local lower = string.lower
 
+if type(html_escape) ~= 'function' then
+  pcall(require, 'includes.escape')
+end
+
 --[[
   Form theme function.
 ]]
@@ -56,7 +60,7 @@ function theme.elements(variables)
     if v[1] == 'hidden' then
       tinsert(output, theme(v))
     elseif v.title then
-      tinsert(output, row:format(v.title or '', theme(v)))
+      tinsert(output, row:format(html_escape(v.title or ''), theme(v)))
     else
       tinsert(output, row_nl:format(theme(v)))
     end
@@ -82,7 +86,7 @@ function theme.textfield(variables)
 
   return ('<input %s %s/>'):format(
     render_attributes(variables.attributes),
-    variables.value and ('value="%s" '):format(variables.value) or ''
+    variables.value and ('value="%s" '):format(html_attr_escape(variables.value)) or ''
   )
 end
 
@@ -94,7 +98,7 @@ function theme.label(variables)
 
   return ('<label %s />%s:</label>'):format(
     render_attributes(variables.attributes),
-    variables.title
+    html_escape(variables.title)
   )
 end
 
@@ -106,7 +110,7 @@ function theme.button(variables)
 
   return ('<input %s type="button" value="%s" />'):format(
     render_attributes(variables.attributes),
-    variables.value
+    html_attr_escape(variables.value)
   )
 end
 
@@ -118,7 +122,7 @@ function theme.submit(variables)
 
   return ('<input %s type="submit" value="%s" />'):format(
     render_attributes(variables.attributes),
-    variables.value
+    html_attr_escape(variables.value)
   )
 end
 
@@ -130,8 +134,8 @@ function theme.textarea(variables)
 
   return ('<textarea %s>%s</textarea>%s'):format(
     render_attributes(variables.attributes),
-    variables.value and variables.value or '',
-    variables.description and ('<div class="form-element-description">%s</div>'):format(variables.description or '') or ''
+    variables.value and html_escape(variables.value) or '',
+    variables.description and ('<div class="form-element-description">%s</div>'):format(html_escape(variables.description or '')) or ''
   )
 end
 
@@ -143,7 +147,7 @@ function theme.hidden(variables)
 
   return ('<input type="hidden" %s %s/>'):format(
     render_attributes(variables.attributes),
-    variables.value and ('value="%s" '):format(variables.value) or ''
+    variables.value and ('value="%s" '):format(html_attr_escape(variables.value)) or ''
   )
 end
 
@@ -176,7 +180,11 @@ end
 
 function theme.select_option(variables)
   local selected = variables.selected and ' selected="selected"' or ''
-  return ('<option value="%s"%s>%s</option>'):format(variables.key, selected, variables.value)
+  return ('<option value="%s"%s>%s</option>'):format(
+    html_attr_escape(variables.key),
+    selected,
+    html_escape(variables.value)
+  )
 end
 
 --[[
@@ -232,7 +240,7 @@ function theme.progress(variables)
 
   return ('<div class="progress" %s><span class="meter" style="width: %s%%"></span></div>'):format(
     render_attributes(variables.attributes),
-    value
+    tonumber(value) or 0
   )
 end
 

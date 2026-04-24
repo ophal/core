@@ -1,6 +1,10 @@
 local _M = {}
 ophal.modules.entity = _M
 
+if type(html_escape) ~= 'function' then
+  pcall(require, 'includes.escape')
+end
+
 local t, module_invoke_all, route_arg = t, module_invoke_all, route_arg
 local l, theme, empty = l, theme, seawolf.variable.empty
 local xtable, config = seawolf.contrib.seawolf_table, settings.entity
@@ -253,10 +257,10 @@ function _M.delete_page()
         )
         page_set_title(title)
         return (xtable{
-          '<h1>', title, '</h1>',
-          '<div>', t('Are you sure?'), '</div>',
-          ('<form method="POST" action="%s">'):format(url(('entity/delete/%s/%s/confirm'):format(entity.type, entity.id))),
-          ('<input type="hidden" name="csrf_token" value="%s" />'):format(csrf_token() or ''),
+          '<h1>', html_escape(title), '</h1>',
+          '<div>', html_escape(t('Are you sure?')), '</div>',
+          ('<form method="POST" action="%s">'):format(html_url_escape(url(('entity/delete/%s/%s/confirm'):format(entity.type, entity.id)))),
+          ('<input type="hidden" name="csrf_token" value="%s" />'):format(html_attr_escape(csrf_token() or '')),
           '<input class="button" type="submit" value="Confirm" />',
           '</form>',
           ' ',

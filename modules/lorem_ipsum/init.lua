@@ -24,7 +24,7 @@ end
 function page()
   local title = l('Lorem Ipsum', 'lorem_ipsum')
 
-  page_set_title('Lorem Ipsum', title)
+  page_set_title('Lorem Ipsum', html_safe(title))
 
   return theme{'lorem_ipsum'}
 end

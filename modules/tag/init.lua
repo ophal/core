@@ -3,6 +3,10 @@ local _M = {
 }
 ophal.modules[_M.entity_type] = _M
 
+if type(html_escape) ~= 'function' then
+  pcall(require, 'includes.escape')
+end
+
 local modules, config = ophal.modules, settings.tag
 local theme, env, add_css, slash, l = theme, env, add_css, settings.slash, l
 local tinsert, tconcat, pairs, ophal = table.insert, table.concat, pairs, ophal
@@ -656,7 +660,7 @@ function theme.tag_delete_form(variables)
     attributes = {id = 'tag_delete_form'},
     elements = {
       {'hidden', attributes = {id = 'entity_id'}, value = entity.id},
-      {'markup', value = ("Are you sure you want to <strong>delete</strong> '%s'?"):format(entity.name)},
+      {'markup', value = ("Are you sure you want to <strong>delete</strong> '%s'?"):format(html_escape(entity.name))},
       {'button', attributes = {id = 'confirm_submit'}, value = 'Confirm'},
     },
   }

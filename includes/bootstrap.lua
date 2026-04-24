@@ -232,6 +232,7 @@ function bootstrap(phase, main)
 
     -- 9. Core API,
     function ()
+      require 'includes.escape'
       require 'includes.common'
       require 'includes.security'
       require 'includes.locale'

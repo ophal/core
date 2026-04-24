@@ -3,13 +3,29 @@ local pairs, tcon, rawset, date = pairs, table.concat, rawset, os.date
 local base, lfs, json, round = base, lfs, require 'dkjson', seawolf.maths.round
 local str_replace, is_file = seawolf.text.str_replace, seawolf.fs.is_file
 
+if type(html_url_escape) ~= 'function' then
+  pcall(require, 'includes.escape')
+end
+
 function page_set_title(header_title, title)
   if header_title then
     if title == nil then title = header_title end
-    ophal.title = title
-    ophal.header_title = (header_title and header_title .. ' | ' or '') .. settings.site.name
+
+    if html_is_safe(title) then
+      ophal.title = html_unwrap(title)
+    else
+      ophal.title = html_escape(title)
+    end
+
+    if html_is_safe(header_title) then
+      header_title = html_unwrap(header_title)
+    else
+      header_title = html_escape(header_title)
+    end
+
+    ophal.header_title = (header_title and header_title .. ' | ' or '') .. html_escape(settings.site.name)
   else
-    ophal.header_title = settings.site.name
+    ophal.header_title = html_escape(settings.site.name)
   end
 end
 
@@ -90,11 +106,14 @@ do
           output[scope][#output[scope] + 1] = ([=[<script type="text/javascript">
 <!--//--><![CDATA[//><!--
 (function ($) {
-$.extend(true, Ophal.settings, {"%s": %s});
+$.extend(true, Ophal.settings, {%s: %s});
 })(jQuery);
 //--><!]]>
 </script>
-]=]):format(options.namespace or 'core', json.encode(j) or '')
+]=]):format(
+            ('"%s"'):format(js_escape_string(options.namespace or 'core')),
+            js_escape_json(json.encode(j) or '')
+          )
         elseif options ~= nil and options.type == 'inline' then
           output[scope][#output[scope] + 1] = ([=[<script type="text/javascript">
 <!--//--><![CDATA[//><!--
@@ -104,10 +123,10 @@ $.extend(true, Ophal.settings, {"%s": %s});
 ]=]):format(j or '')
         elseif options ~= nil and options.type == 'external' then
           output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s"></script>
-]]):format(j or '')
+]]):format(html_url_escape(j or ''))
         elseif is_file(j) then
-          output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s%s?%s"></script>
-]]):format(base.route, j, lfs.attributes(j, 'modification'))
+          output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s"></script>
+]]):format(html_url_escape(base.route .. j .. '?' .. lfs.attributes(j, 'modification')))
         end
       end
       output[scope] = tcon(output[scope])
@@ -140,8 +159,8 @@ do
     local output = {}
     for k, v in pairs(css) do
       if is_file(k) then
-        output[1 + #output] = ([[<link type="text/css" rel="stylesheet" media="all" href="%s%s?%s" />
-]]):format(base.route, k, lfs.attributes(k, 'modification'))
+        output[1 + #output] = ([[<link type="text/css" rel="stylesheet" media="all" href="%s" />
+]]):format(html_url_escape(base.route .. k .. '?' .. lfs.attributes(k, 'modification')))
       end
     end
     return tcon(output)

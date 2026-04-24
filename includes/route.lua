@@ -352,12 +352,15 @@ function l(text, route, options)
   if options == nil then options = {} end
 
   local attributes = options.attributes or {}
+  local html = options.html
   options.attributes = nil
+  options.html = nil
 
   return theme{'a',
     text = text,
     route = url(route, options),
     attributes = attributes,
+    html = html,
   }
 end
 

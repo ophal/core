@@ -252,8 +252,7 @@ local function route_freeze(routes)
   return routes
 end
 
--- Route cache: stores frozen route table across requests in persistent runtimes.
--- In CGI mode, the process dies per-request so this has no effect.
+-- Route cache: stores frozen route table across requests in OpenResty workers.
 local cached_routes
 
 function route_cache_get()

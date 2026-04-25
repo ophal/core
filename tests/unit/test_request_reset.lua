@@ -87,7 +87,7 @@ local function setup_env()
   local mock_request = {
     scheme = 'http',
     host = 'localhost',
-    script_name = '/index.cgi',
+    script_name = '/index.lua',
     uri = '/',
     path = '',
     query = {},

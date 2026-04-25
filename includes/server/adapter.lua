@@ -96,9 +96,9 @@ end
 
 function server_normalize_path(uri, script_name)
   local request_path = unescape((uri or ''):match('^[^?]*') or '')
-  local script_dir = rtrim(dirname(script_name or '/index.cgi'), '\\/')
+  local script_dir = rtrim(dirname(script_name or '/index.lua'), '\\/')
   local path = request_path:sub(script_dir:len() + 1)
-  local script = basename(script_name or '/index.cgi')
+  local script = basename(script_name or '/index.lua')
 
   if path == script or path == '/' .. script then
     path = ''

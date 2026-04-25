@@ -1,5 +1,3 @@
-#!/usr/bin/env lua5.1
-
 require 'includes.bootstrap'
 
 settings.output_buffering = false

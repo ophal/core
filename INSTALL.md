@@ -1,82 +1,44 @@
 Ophal installation instructions
 ===============================
 
-This document is just a brief. For a comprenhensive installation guide please
+This document is just a brief. For a comprehensive installation guide please
 refer to the online Ophal manual: http://ophal.org/manual.
 
 
-## I. Server configuration
-This instructions assume that you installed Ophal at /var/www/ophal.
+## I. Runtime and server configuration
 
-Ophal can run on native Nginx's HttpLuaModule or as a humble CGI script on
-Apache, Lighttpd and others that support CGI and URL rewriting. FastCGI support
-can be implemented with a FastCGI wrapper on Apache, Nginx, Lighttpd and several
-other web servers.
+Ophal now runs on OpenResty only. CGI support has been removed.
+
+These instructions assume that you installed Ophal at `/var/www/ophal`.
 
 NOTE: Ophal is compatible with SQLite and PostgreSQL only.
 
-### Apache
-Enable mod_rewrite and mod_cgi, then use following configuration for reference:
+### OpenResty
 
-#### Sub-directory
+Use `nginx.ophal.conf` as the starting point for your server configuration and
+make sure to set:
 
-    Alias /lua /var/www/ophal/
-    <Directory "/var/www/ophal">
-      AllowOverride All
-      Options Indexes FollowSymLinks MultiViews +ExecCGI
-      Order allow,deny
-      Allow from all
-    </Directory>
+- `server_name`
+- `root`
+- log paths
 
-#### Virtualhost
+The document root must contain the Ophal tree, including:
 
-    <VirtualHost *:80>
-      ServerAlias ophal
+- `index.lua`
+- `cron.lua`
+- `settings.lua`
+- `vault.lua`
 
-      DocumentRoot /var/www/ophal
-      <Directory />
-        Options FollowSymLinks
-        AllowOverride None
-      </Directory>
-      <Directory /var/www/ophal/>
-        Options Indexes FollowSymLinks MultiViews +ExecCGI
-        AllowOverride All
-        Order allow,deny
-        allow from all
-      </Directory>
-
-      ErrorLog /var/log/apache2/ophal-error.log
-
-      # Possible values include: debug, info, notice, warn, error, crit,
-      # alert, emerg.
-      LogLevel debug
-
-      CustomLog /var/log/apache2/ophal-access.log combined
-    </VirtualHost>
-
-### Lighttpd
-Install mod_magnet and use the file lighttpd.ophal.lua to configure your
-server. Also, enable module cgi. Then use following configuration for reference:
-
-    $HTTP["host"] =~ ".+\.ophal" {
-      evhost.path-pattern = "/var/www/%_/"
-      index-file.names = ("index.cgi")
-      cgi.assign = ( ".cgi" => "/usr/local/bin/luajit" )
-      magnet.attract-physical-path-to = ("/etc/lighttpd/lighttpd.ophal.lua")
-    }
-
-Notice that configuration above assumes that you are using "luajit".
-
-### Nginx
-Install HttpLuaModule and use the file nginx.ophal.conf to configure your server.
-Make sure to set 'server_name' and 'root' correctly.
+The provided `nginx.ophal.conf` is also responsible for blocking direct access
+to internal Lua source and secret files such as `settings.lua` and `vault.lua`.
 
 
 ## II. Dependencies
 
-### LuaJIT or Lua?
-Ophal uses Lua 5.1 by default, but is compatible with LuaJIT 2.x if you prefer it.
-You need to edit the first line of index.cgi in order to switch interpreter.
+### OpenResty and Lua modules
+
+Ophal targets the OpenResty runtime and its bundled LuaJIT environment. Install
+the required Lua modules for that runtime.
 
 ### Debian
 
@@ -92,12 +54,26 @@ $ sudo mv seawolf /usr/local/share/lua/5.1/
 ```
 
 
-## III. Installation wizard
+## III. Installation
 
-Open your Ophal installation in a web browser, you should be redirected to the Installation
-Wizard, follow the instructions. The wizard will check dependencies and ask for configuration
-parameters, then will generate a settings.lua for you, copy the text, store as settings.lua
-into the same directory of index.cgi, make the desired changes an set it to read-only.
+The supported install path is now the CLI.
+
+From the project root:
+
+```sh
+$ ./ophal install check
+$ ./ophal install init /var/www/ophal
+```
+
+This will verify runtime dependencies and scaffold:
+
+- `settings.lua`
+- `vault.lua`
+- the files directory
+- `.htaccess` inside the files directory
+
+Review the generated configuration, make any desired changes, and set
+appropriate filesystem permissions before starting OpenResty.
 
 
 ### (Optional) Configure the Content module
@@ -146,25 +122,18 @@ CREATE SEQUENCE content_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVAL
 ALTER SEQUENCE content_id_seq OWNED BY content.id;
 ALTER TABLE ONLY content ALTER COLUMN id SET DEFAULT nextval('content_id_seq'::regclass);
 ALTER TABLE ONLY content ADD CONSTRAINT content_pkey PRIMARY KEY (id);
-CREATE INDEX idx_content_changed ON content USING btree (changed DESC);
 CREATE INDEX idx_content_created ON content USING btree (created DESC);
+CREATE INDEX idx_content_changed ON content USING btree (changed DESC);
 CREATE INDEX idx_content_frontpage ON content USING btree (promote, status, sticky, created DESC);
 CREATE INDEX idx_content_title ON content USING btree (title);
 CREATE INDEX idx_content_user ON content USING btree (user_id);
 ```
 
-Add the following to settings.lua:
-
+Now add the following to settings.lua:
 ```Lua
-settings.content = {
-  entities = {},
-  items_per_page = 10, -- default: 10
-}
+  settings.modules.content = true
 ```
 
-Also, make sure to enable and configure the User module.
-
-NOTE: Ophal is compatible with SQLite only.
 
 ### (Optional) Configure the Comment module
 
@@ -174,26 +143,17 @@ Run the following SQL queries in strict order:
 ```SQL
 CREATE TABLE comment(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_id UNSIGNED BIG INT, -- Entity associated with this object
-  parent_id UNSIGNED BIG INT, -- Parent object
-  user_id UNSIGNED BIG INT, -- User ID of author
-  language VARCHAR(12), -- Language code
-  body TEXT, -- Comment body
-  created UNSIGNED BIG INT, -- Creation date
-  changed UNSIGNED BIG INT, -- Last change date
-  status BOOLEAN,
-  sticky BOOLEAN
+  user_id UNSIGNED BIG INT,
+  entity_type VARCHAR(255),
+  entity_id UNSIGNED BIG INT,
+  title VARCHAR(255),
+  body TEXT,
+  created UNSIGNED BIG INT,
+  changed UNSIGNED BIG INT,
+  status BOOLEAN
 );
 CREATE INDEX idx_comment_created ON comment (created DESC);
-CREATE INDEX idx_comment_changed ON comment (changed DESC);
-CREATE INDEX idx_comment_linear ON comment (entity_id, status);
-CREATE INDEX idx_comment_linear_sticky ON comment (entity_id, status, sticky);
-CREATE INDEX idx_comment_full_linear ON comment (entity_id);
-CREATE INDEX idx_comment_full_linear_sticky ON comment (entity_id, sticky);
-CREATE INDEX idx_comment_tree ON comment (parent_id, status);
-CREATE INDEX idx_comment_tree_sticky ON comment (parent_id, status, sticky);
-CREATE INDEX idx_comment_full_tree ON comment (parent_id);
-CREATE INDEX idx_comment_full_tree_sticky ON comment (parent_id, sticky);
+CREATE INDEX idx_comment_entity ON comment (entity_type, entity_id);
 CREATE INDEX idx_comment_user ON comment (user_id);
 ```
 
@@ -201,46 +161,29 @@ CREATE INDEX idx_comment_user ON comment (user_id);
 ```SQL
 CREATE TABLE comment(
   id integer NOT NULL,
-  entity_id bigint, -- Entity associated with this object
-  parent_id bigint, -- Parent object
-  user_id bigint, -- User ID of author
-  language character varying(12), -- Language code
-  body text, -- Comment body
-  created bigint, -- Creation date
-  changed bigint, -- Last change date
-  status smallint,
-  sticky smallint
+  user_id bigint,
+  entity_type character varying(255),
+  entity_id bigint,
+  title character varying(255),
+  body text,
+  created bigint,
+  changed bigint,
+  status smallint
 );
 CREATE SEQUENCE comment_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
 ALTER SEQUENCE comment_id_seq OWNED BY comment.id;
 ALTER TABLE ONLY comment ALTER COLUMN id SET DEFAULT nextval('comment_id_seq'::regclass);
 ALTER TABLE ONLY comment ADD CONSTRAINT comment_pkey PRIMARY KEY (id);
 CREATE INDEX idx_comment_created ON comment USING btree (created DESC);
-CREATE INDEX idx_comment_changed ON comment USING btree (changed DESC);
-CREATE INDEX idx_comment_linear ON comment USING btree (entity_id, status);
-CREATE INDEX idx_comment_linear_sticky ON comment USING btree (entity_id, status, sticky);
-CREATE INDEX idx_comment_full_linear ON comment USING btree (entity_id);
-CREATE INDEX idx_comment_full_linear_sticky ON comment USING btree (entity_id, sticky);
-CREATE INDEX idx_comment_tree ON comment USING btree (parent_id, status);
-CREATE INDEX idx_comment_tree_sticky ON comment USING btree (parent_id, status, sticky);
-CREATE INDEX idx_comment_full_tree ON comment USING btree (parent_id);
-CREATE INDEX idx_comment_full_tree_sticky ON comment USING btree (parent_id, sticky);
+CREATE INDEX idx_comment_entity ON comment USING btree (entity_type, entity_id);
 CREATE INDEX idx_comment_user ON comment USING btree (user_id);
 ```
 
-Add the following to settings.lua:
-
+Now add the following to settings.lua:
 ```Lua
-settings.comment = {
-  entities = {
-    content = true,
-  },
-}
+  settings.modules.comment = true
 ```
 
-Also, make sure to enable and<Virtual configure the User module.
-
-NOTE: Ophal is compatible with SQLite only.
 
 ### (Optional) Configure the User module
 WARNING! Since the user module allows to start an authenticated session, meaning
@@ -378,69 +321,48 @@ Run the following SQL queries in strict order:
 
 6. Configure default roles
 
-  You can either add the following to your settings.lua
-
-  ```Lua
-  --[[
-    User module options
-  ]]
-  settings.user = {
-    entities = {
-      content = true,
-    },
-    permissions_storage = true,
-    password_hash = {
-      iterations = 10000,
-    },
-    -- algorithm = 'sha256', -- legacy unsalted hash verification only
-    permissions = {
-      anonymous = {
-        'access content',
-      },
-      authenticated = {
-        'access content',
-        'create content',
-        'edit own content',
-      },
-    }
-  }
+  ```SQL
+  INSERT INTO role VALUES('anonymous', 'Anonymous user', 1, 1);
+  INSERT INTO role VALUES('authenticated', 'Authenticated user', 1, 2);
+  INSERT INTO role VALUES('administrator', 'Administrator', 1, 3);
   ```
 
-  Or run the following SQL queries (valid for SQLite and PostgreSQL):
+7. Configure default permissions
 
   ```SQL
   INSERT INTO role_permission VALUES('anonymous', 'access content', 'user');
   INSERT INTO role_permission VALUES('authenticated', 'access content', 'user');
   INSERT INTO role_permission VALUES('authenticated', 'create content', 'user');
   INSERT INTO role_permission VALUES('authenticated', 'edit own content', 'user');
+  INSERT INTO role_permission VALUES('administrator', 'administer users', 'user');
   ```
 
+
 ### (Optional) Configure the Tag module
+
 Run the following SQL queries in strict order:
 
 ####SQLite
 ```SQL
 CREATE TABLE field_tag(
   entity_type VARCHAR(255),
-  entity_id BIG INT,
-  tag_id BIG INT,
-  PRIMARY KEY (entity_type, entity_id, tag_id)
+  entity_id UNSIGNED BIG INT,
+  tag_id UNSIGNED BIG INT,
+  PRIMARY KEY(entity_type, entity_id, tag_id)
 );
 
 CREATE TABLE tag(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id BIG INT,
+  user_id UNSIGNED BIG INT,
   name VARCHAR(255),
-  language VARCHAR(12), -- Language code
-  description TEXT, -- Tag description
-  created UNSIGNED BIG INT, -- Creation date
-  changed UNSIGNED BIG INT, -- Last change date
+  created UNSIGNED BIG INT,
+  changed UNSIGNED BIG INT,
   status BOOLEAN
 );
-CREATE UNIQUE INDEX unq_idx_tag_name ON tag (name);
-CREATE INDEX idx_tag_user ON tag (user_id);
+CREATE INDEX idx_tag_name ON tag (name);
 CREATE INDEX idx_tag_created ON tag (created DESC);
 CREATE INDEX idx_tag_changed ON tag (changed DESC);
+CREATE INDEX idx_tag_user ON tag (user_id);
 ```
 
 ####PostgreSQL
@@ -456,140 +378,116 @@ CREATE TABLE tag(
   id integer NOT NULL,
   user_id bigint,
   name character varying(255),
-  language character varying(12), -- Language code
-  description text, -- Tag description
-  created bigint, -- Creation date
-  changed bigint, -- Last change date
+  created bigint,
+  changed bigint,
   status smallint
 );
 CREATE SEQUENCE tag_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
 ALTER SEQUENCE tag_id_seq OWNED BY tag.id;
 ALTER TABLE ONLY tag ALTER COLUMN id SET DEFAULT nextval('tag_id_seq'::regclass);
 ALTER TABLE ONLY tag ADD CONSTRAINT tag_pkey PRIMARY KEY (id);
-CREATE UNIQUE INDEX unq_idx_tag_name ON tag USING btree (name);
-CREATE INDEX idx_tag_user ON tag USING btree (user_id);
+CREATE INDEX idx_tag_name ON tag USING btree (name);
 CREATE INDEX idx_tag_created ON tag USING btree (created DESC);
 CREATE INDEX idx_tag_changed ON tag USING btree (changed DESC);
+CREATE INDEX idx_tag_user ON tag USING btree (user_id);
 ```
 
-Add the following to settings.lua:
-
+Now add the following to settings.lua:
 ```Lua
-settings.tag = {
-  entities = {
-    content = true,
-  },
-  items_per_page = 10, -- default: 10
-}
+  settings.modules.tag = true
 ```
 
-Also, make sure to enable and configure the Content module.
 
-### (Optional) Configure the route aliases database storage
-Complementary to the use of route_register_alias(), you can store route aliases
-into the database. This is specially useful for sites that make extensive use of
-semantic urls (i.e: /my-rocking-article instead of /content/7).
+### (Optional) Configure route aliases storage
 
-1. Run the following SQL queries in strict order:
+Run the following SQL queries in strict order:
 
-  ####SQLite
-  ```SQL
-  CREATE TABLE route_alias(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source VARCHAR(255),
-    alias VARCHAR(255),
-    language VARCHAR(12)
-  );
-  CREATE INDEX idx_route_alias_alias_language_id ON route_alias (alias, language, id);
-  CREATE INDEX idx_route_alias_source_language_id ON route_alias (source, language, id);
-  ```
+####SQLite
+```SQL
+CREATE TABLE route_alias(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source VARCHAR(255),
+  alias VARCHAR(255),
+  language VARCHAR(12)
+);
+CREATE INDEX idx_route_alias_alias_language_id ON route_alias (alias, language, id);
+CREATE INDEX idx_route_alias_source_language_id ON route_alias (source, language, id);
+```
 
-  ####PostgreSQL
-  ```SQL
-  CREATE TABLE route_alias(
-    id integer NOT NULL,
-    source character varying(255),
-    alias character varying(255),
-    language character varying(12)
-  );
-  CREATE SEQUENCE route_alias_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
-  ALTER SEQUENCE route_alias_id_seq OWNED BY route_alias.id;
-  ALTER TABLE ONLY route_alias ALTER COLUMN id SET DEFAULT nextval('route_alias_id_seq'::regclass);
-  ALTER TABLE ONLY route_alias ADD CONSTRAINT route_alias_pkey PRIMARY KEY (id);
-  CREATE INDEX idx_route_alias_alias_language_id ON route_alias USING btree (alias, language, id);
-  CREATE INDEX idx_route_alias_source_language_id ON route_alias USING btree (source, language, id);
-  ```
+####PostgreSQL
+```SQL
+CREATE TABLE route_alias(
+  id integer NOT NULL,
+  source character varying(255),
+  alias character varying(255),
+  language character varying(12)
+);
+CREATE SEQUENCE route_alias_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE route_alias_id_seq OWNED BY route_alias.id;
+ALTER TABLE ONLY route_alias ALTER COLUMN id SET DEFAULT nextval('route_alias_id_seq'::regclass);
+ALTER TABLE ONLY route_alias ADD CONSTRAINT route_alias_pkey PRIMARY KEY (id);
+CREATE INDEX idx_route_alias_alias_language_id ON route_alias USING btree (alias, language, id);
+CREATE INDEX idx_route_alias_source_language_id ON route_alias USING btree (source, language, id);
+```
 
-2. Enable database storage for route aliases
-
-  ```Lua
-  --[[
-    Route aliases database storage
-  ]]f
+Now add the following to settings.lua:
+```Lua
   settings.route_aliases_storage = true
-  ```
-
-### (Optional) Configure the files metadata database storage
-Complementary to the use of file module, you can store files metadata
-into the database.
-
-1. Run the following SQL queries in strict order:
-
-  ####SQLite
-  ```SQL
-  CREATE TABLE file(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id UNSIGNED BIG INT, -- User ID of author
-    filename VARCHAR(255),
-    filepath VARCHAR(255),
-    filemime VARCHAR(255),
-    filesize UNSIGNED INT(10),
-    status boolean,
-    timestamp UNSIGNED BIG INT
-  );
-  CREATE INDEX idx_file_user ON file (user_id);
-  CREATE INDEX idx_file_status ON file (status);
-  CREATE INDEX idx_file_timestamp ON file (timestamp);
-  ```
-
-  ####PostgreSQL
-  ```SQL
-  CREATE TABLE file(
-    id integer NOT NULL,
-    user_id bigint, -- User ID of author
-    filename character varying(255),
-    filepath character varying(255),
-    filemime character varying(255),
-    filesize bigint,
-    status smallint,
-    "timestamp" bigint
-  );
-  CREATE SEQUENCE file_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
-  ALTER SEQUENCE file_id_seq OWNED BY file.id;
-  ALTER TABLE ONLY file ALTER COLUMN id SET DEFAULT nextval('file_id_seq'::regclass);
-  ALTER TABLE ONLY file ADD CONSTRAINT file_pkey PRIMARY KEY (id);
-  CREATE INDEX idx_file_user ON file USING btree (user_id);
-  CREATE INDEX idx_file_status ON file USING btree (status);
-  CREATE INDEX idx_file_timestamp ON file USING btree ("timestamp");
-  ```
-
-2. Enable database storage for route aliases
-
-  ```Lua
-  --[[
-    Files metadata database storage
-  ]]
-  settings.filedb_storage = true
-  settings.bytes_per_chunk = 1024 * 1024,
-  ```
-
-  NOTE: Ophal is compatible with SQLite only.
-
-3. Send feedback
-
-  Whether you successfully installed Ophal or not, please file an issue with your
-  feedback at https://github.com/ophal/core/issues/new in order to help us improve
-  the installation instructions and the installer.
+```
 
 
--- The Ophal Team
+### (Optional) Configure the File module
+
+Run the following SQL queries in strict order:
+
+####SQLite
+```SQL
+CREATE TABLE file(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id UNSIGNED BIG INT,
+  name VARCHAR(255),
+  type VARCHAR(255),
+  size UNSIGNED BIG INT,
+  path VARCHAR(255),
+  created UNSIGNED BIG INT,
+  changed UNSIGNED BIG INT,
+  status BOOLEAN
+);
+CREATE INDEX idx_file_created ON file (created DESC);
+CREATE INDEX idx_file_changed ON file (changed DESC);
+CREATE INDEX idx_file_user ON file (user_id);
+```
+
+####PostgreSQL
+```SQL
+CREATE TABLE file(
+  id integer NOT NULL,
+  user_id bigint,
+  name character varying(255),
+  type character varying(255),
+  size bigint,
+  path character varying(255),
+  created bigint,
+  changed bigint,
+  status smallint
+);
+CREATE SEQUENCE file_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE file_id_seq OWNED BY file.id;
+ALTER TABLE ONLY file ALTER COLUMN id SET DEFAULT nextval('file_id_seq'::regclass);
+ALTER TABLE ONLY file ADD CONSTRAINT file_pkey PRIMARY KEY (id);
+CREATE INDEX idx_file_created ON file USING btree (created DESC);
+CREATE INDEX idx_file_changed ON file USING btree (changed DESC);
+CREATE INDEX idx_file_user ON file USING btree (user_id);
+```
+
+Now add the following to settings.lua:
+```Lua
+  settings.modules.file = true
+```
+
+
+## IV. Troubleshooting
+
+Whether you successfully installed Ophal or not, please file an issue with your
+feedback and any problems you find. The runtime and CLI installer are still the
+main moving parts for current deployments.

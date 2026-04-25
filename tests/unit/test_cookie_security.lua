@@ -87,7 +87,7 @@ local function setup_env(scheme)
       return {
         scheme = scheme or 'http',
         host = 'localhost',
-        script_name = '/index.cgi',
+        script_name = '/index.lua',
         uri = '/',
         path = '',
         query = {},

@@ -21,7 +21,7 @@ env._SERVER = function (v)
   elseif v == 'REQUEST_URI' then
     return ngx_var.request_uri or ngx_var.uri
   elseif v == 'SCRIPT_NAME' then
-    return ngx_var.script_name or '/index.cgi'
+    return ngx_var.ophal_script_name or '/index.lua'
   elseif v == 'HTTP_HOST' then
     headers = ngx_req.get_headers()
     return headers.Host or headers.host or ngx_var.host
@@ -66,7 +66,7 @@ function adapter.request()
   local headers = ngx_req.get_headers()
   local method = ngx_req.get_method()
   local query_string = ngx_var.args or ''
-  local script_name = env._SERVER('SCRIPT_NAME') or '/index.cgi'
+  local script_name = env._SERVER('SCRIPT_NAME') or '/index.lua'
   local uri = server_build_request_uri(env._SERVER, script_name, query_string)
   local raw_cookies = headers.Cookie or headers.cookie or ''
 
@@ -151,4 +151,4 @@ function adapter.finish(status)
   return ngx.exit(final_status)
 end
 
-server_register_adapter('nginx', adapter)
+server_register_adapter('openresty', adapter)

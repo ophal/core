@@ -29,8 +29,18 @@ The repository includes a small `ophal` command-line entrypoint:
 ./ophal help
 ./ophal cache clear
 ./ophal sha256 mypassword
+./ophal migrate
+./ophal migrate status
+./ophal module enable comment
+./ophal module disable comment
 ```
 
-`install`, `migrate`, and `module enable/disable` are reserved command shapes
-for the operations roadmap and currently return an explicit "not implemented"
-status instead of silently doing nothing.
+`module enable/disable` persists local overrides in `settings/modules.lua`,
+which is ignored by git by default so it can stay workspace-specific.
+
+`migrate` applies registered framework and module migrations and initializes the
+local migration tracking table when needed.
+
+`install` remains a reserved command shape for the operations roadmap and
+currently returns an explicit "not implemented" status instead of silently doing
+nothing.

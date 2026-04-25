@@ -31,6 +31,8 @@ lua5.1 "$ROOT/tests/unit/test_csrf.lua"
 lua5.1 "$ROOT/tests/unit/test_password_hashing.lua"
 lua5.1 "$ROOT/tests/unit/test_logging.lua"
 lua5.1 "$ROOT/tests/unit/test_cli.lua"
+lua5.1 "$ROOT/tests/unit/test_migrate.lua"
 lua5.1 "$ROOT/tests/unit/test_escaping.lua"
+lua5.1 "$ROOT/tests/unit/test_settings_loader.lua"
 
 printf 'all unit tests passed\n'

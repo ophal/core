@@ -157,8 +157,8 @@ The caches in [`modules/user/init.lua`](/sandbox/modules/user/init.lua) are an
 architectural improvement for repeated lookups, but they are process-local and
 do not show a coherent reset policy when roles or permissions change.
 
-In short-lived CGI execution this is probably acceptable. In a persistent
-server model it would be a stale-data risk.
+That is less visible in a short-lived request model. In OpenResty it is a
+clear stale-data risk unless invalidation is explicit.
 
 4. The entity migration is incomplete.
 

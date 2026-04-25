@@ -86,7 +86,7 @@ if settings.version.core then
   end
 end
 
--- Detect nginx
+-- Detect OpenResty
 if ngx then
   env.ngx = ngx
   env.pcall = env.nopcall
@@ -166,12 +166,11 @@ function bootstrap(phase, main)
 
     -- 3. Load native server API
     function ()
-      require 'includes.server.adapter'
-      if ngx then
-        require 'includes.server.nginx'
-      else
-        require 'includes.server.cgi'
+      if not ngx then
+        error('Ophal now requires OpenResty; CGI support has been removed')
       end
+      require 'includes.server.adapter'
+      require 'includes.server.openresty'
     end,
 
     -- 4. Mobile API,
@@ -189,9 +188,10 @@ function bootstrap(phase, main)
 
     -- 6. Check installer
     function ()
-      if (_SERVER 'SCRIPT_NAME' or '/index.cgi') == base.route .. 'index.cgi' and not seawolf.fs.is_file 'settings.lua' then
-        require 'includes.common'
-        redirect(('%s%sinstall.cgi'):format(base.system_root, base.route))
+      if not seawolf.fs.is_file 'settings.lua' then
+        header('status', '503 Service Unavailable')
+        header('content-type', 'text/plain; charset=utf-8')
+        print("Ophal is not installed.\nRun './ophal install init' from the project root.")
         return -1
       end
     end,

@@ -26,8 +26,7 @@ Disallow: /misc/
 Disallow: /modules/
 Disallow: /themes/
 # Files
-Disallow: /cron.cgi
-Disallow: /install.cgi
+Disallow: /cron
 Disallow: /CREDITS.txt
 Disallow: /INSTALL.md
 Disallow: /LICENSE.txt

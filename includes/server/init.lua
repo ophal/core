@@ -116,7 +116,7 @@ function build_base()
   base.url = base.system_root
   base.path = req.path or ''
 
-  local dir = trim(dirname(req.script_name or '/index.cgi'), [[\,/]])
+  local dir = trim(dirname(req.script_name or '/index.lua'), [[\,/]])
   if dir ~= '' then
     base.route = '/' .. dir
     base.url = base.url .. base.route
@@ -220,11 +220,10 @@ end
 
 ophal.cookies = cookie_parse()
 
---[[ Reset all per-request state for persistent runtimes.
-  In CGI mode this is a no-op (process dies after each request).
-  In OpenResty with lua_code_cache on, the Lua VM persists across
-  requests so globals and closure locals from the previous request
-  must be cleared before handling a new one.
+--[[ Reset all per-request state for OpenResty.
+  With lua_code_cache on, the Lua VM persists across requests so globals
+  and closure locals from the previous request must be cleared before
+  handling a new one.
 ]]
 function ophal_request_reset()
   -- Fresh request object from adapter

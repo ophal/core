@@ -1,7 +1,7 @@
 # Smoke Harness
 
-These smoke tests validate the runtime-adapter slice under both CGI and
-OpenResty without depending on the workspace `settings.lua`.
+These smoke tests validate the OpenResty runtime without depending on the
+workspace `settings.lua`.
 
 ## Local Runtime Setup
 
@@ -28,7 +28,6 @@ Requirements:
 ## Run
 
 ```sh
-bash tests/smoke/cgi_smoke.sh
 bash tests/smoke/openresty_smoke.sh
 ```
 

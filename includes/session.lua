@@ -32,7 +32,7 @@ function session_init()
   session = ophal.session
 end
 
--- Run session_init on first load (CGI path)
+-- Seed session state on module load; persistent runtimes reset it per request.
 if settings.sessionapi then
   session_init()
 end

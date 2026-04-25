@@ -35,8 +35,9 @@ The current `0.1` codebase also makes the main upgrade work clear:
 - `modules/entity/init.lua` is already acting as a shared compatibility layer,
   but it still sits inside a hybrid system where feature modules keep major
   parts of routing and CRUD behavior.
-- `modules/user/init.lua` contains process-local permission caches that are
-  acceptable for CGI but unsafe to carry unchanged into a persistent runtime.
+- `modules/user/init.lua` contains process-local permission caches that were
+  easy to tolerate in a short-lived request model but unsafe to carry
+  unchanged into OpenResty.
 
 The plan therefore modernizes `0.1` by tightening the boundaries that already
 exist instead of changing platform philosophy.
@@ -66,8 +67,8 @@ The following are explicitly out of scope:
 ### 1. Runtime Boundary
 
 The first concrete architecture boundary is a runtime adapter contract. Core
-services should no longer care whether the request came from CGI, `ngx`, or a
-portable Lua HTTP server.
+services should no longer care whether the request came from OpenResty or a
+future compatible runtime.
 
 The adapter contract for `0.2` is:
 
@@ -86,15 +87,13 @@ single source of truth by routing, session, form, and rendering code.
 
 Compatibility rules:
 
-- `includes/server/cgi.lua` remains the reference implementation for the
-  contract.
 - Existing global helpers such as `header()`, `cookie_set()`, `request_uri()`,
   and output buffering remain available, but they delegate through the active
   adapter.
-- After phase 1, feature modules must not depend on `ngx`, raw CGI variables,
-  or transport-specific branching.
-- `OpenResty` is the first non-CGI adapter target after the CGI contract is
-  stable. `lua-http` is optional and only ships if it fits the same contract
+- Feature modules must not depend on `ngx`, raw server variables, or
+  transport-specific branching.
+- `OpenResty` is the supported runtime target on `0.2.x`.
+- `lua-http` is deferred and should ship only if it fits the same contract
   without compatibility exceptions.
 
 ### 2. Module Metadata And Hook Order
@@ -221,8 +220,8 @@ Required platform rules:
 - Default response headers aligned with current Ophal behavior, but documented
   as a runtime contract rather than scattered side effects
 - Context-specific escaping in theme and render helpers
-- Centralized authorization checks that remain the source of truth across CGI
-  and persistent runtimes
+- Centralized authorization checks that remain the source of truth across
+  OpenResty requests and persistent runtimes
 - A password hashing review and upgrade path that preserves login compatibility
 
 Operational improvements belong after the runtime, hook, and cache boundaries
@@ -241,34 +240,34 @@ Purpose: define the supported surface before changing behavior.
 Deliverables:
 
 - Document supported extension points and unstable internals
-- Add compatibility tests around CGI boot, module loading, route resolution,
+- Add compatibility tests around boot, module loading, route resolution,
   authentication, rendering, and entity lifecycle behavior
 - Record baseline profiling for bootstrap, routing, rendering, and DB hotspots
 - Track known defects that later phases must absorb
 
 Exit criteria:
 
-- CGI request lifecycle is documented end to end
+- Supported request lifecycle is documented end to end
 - Core regressions reproduce in tests rather than only through manual checks
 - Performance baseline exists for adapter and cache comparisons
 
 ### Phase 1: Extract The Runtime Contract
 
-Purpose: decouple core services from CGI assumptions without breaking CGI.
+Purpose: decouple core services from runtime assumptions without breaking
+module-facing behavior.
 
 Deliverables:
 
 - Introduce the runtime adapter contract
 - Move request parsing, headers, cookies, writes, redirects, and finish logic
   behind the adapter
-- Keep CGI as the reference adapter implementation
 - Reduce direct runtime branching to adapter selection and bootstrap wiring
 - Preserve helper-level compatibility for existing modules and themes
 
 Exit criteria:
 
 - Installer, login, front page, content page, and JSON save routes behave the
-  same on CGI as before the refactor
+  same through the runtime refactor
 - Core helpers call the adapter contract instead of transport-specific code
 - Feature modules no longer need direct runtime checks
 
@@ -348,7 +347,7 @@ Deliverables:
 Exit criteria:
 
 - Mutating routes reject missing or invalid CSRF tokens
-- Session behavior remains compatible on CGI and `OpenResty`
+- Session behavior remains compatible on OpenResty
 - Common operations no longer require ad hoc scripts or code edits
 - Runtime, module, and entity contracts are stable enough for `1.0` support
   documentation
@@ -357,21 +356,20 @@ Exit criteria:
 
 A practical release framing is:
 
-- `0.2`: phases 0 through 2 complete. CGI contract extracted, extension order
-  deterministic, compatibility suite in place.
+- `0.2`: phases 0 through 2 complete. Runtime contract extracted, extension
+  order deterministic, compatibility suite in place.
 - `0.3`: phases 3 and 4 complete. Entity layer hardened, core caches present,
-  `OpenResty` adapter available.
+  OpenResty runtime available.
 - `1.0`: phase 5 complete. Security baseline, CLI tooling, stable compatibility
   contracts, documented upgrade path.
 
-`lua-http` is explicitly post-`0.3` and should ship only if it shares the same
+`lua-http` is explicitly deferred and should ship only if it shares the same
 adapter and cache contracts without one-off exceptions.
 
 ## Cross-Phase Acceptance Scenarios
 
 The roadmap is only complete if these scenarios are validated along the way:
 
-- Existing CGI boot works with the current enabled module set
 - Module order, hook order, and route tables are identical across repeated runs
 - Legacy feature routes and shared entity routes both resolve when expected
 - Entity create, update, and delete operations fire the correct lifecycle hooks
@@ -380,21 +378,21 @@ The roadmap is only complete if these scenarios are validated along the way:
 - Persistent runtime execution invalidates auth caches when roles or
   permissions change
 - Mutating routes enforce CSRF and preserve current authenticated admin flows
-- No feature module depends directly on `ngx` or raw CGI variables once phase 1
-  is complete
+- No feature module depends directly on `ngx` or raw server variables once
+  phase 1 is complete
 
 ## Progress
 
 ### Phase 1: Extract The Runtime Contract — Complete
 
-Commit: `ba7a358` on branch `0.2.x`
+Commits: `ba7a358` and OpenResty-only follow-up work on branch `0.2.x`
 
 Introduced `includes/server/adapter.lua` with the runtime adapter contract.
-CGI (`includes/server/cgi.lua`) and OpenResty (`includes/server/openresty.lua`)
-both implement the contract. Core helpers delegate through the active adapter.
-Feature modules no longer depend on transport-specific branching.
+Core helpers delegate through the active adapter. Feature modules no longer
+depend on transport-specific branching. The current supported runtime target is
+OpenResty only.
 
-Tests: CGI smoke tests, OpenResty smoke tests.
+Tests: OpenResty smoke tests.
 
 ### Phase 2: Make Extension Order Deterministic — Complete
 
@@ -420,7 +418,7 @@ Tests: 76 unit tests for entity contract, regression tests for access gates.
 
 ### Phase 4: Cache Infrastructure And The First Persistent Runtime — Complete
 
-Branch `0.2.x`, not yet committed.
+Commit: `c56ecda` on branch `0.2.x`
 
 Implemented in three slices:
 
@@ -446,7 +444,17 @@ Implemented in three slices:
 Tests: 29 unit tests for request reset, 17 unit tests for caches, 6
 persistent-mode OpenResty smoke tests.
 
-### Phase 5: Raise Security And Operations Baseline — Not Started
+### Phase 5: Raise Security And Operations Baseline — Complete
+
+Commits: `8d8dca4`, `b057a98`, `1d02905`, `dc0f7d1`, `6f169d9`, `d06eb1b`,
+`2d955e1`, `2364e29` on branch `0.2.x`
+
+Implemented CSRF protection, cookie hardening, password hash upgrades,
+structured logging, context-specific escaping, and CLI support for install,
+migrate, module enable/disable, and cache clear.
+
+Tests: unit coverage for CSRF, cookies, password hashing, logging, escaping,
+CLI install/migrate/module commands, plus OpenResty smoke tests.
 
 ## Decision Summary
 
@@ -460,4 +468,4 @@ Do not modernize by replacing Ophal's module, hook, SQL, and server-rendered
 core.
 
 The correct 2026 version of Ophal is the current `0.1` direction made explicit,
-deterministic, cache-aware, and safe to run beyond CGI.
+deterministic, cache-aware, and safe to run on OpenResty.

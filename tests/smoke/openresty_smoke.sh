@@ -140,8 +140,8 @@ prepare_tree() {
   ln -s "$ROOT/modules" "$SMOKE_DOCROOT/modules"
   ln -s "$ROOT/themes" "$SMOKE_DOCROOT/themes"
   ln -s "$ROOT/libraries" "$SMOKE_DOCROOT/libraries"
-  ln -s "$ROOT/index.cgi" "$SMOKE_DOCROOT/index.cgi"
-  ln -s "$ROOT/cron.cgi" "$SMOKE_DOCROOT/cron.cgi"
+  ln -s "$ROOT/index.lua" "$SMOKE_DOCROOT/index.lua"
+  ln -s "$ROOT/cron.lua" "$SMOKE_DOCROOT/cron.lua"
 
   cat > "$SMOKE_DOCROOT/settings.lua" <<'LUA'
 return function(settings, vault)
@@ -235,36 +235,51 @@ http {
     server_name example.com;
     root $SMOKE_DOCROOT;
 
-    location = / {
-      index index.cgi;
+    location = /cron {
+      lua_code_cache off;
+      default_type text/html;
+      set \$ophal_script_name /cron.lua;
+      rewrite_by_lua_block {
+        require('lfs').chdir(ngx.var.document_root)
+      }
+      content_by_lua_file \$document_root/cron.lua;
     }
 
     location = /__smoke__ {
       lua_code_cache off;
       default_type text/html;
+      set \$ophal_script_name /index.lua;
       rewrite_by_lua_block {
         require('lfs').chdir(ngx.var.document_root)
       }
       content_by_lua_file $ROOT/tests/smoke/openresty_runner.lua;
     }
 
-    location / {
-      index index.cgi;
-
-      if (!-f \$request_filename) {
-        rewrite ^(.*)$ /index.cgi last;
-        break;
+    location = /__ophal_index__ {
+      internal;
+      lua_code_cache off;
+      default_type text/html;
+      set \$ophal_script_name /index.lua;
+      rewrite_by_lua_block {
+        require('lfs').chdir(ngx.var.document_root)
       }
-
-      if (!-d \$request_filename) {
-        rewrite ^(.*)$ /index.cgi last;
-        break;
-      }
+      content_by_lua_file \$document_root/index.lua;
     }
 
-    error_page 404 /index.cgi;
+    location = /index.lua { return 404; }
+    location = /cron.lua { return 404; }
+    location = /settings.lua { return 404; }
+    location = /vault.lua { return 404; }
+    location ^~ /settings/ { return 404; }
+    location ^~ /includes/ { return 404; }
+    location ^~ /modules/ { return 404; }
+
+    location ~ \.lua$ {
+      return 404;
+    }
 
     location ~* ^.+\.(?:css|cur|js|jpg|jpeg|gif|htc|ico|png|html|xml|less|ttf|pdf|map)$ {
+      try_files \$uri =404;
       access_log off;
       expires 30d;
       tcp_nodelay off;
@@ -274,13 +289,8 @@ http {
       open_file_cache_errors off;
     }
 
-    location ~ \.cgi$ {
-      lua_code_cache off;
-      default_type text/html;
-      rewrite_by_lua_block {
-        require('lfs').chdir(ngx.var.document_root)
-      }
-      content_by_lua_file \$request_filename;
+    location / {
+      try_files \$uri /__ophal_index__;
     }
   }
 
@@ -290,42 +300,62 @@ http {
     server_name example.com;
     root $SMOKE_DOCROOT;
 
-    location = / {
-      index index.cgi;
+    location = /cron {
+      lua_code_cache on;
+      default_type text/html;
+      set \$ophal_script_name /cron.lua;
+      rewrite_by_lua_block {
+        require('lfs').chdir(ngx.var.document_root)
+      }
+      content_by_lua_file \$document_root/cron.lua;
     }
 
     location = /__smoke__ {
       lua_code_cache on;
       default_type text/html;
+      set \$ophal_script_name /index.lua;
       rewrite_by_lua_block {
         require('lfs').chdir(ngx.var.document_root)
       }
       content_by_lua_file $ROOT/tests/smoke/openresty_runner.lua;
     }
 
-    location / {
-      index index.cgi;
-
-      if (!-f \$request_filename) {
-        rewrite ^(.*)$ /index.cgi last;
-        break;
-      }
-
-      if (!-d \$request_filename) {
-        rewrite ^(.*)$ /index.cgi last;
-        break;
-      }
-    }
-
-    error_page 404 /index.cgi;
-
-    location ~ \.cgi$ {
+    location = /__ophal_index__ {
+      internal;
       lua_code_cache on;
       default_type text/html;
+      set \$ophal_script_name /index.lua;
       rewrite_by_lua_block {
         require('lfs').chdir(ngx.var.document_root)
       }
-      content_by_lua_file \$request_filename;
+      content_by_lua_file \$document_root/index.lua;
+    }
+
+    location = /index.lua { return 404; }
+    location = /cron.lua { return 404; }
+    location = /settings.lua { return 404; }
+    location = /vault.lua { return 404; }
+    location ^~ /settings/ { return 404; }
+    location ^~ /includes/ { return 404; }
+    location ^~ /modules/ { return 404; }
+
+    location ~ \.lua$ {
+      return 404;
+    }
+
+    location ~* ^.+\.(?:css|cur|js|jpg|jpeg|gif|htc|ico|png|html|xml|less|ttf|pdf|map)$ {
+      try_files \$uri =404;
+      access_log off;
+      expires 30d;
+      tcp_nodelay off;
+      open_file_cache max=3000 inactive=120s;
+      open_file_cache_valid 45s;
+      open_file_cache_min_uses 2;
+      open_file_cache_errors off;
+    }
+
+    location / {
+      try_files \$uri /__ophal_index__;
     }
   }
 }
@@ -405,7 +435,7 @@ assert_regex '^HTTP/1\.[01] 200'
 assert_contains 'Lorem Ipsum'
 report_ok index_alias_route
 
-run_request index_prefixed_path_and_query "$BASE_URL/index.cgi/lorem_ipsum?foo=bar"
+run_request index_prefixed_path_and_query "$BASE_URL/lorem_ipsum?foo=bar"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains 'Lorem Ipsum'
@@ -459,11 +489,31 @@ assert_regex '^X-Smoke: buffered'
 assert_contains 'SMOKE_BUFFERED_OUTPUT=ok'
 report_ok output_buffering
 
-run_request cron_smoke "$BASE_URL/cron.cgi"
+run_request cron_smoke "$BASE_URL/cron"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_regex '^X-Frame-Options: SAMEORIGIN'
 report_ok cron_smoke
+
+run_request entrypoint_hidden "$BASE_URL/index.lua"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+report_ok entrypoint_hidden
+
+run_request cron_entrypoint_hidden "$BASE_URL/cron.lua"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+report_ok cron_entrypoint_hidden
+
+run_request settings_hidden "$BASE_URL/settings.lua"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+report_ok settings_hidden
+
+run_request includes_hidden "$BASE_URL/includes/bootstrap.lua"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+report_ok includes_hidden
 
 # ================================================================
 # Persistent runtime tests (lua_code_cache on)

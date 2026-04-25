@@ -1,11 +1,9 @@
-# Runtime Adapter Manual Parity Checklist
-
-Use this checklist after the CGI smoke harness is green.
+# OpenResty Runtime Manual Checklist
 
 ## Goal
 
-Confirm that the runtime-adapter slice behaves the same under `nginx`/OpenResty
-for the core request and response paths that were automated for CGI.
+Confirm that the OpenResty runtime behaves correctly for the core request and
+response paths that matter in production.
 
 ## Setup
 
@@ -15,9 +13,9 @@ for the core request and response paths that were automated for CGI.
    - `modules/`
    - `themes/`
    - `libraries/`
-   - `index.cgi`
-   - `cron.cgi`
-3. Add a disposable `settings.lua` and `vault.lua` matching the CGI smoke
+   - `index.lua`
+   - `cron.lua`
+3. Add a disposable `settings.lua` and `vault.lua` matching the OpenResty smoke
    harness defaults:
    - frontpage `lorem_ipsum`
    - theme `basic`
@@ -26,7 +24,8 @@ for the core request and response paths that were automated for CGI.
    - sessions enabled
    - output buffering off unless explicitly testing buffering
 4. Point `nginx.ophal.conf` at that disposable document root.
-5. Start `nginx`/OpenResty with `content_by_lua_file` enabled for `*.cgi`.
+5. Start `nginx`/OpenResty with `content_by_lua_file` enabled for the internal
+   `index.lua` and `cron.lua` entrypoints.
 
 ## Checks
 
@@ -53,12 +52,13 @@ for the core request and response paths that were automated for CGI.
 7. Enable output buffering and emit a custom header plus body text
 - Expect both the header and body in the final response.
 
-8. GET `/cron.cgi`
+8. GET `/cron`
 - Expect the entrypoint to boot successfully and return a valid response.
+
+9. GET `/index.lua`, `/cron.lua`, `/settings.lua`, and `/includes/bootstrap.lua`
+- Expect HTTP 404 for all of them.
 
 ## Pass Condition
 
-The `nginx`/OpenResty run is acceptable when all checks above match the CGI
-smoke behavior closely enough that the remaining differences are transport-
-specific formatting details, not missing headers, broken redirects, or lost
-request/body data.
+The OpenResty run is acceptable when all checks above succeed and internal Lua
+source or secret files are not directly retrievable over HTTP.

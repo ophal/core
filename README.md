@@ -8,6 +8,13 @@ Ophal aimed to become a highly scalable web platform, easy to maintain, learn, e
 
 Development workflow and release policy: [docs/branching-and-releases.md](docs/branching-and-releases.md).
 
+## Runtime
+
+Ophal now targets OpenResty as its supported web runtime. CGI support has been
+removed. Use [nginx.ophal.conf](nginx.ophal.conf) as the starting point for
+deployment and the OpenResty-based example Docker image in
+[examples/Dockerfile](examples/Dockerfile) for local development.
+
 ## Dependencies
 
 Ophal has the following dependencies:

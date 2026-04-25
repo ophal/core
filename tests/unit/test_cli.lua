@@ -155,14 +155,70 @@ do
   assert_match('sha256_usage_stderr', stderr, 'Usage: ophal sha256 PASSWORD')
 end
 
-io.write '\n-- planned command stubs --\n'
+io.write '\n-- install and migrate commands --\n'
 
 do
-  local code, stdout, stderr = run({'install'})
+  local code, stdout, stderr = run({'install', 'check'}, {
+    install_check = function()
+      return {
+        ok = false,
+        dependencies = {
+          {name = 'LuaSocket', machine_name = 'socket.url', found = true},
+          {name = 'luuid', machine_name = 'uuid', found = false},
+        },
+        settings_exists = false,
+        vault_exists = false,
+      }
+    end,
+  })
 
-  assert_eq('install_stub_exit_code', code, 2)
-  assert_eq('install_stub_stdout_empty', stdout, '')
-  assert_match('install_stub_stderr', stderr, 'Command not implemented yet: install')
+  assert_eq('install_check_exit_code', code, 1)
+  assert_match('install_check_found_stdout', stdout, 'FOUND   LuaSocket %(socket%.url%)')
+  assert_match('install_check_missing_stdout', stdout, 'MISSING luuid %(uuid%)')
+  assert_match('install_check_summary_stdout', stdout, 'Dependency summary: 1 found, 1 missing')
+  assert_match('install_check_settings_stdout', stdout, 'settings%.lua: absent')
+  assert_match('install_check_files_stdout', stdout, 'files directory: not checked')
+  assert_eq('install_check_stderr_empty', stderr, '')
+end
+
+do
+  local code, stdout, stderr = run({'install', 'init', '/tmp/site', '--site-name', 'CLI Site', '--module', 'comment'}, {
+    install_init = function()
+      return {
+        settings_path = '/tmp/site/settings.lua',
+        vault_path = '/tmp/site/vault.lua',
+        files_dir = '/tmp/site/files',
+        htaccess_path = '/tmp/site/files/.htaccess',
+      }
+    end,
+  })
+
+  assert_eq('install_init_exit_code', code, 0)
+  assert_match('install_init_settings_stdout', stdout, '/tmp/site/settings%.lua')
+  assert_match('install_init_vault_stdout', stdout, '/tmp/site/vault%.lua')
+  assert_match('install_init_files_stdout', stdout, '/tmp/site/files')
+  assert_match('install_init_htaccess_stdout', stdout, '/tmp/site/files/%.htaccess')
+  assert_eq('install_init_stderr_empty', stderr, '')
+end
+
+do
+  local code, stdout, stderr = run({'install', 'init', '--site-name'}, {})
+
+  assert_eq('install_usage_exit_code', code, 1)
+  assert_eq('install_usage_stdout_empty', stdout, '')
+  assert_match('install_usage_stderr', stderr, 'missing value for %-%-site%-name')
+end
+
+do
+  local code, stdout, stderr = run({'install', 'init'}, {
+    install_init = function()
+      return nil, 'settings file already exists: ./settings.lua'
+    end,
+  })
+
+  assert_eq('install_init_failure_exit_code', code, 1)
+  assert_eq('install_init_failure_stdout_empty', stdout, '')
+  assert_match('install_init_failure_stderr', stderr, 'install init failed: settings file already exists')
 end
 
 do

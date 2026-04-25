@@ -69,27 +69,7 @@ env = {
 }
 
 -- Build settings
-settings = (function()
-  local settings = {
-    version = {
-      core = true,
-      number = true,
-      revision = true,
-    },
-    slash = string.sub(package.config,1,1),
-    modules = {},
-    debugapi = true,
-  }
-
-  -- Load settings.lua and vault.lua
-  local _, vault = pcall(require, 'vault')
-  local _, settings_builder = pcall(require, 'settings')
-  if type(settings_builder) == 'function' then
-    settings_builder(settings, vault)
-  end
-
-  return settings
-end)()
+settings = require('includes.settings_loader').build()
 
 env.settings = settings
 

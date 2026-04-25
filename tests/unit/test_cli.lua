@@ -1,6 +1,28 @@
 -- Unit tests for the Ophal CLI dispatcher.
 
+do
+  local root = io.popen('pwd'):read('*l')
+  local vendor_root = root .. '/tests/smoke/vendor'
+  local vendor_share = vendor_root .. '/unpack/usr/share/lua/5.1'
+  local vendor_lib = io.popen("find '" .. vendor_root .. "/unpack/usr/lib' -path '*/lua/5.1' -type d 2>/dev/null | sed -n '1p'"):read('*l')
+
+  package.path = table.concat({
+    root .. '/?.lua',
+    root .. '/?/init.lua',
+    vendor_root .. '/?.lua',
+    vendor_root .. '/?/init.lua',
+    vendor_share .. '/?.lua',
+    vendor_share .. '/?/init.lua',
+    package.path,
+  }, ';')
+
+  if vendor_lib and vendor_lib ~= '' then
+    package.cpath = vendor_lib .. '/?.so;' .. package.cpath
+  end
+end
+
 local cli = dofile('includes/cli.lua')
+local lfs = require 'lfs'
 
 local pass_count, fail_count = 0, 0
 
@@ -24,6 +46,26 @@ local function assert_match(label, got, pattern)
     io.write(('  FAIL %s: %q did not match %q\n'):format(
       label, tostring(got), pattern))
   end
+end
+
+local function assert_eq_table(label, got, expected)
+  local function render(tbl)
+    local parts = {}
+    for k, v in pairs(tbl or {}) do
+      parts[#parts + 1] = ('%s=%s'):format(tostring(k), tostring(v))
+    end
+    table.sort(parts)
+    return table.concat(parts, ',')
+  end
+
+  assert_eq(label, render(got), render(expected))
+end
+
+local function make_temp_dir()
+  local path = os.tmpname()
+  os.remove(path)
+  assert(lfs.mkdir(path))
+  return path
 end
 
 local function run(args, options)
@@ -124,12 +166,82 @@ do
 end
 
 do
-  local code, stdout, stderr = run({'migrate'})
+  local code, stdout, stderr = run({'migrate', 'status'}, {
+    migrate_status = function()
+      return {
+        applied_count = 1,
+        pending_count = 2,
+        pending = {
+          {id = 'core:001_core'},
+          {id = 'comment:001_comment'},
+        },
+      }
+    end,
+  })
 
-  assert_eq('migrate_stub_exit_code', code, 2)
-  assert_eq('migrate_stub_stdout_empty', stdout, '')
-  assert_match('migrate_stub_stderr', stderr, 'Command not implemented yet: migrate')
+  assert_eq('migrate_status_exit_code', code, 0)
+  assert_match('migrate_status_stdout', stdout, 'Migration status: 1 applied, 2 pending')
+  assert_match('migrate_status_pending_core', stdout, 'core:001_core')
+  assert_match('migrate_status_pending_comment', stdout, 'comment:001_comment')
+  assert_eq('migrate_status_stderr_empty', stderr, '')
 end
+
+do
+  local code, stdout, stderr = run({'migrate'}, {
+    migrate_apply = function()
+      return {
+        applied_count = 2,
+        applied = {
+          {id = 'core:001_core'},
+          {id = 'comment:001_comment'},
+        },
+      }
+    end,
+  })
+
+  assert_eq('migrate_apply_exit_code', code, 0)
+  assert_match('migrate_apply_stdout', stdout, 'Applied 2 migration%(s%).')
+  assert_match('migrate_apply_core', stdout, 'core:001_core')
+  assert_match('migrate_apply_comment', stdout, 'comment:001_comment')
+  assert_eq('migrate_apply_stderr_empty', stderr, '')
+end
+
+do
+  local code, stdout, stderr = run({'migrate', 'apply'}, {
+    migrate_apply = function()
+      return {
+        applied_count = 0,
+        applied = {},
+      }
+    end,
+  })
+
+  assert_eq('migrate_apply_none_exit_code', code, 0)
+  assert_eq('migrate_apply_none_stdout', stdout, 'No pending migrations.\n')
+  assert_eq('migrate_apply_none_stderr_empty', stderr, '')
+end
+
+do
+  local code, stdout, stderr = run({'migrate', 'bogus'})
+
+  assert_eq('migrate_usage_exit_code', code, 1)
+  assert_eq('migrate_usage_stdout_empty', stdout, '')
+  assert_match('migrate_usage_stderr', stderr, 'Usage: ophal migrate %[status|apply%]')
+end
+
+do
+  local code, stdout, stderr = run({'migrate'}, {
+    migrate_apply = function()
+      return nil, 'db down'
+    end,
+  })
+
+  assert_eq('migrate_failure_exit_code', code, 1)
+  assert_eq('migrate_failure_stdout_empty', stdout, '')
+  assert_match('migrate_failure_stderr', stderr, 'migrate apply failed: db down')
+end
+
+io.write '\n-- module enable/disable --\n'
 
 do
   local code, stdout, stderr = run({'module', 'enable'})
@@ -140,11 +252,128 @@ do
 end
 
 do
-  local code, stdout, stderr = run({'module', 'disable', 'comment'})
+  local stored_overrides = {}
+  local writes = {}
+  local options = {
+    load_settings = function()
+      return {modules = {comment = true}}
+    end,
+    read_module_overrides = function()
+      return {
+        comment = stored_overrides.comment,
+      }
+    end,
+    write_module_overrides = function(path, overrides)
+      writes[#writes + 1] = {path = path, overrides = overrides}
+      stored_overrides = overrides
+    end,
+    module_exists = function(name)
+      return name == 'comment'
+    end,
+  }
 
-  assert_eq('module_disable_stub_exit_code', code, 2)
-  assert_eq('module_disable_stub_stdout_empty', stdout, '')
-  assert_match('module_disable_stub_stderr', stderr, 'Command not implemented yet: module disable comment')
+  local code, stdout, stderr = run({'module', 'disable', 'comment'}, options)
+
+  assert_eq('module_disable_exit_code', code, 0)
+  assert_match('module_disable_stdout', stdout, "Module 'comment' disabled via settings/modules.lua")
+  assert_eq('module_disable_stderr_empty', stderr, '')
+  assert_eq('module_disable_write_count', #writes, 1)
+  assert_eq_table('module_disable_override_false', writes[1].overrides, {comment = false})
+
+  code, stdout, stderr = run({'module', 'disable', 'comment'}, options)
+  assert_eq('module_disable_already_exit_code', code, 0)
+  assert_match('module_disable_already_stdout', stdout, "Module 'comment' already disabled")
+  assert_eq('module_disable_already_write_count', #writes, 1)
+
+  code, stdout, stderr = run({'module', 'enable', 'comment'}, options)
+  assert_eq('module_enable_restores_exit_code', code, 0)
+  assert_match('module_enable_restores_stdout', stdout, "Module 'comment' enabled via settings/modules.lua")
+  assert_eq('module_enable_restores_write_count', #writes, 2)
+  assert_eq_table('module_enable_restores_override_removed', writes[2].overrides, {})
+end
+
+do
+  local stored_overrides = {}
+  local writes = {}
+  local options = {
+    load_settings = function()
+      return {modules = {}}
+    end,
+    read_module_overrides = function()
+      return stored_overrides
+    end,
+    write_module_overrides = function(path, overrides)
+      writes[#writes + 1] = {path = path, overrides = overrides}
+      stored_overrides = overrides
+    end,
+    module_exists = function(name)
+      return name == 'comment'
+    end,
+  }
+
+  local code, stdout = run({'module', 'enable', 'comment'}, options)
+  assert_eq('module_enable_new_exit_code', code, 0)
+  assert_match('module_enable_new_stdout', stdout, "Module 'comment' enabled via settings/modules.lua")
+  assert_eq_table('module_enable_new_override_true', writes[1].overrides, {comment = true})
+
+  code, stdout = run({'module', 'disable', 'comment'}, options)
+  assert_eq('module_disable_removes_override_exit_code', code, 0)
+  assert_match('module_disable_removes_override_stdout', stdout, "Module 'comment' disabled via settings/modules.lua")
+  assert_eq_table('module_disable_removes_override', writes[2].overrides, {})
+end
+
+do
+  local code, stdout, stderr = run({'module', 'disable', 'system'}, {
+    load_settings = function() return {modules = {system = true}} end,
+    read_module_overrides = function() return {} end,
+    module_exists = function() return true end,
+  })
+
+  assert_eq('module_disable_system_exit_code', code, 1)
+  assert_eq('module_disable_system_stdout_empty', stdout, '')
+  assert_match('module_disable_system_stderr', stderr, 'system module cannot be disabled')
+end
+
+do
+  local code, stdout, stderr = run({'module', 'enable', 'missing'}, {
+    load_settings = function() return {modules = {}} end,
+    read_module_overrides = function() return {} end,
+    module_exists = function() return false end,
+  })
+
+  assert_eq('module_unknown_exit_code', code, 1)
+  assert_eq('module_unknown_stdout_empty', stdout, '')
+  assert_match('module_unknown_stderr', stderr, 'unknown module: missing')
+end
+
+do
+  local tmp = make_temp_dir()
+  local original_cwd = lfs.currentdir()
+  local modules_path = tmp .. '/settings/modules.lua'
+  local code, stdout, stderr
+  local fh, content
+
+  lfs.chdir('/sandbox')
+  code, stdout, stderr = run({'module', 'disable', 'comment'}, {
+    modules_file = modules_path,
+    load_settings = function()
+      return {modules = {comment = true}}
+    end,
+    module_exists = function(name)
+      return name == 'comment'
+    end,
+  })
+  lfs.chdir(original_cwd)
+
+  assert_eq('module_disable_real_file_exit_code', code, 0)
+  assert_match('module_disable_real_file_stdout', stdout, "Module 'comment' disabled via " .. modules_path:gsub('%%', '%%%%'))
+  assert_eq('module_disable_real_file_stderr_empty', stderr, '')
+  assert_eq('module_disable_real_file_exists', lfs.attributes(tmp .. '/settings', 'mode'), 'directory')
+
+  fh = assert(io.open(modules_path, 'r'))
+  content = fh:read('*a')
+  fh:close()
+  assert_match('module_disable_real_file_content', content, '%["comment"%] = false')
 end
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

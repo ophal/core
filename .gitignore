@@ -1,3 +1,4 @@
 /files/*
 /vault.lua
+/settings/modules.lua
 /tests/smoke/vendor/

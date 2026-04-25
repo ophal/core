@@ -34,7 +34,8 @@ local function usage()
     'Commands:',
     '  cache clear              Clear framework caches in the current runtime',
     '  sha256 PASSWORD          Generate a legacy SHA-256 password hash',
-    '  install                  Reserved for installer automation',
+    '  install check            Verify install dependencies and local config state',
+    '  install init [DIR]       Generate settings.lua and vault.lua in DIR',
     '  migrate [status|apply]   Apply or inspect registered database migrations',
     '  module enable NAME       Enable a module via settings/modules.lua',
     '  module disable NAME      Disable a module via settings/modules.lua',
@@ -94,6 +95,16 @@ local function copy_table(values)
   end
 
   return copied
+end
+
+local function merge_missing(target, source)
+  for key, value in pairs(source or {}) do
+    if target[key] == nil then
+      target[key] = value
+    end
+  end
+
+  return target
 end
 
 local function module_override_path(options)
@@ -198,6 +209,126 @@ local function load_settings(options, include_module_overrides)
   return loader.build({
     include_module_overrides = include_module_overrides,
   })
+end
+
+local function parse_install_args(args)
+  local action = args[2] or 'check'
+  local options = {
+    modules_enabled = {},
+    modules_disabled = {},
+  }
+  local index = 3
+
+  if action == 'init' and args[index] and args[index]:sub(1, 2) ~= '--' then
+    options.output_dir = args[index]
+    index = index + 1
+  end
+
+  while index <= #args do
+    local arg = args[index]
+    local next_arg = args[index + 1]
+
+    if arg == '--force' then
+      options.force = true
+      index = index + 1
+    elseif arg == '--site-name' then
+      if not next_arg then
+        return nil, nil, 'missing value for --site-name'
+      end
+      options.site_name = next_arg
+      index = index + 2
+    elseif arg == '--files-path' then
+      if not next_arg then
+        return nil, nil, 'missing value for --files-path'
+      end
+      options.files_path = next_arg
+      index = index + 2
+    elseif arg == '--db-driver' then
+      if not next_arg then
+        return nil, nil, 'missing value for --db-driver'
+      end
+      options.db_driver = next_arg
+      index = index + 2
+    elseif arg == '--db-database' then
+      if not next_arg then
+        return nil, nil, 'missing value for --db-database'
+      end
+      options.db_database = next_arg
+      index = index + 2
+    elseif arg == '--db-username' then
+      if not next_arg then
+        return nil, nil, 'missing value for --db-username'
+      end
+      options.db_username = next_arg
+      index = index + 2
+    elseif arg == '--db-password' then
+      if not next_arg then
+        return nil, nil, 'missing value for --db-password'
+      end
+      options.db_password = next_arg
+      index = index + 2
+    elseif arg == '--db-host' then
+      if not next_arg then
+        return nil, nil, 'missing value for --db-host'
+      end
+      options.db_host = next_arg
+      index = index + 2
+    elseif arg == '--db-port' then
+      if not next_arg then
+        return nil, nil, 'missing value for --db-port'
+      end
+      options.db_port = next_arg
+      index = index + 2
+    elseif arg == '--site-hash' then
+      if not next_arg then
+        return nil, nil, 'missing value for --site-hash'
+      end
+      options.site_hash = next_arg
+      index = index + 2
+    elseif arg == '--module' then
+      if not next_arg then
+        return nil, nil, 'missing value for --module'
+      end
+      options.modules_enabled[#options.modules_enabled + 1] = next_arg
+      index = index + 2
+    elseif arg == '--disable-module' then
+      if not next_arg then
+        return nil, nil, 'missing value for --disable-module'
+      end
+      options.modules_disabled[#options.modules_disabled + 1] = next_arg
+      index = index + 2
+    else
+      return nil, nil, ('unknown install option: %s'):format(arg)
+    end
+  end
+
+  return action, options
+end
+
+local function run_install_check(options)
+  if type(options.install_check) == 'function' then
+    return options.install_check()
+  end
+
+  local ok, install = pcall(require, 'includes.install')
+  if not ok then
+    return nil, install
+  end
+
+  return install.check(options)
+end
+
+local function run_install_init(options)
+  if type(options.install_init) == 'function' then
+    return options.install_init()
+  end
+
+  local ok, install = pcall(require, 'includes.install')
+  if not ok then
+    return nil, install
+  end
+
+  return install.init(options)
 end
 
 local function prepare_migrate_runtime(options)
@@ -437,7 +568,75 @@ function M.run(argv, options)
   end
 
   if command == 'install' then
-    return unimplemented('install', stderr)
+    local action, install_options, err = parse_install_args(args)
+    local result
+
+    if not action then
+      output(stderr, ('install failed: %s\n'):format(tostring(err)))
+      output(stderr, 'Usage: ophal install check\n       ophal install init [DIR] [--force] [--site-name NAME] [--files-path PATH]\n')
+      return EXIT_ERROR
+    end
+
+    install_options = merge_missing(install_options or {}, options)
+
+    if action == 'check' then
+      result, err = run_install_check(install_options)
+      if not result then
+        output(stderr, ('install check failed: %s\n'):format(tostring(err)))
+        return EXIT_ERROR
+      end
+
+      local missing = 0
+      local found = 0
+      for _, dependency in ipairs(result.dependencies or {}) do
+        if dependency.found then
+          found = found + 1
+          output(stdout, ('FOUND   %s (%s)\n'):format(dependency.name, dependency.machine_name))
+        else
+          missing = missing + 1
+          output(stdout, ('MISSING %s (%s)\n'):format(dependency.name, dependency.machine_name))
+        end
+      end
+
+      output(stdout, ('Dependency summary: %d found, %d missing.\n'):format(found, missing))
+      output(stdout, ('settings.lua: %s\n'):format(result.settings_exists and 'present' or 'absent'))
+      output(stdout, ('vault.lua: %s\n'):format(result.vault_exists and 'present' or 'absent'))
+
+      if result.files_dir then
+        if result.files_error then
+          output(stdout, ('files directory: error: %s\n'):format(result.files_error))
+        elseif result.files_writable then
+          output(stdout, ('files directory: writable (%s)\n'):format(result.files_dir))
+        else
+          output(stdout, ('files directory: %s\n'):format(result.files_dir))
+        end
+      elseif result.settings_exists and result.vault_exists and result.files_error then
+        output(stdout, ('files directory: error: %s\n'):format(result.files_error))
+      else
+        output(stdout, 'files directory: not checked\n')
+      end
+
+      if result.settings_error then
+        output(stdout, ('settings load error: %s\n'):format(result.settings_error))
+      end
+
+      return result.ok and EXIT_OK or EXIT_ERROR
+    elseif action == 'init' then
+      result, err = run_install_init(install_options)
+      if not result then
+        output(stderr, ('install init failed: %s\n'):format(tostring(err)))
+        return EXIT_ERROR
+      end
+
+      output(stdout, ('Wrote %s\n'):format(result.settings_path))
+      output(stdout, ('Wrote %s\n'):format(result.vault_path))
+      output(stdout, ('Ensured files directory %s\n'):format(result.files_dir))
+      output(stdout, ('Wrote %s\n'):format(result.htaccess_path))
+      return EXIT_OK
+    end
+
+    output(stderr, 'Usage: ophal install check\n       ophal install init [DIR] [--force] [--site-name NAME] [--files-path PATH]\n')
+    return EXIT_ERROR
   end
 
   if command == 'migrate' then

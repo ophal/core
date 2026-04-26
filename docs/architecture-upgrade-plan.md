@@ -3,8 +3,8 @@
 ## Scope
 
 This document is the execution follow-up to `docs/architecture.md`. It defines
-how to modernize Ophal on top of the active `0.1` branch with the least
-possible code churn.
+how Ophal was modernized from the `0.1` architecture direction into the
+current `0.2.x` line with the least possible code churn.
 
 The priorities are, in order:
 
@@ -93,8 +93,8 @@ Compatibility rules:
 - Feature modules must not depend on `ngx`, raw server variables, or
   transport-specific branching.
 - `OpenResty` is the supported runtime target on `0.2.x`.
-- `lua-http` is deferred and should ship only if it fits the same contract
-  without compatibility exceptions.
+- `lua-http` is not planned for `0.2.x`; Dockerized OpenResty is the intended
+  development and deployment path.
 
 ### 2. Module Metadata And Hook Order
 
@@ -341,8 +341,8 @@ Deliverables:
 - Add structured logging and clearer error reporting
 - Add CLI support for install, migrate, module enable or disable, and cache
   clear
-- Add `lua-http` only if it reuses the stable runtime contract without special
-  handling
+- Keep the runtime contract narrow enough that future runtimes remain possible,
+  but do not add another supported server runtime during `0.2.x`
 
 Exit criteria:
 
@@ -354,17 +354,14 @@ Exit criteria:
 
 ## Release Framing
 
-A practical release framing is:
+The original framing separated the work across `0.2`, `0.3`, and `1.0`
+milestones. In practice, the architecture upgrade landed on `0.2.x` as one
+coherent line:
 
-- `0.2`: phases 0 through 2 complete. Runtime contract extracted, extension
-  order deterministic, compatibility suite in place.
-- `0.3`: phases 3 and 4 complete. Entity layer hardened, core caches present,
-  OpenResty runtime available.
-- `1.0`: phase 5 complete. Security baseline, CLI tooling, stable compatibility
-  contracts, documented upgrade path.
-
-`lua-http` is explicitly deferred and should ship only if it shares the same
-adapter and cache contracts without one-off exceptions.
+- phases 1 through 5 are complete on `0.2.x`
+- OpenResty is the only supported web runtime
+- CGI support has been removed
+- `lua-http` is not planned for this line
 
 ## Cross-Phase Acceptance Scenarios
 
@@ -456,6 +453,17 @@ migrate, module enable/disable, and cache clear.
 Tests: unit coverage for CSRF, cookies, password hashing, logging, escaping,
 CLI install/migrate/module commands, plus OpenResty smoke tests.
 
+### Post-Phase Runtime Narrowing — Complete
+
+Commit: `5278eb7` on branch `0.2.x`
+
+Removed CGI support entirely, renamed the runtime adapter to
+`includes/server/openresty.lua`, replaced `index.cgi` and `cron.cgi` with
+`index.lua` and `cron.lua`, removed the web installer entrypoint, and made
+OpenResty the canonical and only supported web runtime.
+
+Tests: full unit suite and OpenResty smoke tests.
+
 ## Decision Summary
 
 If efficiency, legacy support, and performance remain the priorities, the
@@ -467,5 +475,5 @@ caches.
 Do not modernize by replacing Ophal's module, hook, SQL, and server-rendered
 core.
 
-The correct 2026 version of Ophal is the current `0.1` direction made explicit,
-deterministic, cache-aware, and safe to run on OpenResty.
+The correct 2026 version of Ophal is the former `0.1` architecture direction
+made explicit, deterministic, cache-aware, secure, and deployed on OpenResty.

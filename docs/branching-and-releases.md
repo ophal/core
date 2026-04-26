@@ -19,29 +19,19 @@ line, and reproducible rollback points before major integrations.
 After `0.1` is merged into `master`, `0.1` becomes historical and is no longer
 treated as an active long-lived mainline.
 
-## Current Transition Plan
+## Current State
 
-The current repository state is:
+The `0.1` integration is complete:
 
-- `master` remains the public branch name and will not be renamed
-- `0.1` contains the more recent internal development history
-- the next active release line will be `0.2.x`
+- `master` remains the public branch name and was not renamed
+- `0.1` was merged into `master` through `merge/0.1-into-master`
+- `0.2.x` was created from the updated `master` and is now the active release
+  and upgrade line
 
-The transition flow is:
+Historical freeze tags for that transition already exist:
 
-1. Tag current `master` with an annotated rollback tag before any merge.
-2. Tag the current `0.1` tip as a matching freeze point.
-3. Create `merge/0.1-into-master` from `master`.
-4. Merge `0.1` into that integration branch and resolve conflicts there.
-5. Validate the merge.
-6. Merge the validated integration branch into `master`.
-7. Create `0.2.x` from the updated `master`.
-8. Do architecture and release work on `0.2.x`.
-
-Recommended freeze tags:
-
-- `pre-merge-0.1-into-master-YYYY-MM-DD`
-- `pre-merge-0.1-tip-YYYY-MM-DD`
+- `pre-merge-master-2026-03-22`
+- `pre-merge-0.1-tip-2026-03-22`
 
 ## Merge Rules
 
@@ -77,9 +67,9 @@ is not enough reason to name the active branch `1.0.x`.
 ## Release Flow
 
 1. Development lands on `0.2.x`.
-2. Prerelease tags are cut on `0.2.x`.
-3. The final release commit is merged into `master`.
-4. The final version tag is applied to the released commit.
+2. Prerelease tags are cut on `0.2.x` as needed.
+3. A release-ready `0.2.x` milestone is merged into `master`.
+4. The release tag is applied to the released commit.
 5. Patch work for the `0.2` line continues on `0.2.x` and is merged back into
    `master`.
 
@@ -92,4 +82,4 @@ If the remote hosting platform supports it:
 - optionally protect `0.2.x` as the active release-development line
 
 This policy keeps `master` as the public branch without renaming it, while
-making `0.2.x` the clear place for the next round of architecture work.
+making `0.2.x` the clear place for the current release and post-upgrade work.

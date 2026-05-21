@@ -151,9 +151,6 @@ function bootstrap(phase, main)
       env.lpeg = require 'lpeg'
       env.uuid = require 'uuid'
 
-      env.socket = require 'socket'
-      env.socket.url = require 'socket.url'
-
       env.seawolf = require 'seawolf'.__build('variable', 'fs', 'text', 'behaviour', 'contrib')
     end,
 

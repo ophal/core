@@ -1,12 +1,40 @@
 local explode = seawolf.text.explode
 local trim, ltrim, rtrim = seawolf.text.trim, seawolf.text.ltrim, seawolf.text.rtrim
 local dirname, basename = seawolf.fs.dirname, seawolf.fs.basename
-local unescape = socket.url.unescape
 local empty = seawolf.variable.empty
 local date = os.date
+local char, tonumber = string.char, tonumber
 
 ophal.runtime = ophal.runtime or {}
 local runtime = ophal.runtime
+
+local function decode_component(value, plus_as_space)
+  value = tostring(value or '')
+
+  if plus_as_space then
+    value = value:gsub('+', ' ')
+  end
+
+  return (value:gsub('%%(%x%x)', function(hex)
+    local byte = tonumber(hex, 16)
+
+    if byte == nil then
+      return '%' .. hex
+    end
+
+    return char(byte)
+  end))
+end
+
+local function split_pair(value)
+  local idx = tostring(value or ''):find('=', 1, true)
+
+  if idx == nil then
+    return value or '', ''
+  end
+
+  return value:sub(1, idx - 1), value:sub(idx + 1)
+end
 
 function server_register_adapter(name, adapter)
   runtime.adapter_name = name
@@ -46,12 +74,12 @@ function server_parse_query(query_string)
   local list = explode('&', query_string or '')
 
   if list then
-    local key, value, tmp
+    local key, value
     for _, v in pairs(list) do
       if #v > 0 then
-        tmp = explode('=', v)
-        key = unescape((tmp[1] or ''):gsub('+', ' '))
-        value = unescape((tmp[2] or ''):gsub('+', ' '))
+        key, value = split_pair(v)
+        key = decode_component(key, true)
+        value = decode_component(value, true)
         parsed[key] = value
       end
     end
@@ -65,13 +93,13 @@ function server_parse_cookies(cookie_string)
   local cookies = explode(';', cookie_string or '')
 
   if cookies then
-    local key, value, tmp
+    local key, value
     for _, v in pairs(cookies) do
       v = trim(v)
       if #v > 0 then
-        tmp = explode('=', v)
-        key = unescape((tmp[1] or ''):gsub('+', ' '))
-        value = unescape((tmp[2] or ''):gsub('+', ' '))
+        key, value = split_pair(v)
+        key = decode_component(key, true)
+        value = decode_component(value, true)
         parsed[key] = value
       end
     end
@@ -95,7 +123,7 @@ function server_build_request_uri(server_getter, script_name, query_string)
 end
 
 function server_normalize_path(uri, script_name)
-  local request_path = unescape((uri or ''):match('^[^?]*') or '')
+  local request_path = decode_component((uri or ''):match('^[^?]*') or '')
   local script_dir = rtrim(dirname(script_name or '/index.lua'), '\\/')
   local path = request_path:sub(script_dir:len() + 1)
   local script = basename(script_name or '/index.lua')

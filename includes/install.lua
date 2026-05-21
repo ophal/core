@@ -7,7 +7,6 @@ Options +FollowSymLinks
 ]]
 
 local DEPENDENCIES = {
-  {machine_name = 'socket.url', name = 'LuaSocket', required = true},
   {machine_name = 'lfs', name = 'LuaFilesystem', required = true},
   {machine_name = 'uuid', name = 'luuid', required = true},
   {machine_name = 'DBI', name = 'LuaDBI', required = true},

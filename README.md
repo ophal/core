@@ -20,13 +20,24 @@ deployment and the OpenResty-based example Docker image in
 Ophal has the following dependencies:
 
 - Seawolf (http://github.com/ophal/seawolf)
-- LuaSocket
 - LPEG
 - LuaFilesystem
 - LuaDBI
 - luuid
 - dkjson
 - LuaCrypto (only if user module is enabled)
+
+## OpenResty runtime model
+
+Ophal runs correctly inside OpenResty, but `0.2.x` is not a fully nonblocking
+stack. Database access still goes through synchronous `LuaDBI`, and some
+filesystem work still happens on request paths for templates, asset metadata,
+sessions, and uploads.
+
+The current hardening work is tracked in
+the internal native-hardening notes.
+The next focus is reducing hot-path filesystem work and documenting the
+synchronous database model more explicitly.
 
 ## CLI
 

@@ -62,7 +62,7 @@ check_dependencies() {
   set +e
   env -i "${dep_env[@]}" lua5.1 - <<'LUA' >"$output_file" 2>&1
 local missing = {}
-for _, name in ipairs({'lfs', 'lpeg', 'uuid', 'socket', 'seawolf', 'dkjson'}) do
+for _, name in ipairs({'lfs', 'lpeg', 'uuid', 'seawolf', 'dkjson'}) do
   local ok = pcall(require, name)
   if not ok then
     missing[#missing + 1] = name

@@ -163,8 +163,8 @@ do
       return {
         ok = false,
         dependencies = {
-          {name = 'LuaSocket', machine_name = 'socket.url', found = true},
-          {name = 'luuid', machine_name = 'uuid', found = false},
+          {name = 'luuid', machine_name = 'uuid', found = true},
+          {name = 'LuaDBI', machine_name = 'DBI', found = false},
         },
         settings_exists = false,
         vault_exists = false,
@@ -173,8 +173,8 @@ do
   })
 
   assert_eq('install_check_exit_code', code, 1)
-  assert_match('install_check_found_stdout', stdout, 'FOUND   LuaSocket %(socket%.url%)')
-  assert_match('install_check_missing_stdout', stdout, 'MISSING luuid %(uuid%)')
+  assert_match('install_check_found_stdout', stdout, 'FOUND   luuid %(uuid%)')
+  assert_match('install_check_missing_stdout', stdout, 'MISSING LuaDBI %(DBI%)')
   assert_match('install_check_summary_stdout', stdout, 'Dependency summary: 1 found, 1 missing')
   assert_match('install_check_settings_stdout', stdout, 'settings%.lua: absent')
   assert_match('install_check_files_stdout', stdout, 'files directory: not checked')

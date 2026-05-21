@@ -29,6 +29,7 @@ end
 
 local db_log, hook_log, request_body, selected_account
 local uuid_counter = 0
+local request_host = 'example.com'
 
 local function mock_db_query(sql, ...)
   local params = {...}
@@ -59,6 +60,7 @@ local function load_user_module()
   hook_log = {}
   request_body = nil
   selected_account = nil
+  request_host = 'example.com'
 
   package.loaded['ophal.modules.user'] = nil
 
@@ -80,18 +82,9 @@ local function load_user_module()
   _GET = {}
   _SERVER = function(key)
     if key == 'HTTP_HOST' then
-      return 'example.com'
+      return request_host
     end
   end
-  socket = {
-    url = {
-      parse = function(target)
-        return {
-          host = target and target:match('^https?://([^/]+)') or nil,
-        }
-      end,
-    },
-  }
   uuid = {
     new = function()
       uuid_counter = uuid_counter + 1
@@ -193,6 +186,42 @@ do
 
   assert_eq('current_hash_login_authenticated', output.authenticated, true)
   assert_eq('current_hash_login_query_count', #db_log, 1)
+end
+
+do
+  local user = load_user_module()
+
+  request_host = 'example.com:8080'
+  selected_account = {
+    id = 9,
+    name = 'carol',
+    mail = 'carol@example.com',
+    pass = user.password_hash('secret', {salt = 'redirectsalt'}),
+  }
+  _GET.redirect = 'http://example.com:8080/admin'
+  request_body = json.encode({user = 'carol', pass = 'secret'})
+
+  local output = user.auth_service()
+
+  assert_eq('login_redirect_same_host_with_port', output.redirect, 'http://example.com:8080/admin')
+end
+
+do
+  local user = load_user_module()
+
+  request_host = 'example.com'
+  selected_account = {
+    id = 10,
+    name = 'dave',
+    mail = 'dave@example.com',
+    pass = user.password_hash('secret', {salt = 'noredirectsalt'}),
+  }
+  _GET.redirect = 'http://evil.example/admin'
+  request_body = json.encode({user = 'dave', pass = 'secret'})
+
+  local output = user.auth_service()
+
+  assert_eq('login_redirect_reject_foreign_host', output.redirect, nil)
 end
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

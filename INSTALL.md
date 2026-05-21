@@ -32,6 +32,12 @@ The document root must contain the Ophal tree, including:
 The provided `nginx.ophal.conf` is also responsible for blocking direct access
 to internal Lua source and secret files such as `settings.lua` and `vault.lua`.
 
+Operational note: `0.2.x` runs inside persistent OpenResty workers, but it is
+not yet a fully nonblocking stack. Database access still uses synchronous
+`LuaDBI`, and some filesystem operations still occur on request paths for
+templates, asset metadata, sessions, and uploads. Treat the current runtime as
+correct and persistent, but operationally bounded by those blocking paths.
+
 
 ## II. Dependencies
 
@@ -47,7 +53,6 @@ $ sudo luarocks install lpeg
 $ sudo apt-get install uuid-dev
 $ sudo luarocks install luuid
 $ sudo luarocks install luafilesystem
-$ sudo luarocks install luasocket
 $ cd /tmp
 $ git clone --depth=1 git://github.com/ophal/seawolf.git
 $ sudo mv seawolf /usr/local/share/lua/5.1/

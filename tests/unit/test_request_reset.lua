@@ -76,10 +76,6 @@ local function setup_env()
   }
   env.seawolf = _G.seawolf
 
-  -- Stub socket.url.unescape (used by adapter.lua)
-  _G.socket = {url = {unescape = function(s) return s end}}
-  env.socket = _G.socket
-
   -- Track headers set during reset
   local headers_set = {}
 
@@ -117,6 +113,26 @@ local function setup_env()
   server_register_adapter('mock', mock_adapter)
 
   return mock_request, mock_adapter, headers_set
+end
+
+-- ================================================================
+io.write '\n-- route reset --\n'
+-- ================================================================
+
+io.write '\n-- adapter decoding --\n'
+-- ================================================================
+
+do
+  setup_env()
+
+  local query = server_parse_query('name=Alice+Bob&token=a=b=c&path=%2Fdocs%2Fintro')
+  local cookies = server_parse_cookies('alpha=one%20two; beta=three=four')
+
+  assert_eq('query_decode_plus', query.name, 'Alice Bob')
+  assert_eq('query_preserve_equals', query.token, 'a=b=c')
+  assert_eq('query_decode_percent', query.path, '/docs/intro')
+  assert_eq('cookie_decode_percent', cookies.alpha, 'one two')
+  assert_eq('cookie_preserve_equals', cookies.beta, 'three=four')
 end
 
 -- ================================================================

@@ -7,7 +7,7 @@ local type, env, uuid, time, go_to, pairs, tostring = type, env, uuid, os.time, 
 local session_destroy, module_invoke_all = session_destroy, module_invoke_all
 local request_get_body, ophal, pcall = request_get_body, ophal, pcall
 local route_execute_callback, _GET = route_execute_callback, _GET
-local url_parse, _SERVER = socket.url.parse, _SERVER
+local _SERVER = _SERVER
 local xtable = seawolf.contrib.seawolf_table
 
 module 'ophal.modules.user'
@@ -84,6 +84,30 @@ local function secure_equals(left, right)
   end
 
   return mismatch == 0
+end
+
+local function redirect_authority(target)
+  if type(target) ~= 'string' or target == '' then
+    return nil
+  end
+
+  return target:match('^[%w+%-%.]+://([^/%?#]+)') or target:match('^//([^/%?#]+)')
+end
+
+local function normalize_authority(authority)
+  if type(authority) ~= 'string' or authority == '' then
+    return nil
+  end
+
+  authority = authority:match('^[^@]*@(.+)$') or authority
+  return authority:lower()
+end
+
+local function redirect_is_same_host(target)
+  local request_host = normalize_authority(_SERVER 'HTTP_HOST')
+  local target_host = normalize_authority(redirect_authority(target))
+
+  return request_host ~= nil and target_host ~= nil and request_host == target_host
 end
 
 local function password_hash_config()
@@ -574,7 +598,7 @@ function auth_service()
         module_invoke_all('user_login', account, output)
         _SESSION.user_id = account.id
 
-        if _GET.redirect and url_parse(_GET.redirect).host == _SERVER 'HTTP_HOST' then
+        if _GET.redirect and redirect_is_same_host(_GET.redirect) then
           output.redirect = _GET.redirect
         end
       end

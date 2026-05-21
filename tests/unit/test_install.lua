@@ -62,6 +62,16 @@ local function read_file(path)
   return content
 end
 
+local function find_dependency(result, machine_name)
+  for _, dependency in ipairs(result.dependencies or {}) do
+    if dependency.machine_name == machine_name then
+      return dependency
+    end
+  end
+
+  return nil
+end
+
 io.write '\n-- render helpers --\n'
 
 do
@@ -141,6 +151,7 @@ io.write '\n-- check --\n'
 
 do
   local tmp = make_temp_dir()
+  local missing
   local result = install.check({
     output_dir = tmp,
     require_module = function(name)
@@ -154,8 +165,10 @@ do
   assert_eq('check_missing_ok', result.ok, false)
   assert_eq('check_settings_absent', result.settings_exists, false)
   assert_eq('check_vault_absent', result.vault_exists, false)
-  assert_match('check_missing_dependency', result.dependencies[3].machine_name, 'uuid')
-  assert_eq('check_missing_found_false', result.dependencies[3].found, false)
+  missing = find_dependency(result, 'uuid')
+  assert_eq('check_missing_dependency_found', missing ~= nil, true)
+  assert_match('check_missing_dependency', missing and missing.machine_name or '', 'uuid')
+  assert_eq('check_missing_found_false', missing and missing.found, false)
 end
 
 do

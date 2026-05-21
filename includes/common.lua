@@ -1,7 +1,7 @@
 local seawolf = require 'seawolf'.__build('maths', 'text', 'fs')
-local pairs, tcon, rawset, date = pairs, table.concat, rawset, os.date
+local pairs, tcon, date, time = pairs, table.concat, os.date, os.time
 local base, lfs, json, round = base, lfs, require 'dkjson', seawolf.maths.round
-local str_replace, is_file = seawolf.text.str_replace, seawolf.fs.is_file
+local str_replace = seawolf.text.str_replace
 
 if type(html_url_escape) ~= 'function' then
   pcall(require, 'includes.escape')
@@ -33,6 +33,64 @@ function page_not_found()
   header('status', 404)
   page_set_title 'Page not found.'
   return ''
+end
+
+do
+  local asset_stat_cache = {}
+
+  local function asset_cache_ttl()
+    local runtime_cache = settings.runtime_cache or {}
+    local ttl = tonumber(runtime_cache.asset_stat_ttl)
+
+    if ttl == nil then
+      ttl = tonumber(runtime_cache.file_stat_ttl)
+    end
+
+    if ttl == nil then
+      ttl = tonumber(runtime_cache.stat_ttl)
+    end
+
+    if ttl == nil then
+      ttl = 1
+    end
+
+    return ttl
+  end
+
+  function asset_cache_clear()
+    asset_stat_cache = {}
+  end
+
+  local function asset_stat(path)
+    local cached = asset_stat_cache[path]
+    local ttl = asset_cache_ttl()
+    local now = time()
+    local attr
+
+    if cached and ttl ~= 0 and now - cached.checked_at < ttl then
+      return cached.attr
+    end
+
+    attr = lfs.attributes(path)
+    asset_stat_cache[path] = {
+      attr = attr,
+      checked_at = now,
+    }
+
+    return attr
+  end
+
+  local function asset_url(path)
+    local attr = asset_stat(path)
+
+    if attr ~= nil and attr.mode == 'file' then
+      return base.route .. path .. '?' .. attr.modification
+    end
+  end
+
+  function common_asset_url(path)
+    return asset_url(path)
+  end
 end
 
 do
@@ -102,6 +160,7 @@ do
       output[scope] = {}
       for _, j in pairs(v) do
         local options = javascript[scope][j]
+        local asset_url
         if options ~= nil and options.type == 'settings' then
           output[scope][#output[scope] + 1] = ([=[<script type="text/javascript">
 <!--//--><![CDATA[//><!--
@@ -124,9 +183,13 @@ $.extend(true, Ophal.settings, {%s: %s});
         elseif options ~= nil and options.type == 'external' then
           output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s"></script>
 ]]):format(html_url_escape(j or ''))
-        elseif is_file(j) then
+        else
+          asset_url = common_asset_url(j)
+        end
+
+        if asset_url then
           output[scope][#output[scope] + 1] = ([[<script type="text/javascript" src="%s"></script>
-]]):format(html_url_escape(base.route .. j .. '?' .. lfs.attributes(j, 'modification')))
+]]):format(html_url_escape(asset_url))
         end
       end
       output[scope] = tcon(output[scope])
@@ -158,9 +221,10 @@ do
   function get_css()
     local output = {}
     for k, v in pairs(css) do
-      if is_file(k) then
+      local asset_url = common_asset_url(k)
+      if asset_url then
         output[1 + #output] = ([[<link type="text/css" rel="stylesheet" media="all" href="%s" />
-]]):format(html_url_escape(base.route .. k .. '?' .. lfs.attributes(k, 'modification')))
+]]):format(html_url_escape(asset_url))
       end
     end
     return tcon(output)

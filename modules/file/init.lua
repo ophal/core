@@ -17,6 +17,25 @@ module 'ophal.modules.file'
 
 local user_mod, db_query, db_field, db_last_insert_id
 
+local function ensure_dir(path)
+  local status, err
+
+  if is_dir(path) then
+    return true
+  end
+
+  if is_file(path) then
+    return nil, ('path exists and is not a directory: %s'):format(path)
+  end
+
+  status, err = lfs.mkdir(path)
+  if not status then
+    return nil, err
+  end
+
+  return true
+end
+
 --[[ Implements hook init().
 ]]
 function init()
@@ -107,21 +126,17 @@ function upload_service()
 
   -- Make sure to have a general uploads directory
   upload_dir = ('%s/ophal_uploads'):format(temp_dir())
-  if not is_dir(upload_dir) and not is_file(upload_dir) then
-    status, err = lfs.mkdir(upload_dir)
-    if err then
-      output.error = err
-    end
+  status, err = ensure_dir(upload_dir)
+  if not status then
+    output.error = err
   end
 
   -- Make sure to have a dedicated folder for uploaded file parts
   if empty(err) then
     upload_dir = ('%s/%s'):format(upload_dir, upload_id)
-    if not is_dir(upload_dir) and not is_file(upload_dir) then
-      status, err = lfs.mkdir(upload_dir)
-      if err then
-        output.error = err
-      end
+    status, err = ensure_dir(upload_dir)
+    if not status then
+      output.error = err
     end
   end
 
@@ -172,6 +187,11 @@ function merge_service()
     for i = 1, index do
       source_path = ('%s/ophal_uploads/%s/%s.part'):format(temp_dir(), upload_id, i - 1)
       source_fh = io_open(source_path, 'r')
+      if not source_fh then
+        output.error = ('missing upload part: %s'):format(source_path)
+        break
+      end
+
       data, err = source_fh:read '*a'
       if err then
         output.error = err
@@ -181,12 +201,20 @@ function merge_service()
           output.error = err
           target_fh:close()
         end
-        source_fh:close()
+      end
+
+      source_fh:close()
+      if not output.error then
         os_remove(source_path)
       end
     end
-    os_remove(('%s/ophal_uploads/%s'):format(temp_dir(), upload_id))
     target_fh:close()
+
+    if output.error then
+      return output
+    end
+
+    os_remove(('%s/ophal_uploads/%s'):format(temp_dir(), upload_id))
 
     -- Register the file into the database
     if config.filedb_storage then

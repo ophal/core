@@ -38,6 +38,14 @@ not yet a fully nonblocking stack. Database access still uses synchronous
 templates, asset metadata, sessions, and uploads. Treat the current runtime as
 correct and persistent, but operationally bounded by those blocking paths.
 
+Template and static-asset metadata are now cached with a short runtime TTL to
+reduce repeated `stat()` calls. The default TTL is `1` second and can be tuned
+through `settings.runtime_cache`.
+
+Operationally, `0.2.x` should be treated as suitable for low-to-moderate
+traffic. It is not positioned as a fully nonblocking high-concurrency stack
+until an OpenResty-native database path exists.
+
 
 ## II. Dependencies
 

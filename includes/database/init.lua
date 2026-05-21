@@ -1,5 +1,10 @@
 dbh = {} -- Database handlers
 
+-- OpenResty note:
+-- Ophal 0.2.x still uses synchronous LuaDBI calls. Every connect, prepare,
+-- and execute blocks the current OpenResty worker until the driver returns.
+-- This runtime model is supported for low-to-moderate traffic, but it is not
+-- a fully nonblocking database stack.
 local DBI, db_id, drivers = require 'DBI', 'default', {}
 local xtable = seawolf.contrib.seawolf_table
 

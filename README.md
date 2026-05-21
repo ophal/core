@@ -34,10 +34,18 @@ stack. Database access still goes through synchronous `LuaDBI`, and some
 filesystem work still happens on request paths for templates, asset metadata,
 sessions, and uploads.
 
+Static asset and template metadata now use short-lived runtime caches to avoid
+repeated `stat()` calls on warm requests. The cache TTL defaults to `1` second
+and can be tuned through `settings.runtime_cache`.
+
+The supported operational posture for `0.2.x` is low-to-moderate traffic. It
+is not presented as a fully nonblocking high-concurrency stack until an
+OpenResty-native database path exists.
+
 The current hardening work is tracked in
 the internal native-hardening notes.
-The next focus is reducing hot-path filesystem work and documenting the
-synchronous database model more explicitly.
+The remaining focus is validation guardrails and any further low-risk cleanup
+on synchronous file-heavy paths such as uploads and boost caching.
 
 ## CLI
 

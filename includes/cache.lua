@@ -16,6 +16,9 @@ function cache_clear_all()
   if type(template_cache_clear) == 'function' then
     template_cache_clear()
   end
+  if type(asset_cache_clear) == 'function' then
+    asset_cache_clear()
+  end
   if type(db_schema_cache_clear) == 'function' then
     db_schema_cache_clear()
   end

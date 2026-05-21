@@ -1,6 +1,7 @@
 local slash, tinsert, tconcat = settings.slash, table.insert, table.concat
 local pcall, settings, empty = pcall, settings, seawolf.variable.empty
 local assert, error, setfenv = assert, error, setfenv
+local time = os.time
 local currentdir, xtable = lfs.currentdir() .. slash, seawolf.contrib.seawolf_table
 local base, l = base, l
 
@@ -73,9 +74,50 @@ end
 -- Template compile cache: stores loadstring() result keyed by file path + mtime.
 -- In persistent runtimes this avoids file I/O and compilation on warm renders.
 local template_cache = {}
+local template_stat_cache = {}
+
+local function template_cache_ttl()
+  local runtime_cache = settings.runtime_cache or {}
+  local ttl = tonumber(runtime_cache.template_stat_ttl)
+
+  if ttl == nil then
+    ttl = tonumber(runtime_cache.file_stat_ttl)
+  end
+
+  if ttl == nil then
+    ttl = tonumber(runtime_cache.stat_ttl)
+  end
+
+  if ttl == nil then
+    ttl = 1
+  end
+
+  return ttl
+end
+
+local function template_stat(path)
+  local cached = template_stat_cache[path]
+  local ttl = template_cache_ttl()
+  local now = time()
+  local attr, err
+
+  if cached and ttl ~= 0 and now - cached.checked_at < ttl then
+    return cached.attr, cached.err
+  end
+
+  attr, err = lfs.attributes(path)
+  template_stat_cache[path] = {
+    attr = attr,
+    err = err,
+    checked_at = now,
+  }
+
+  return attr, err
+end
 
 function template_cache_clear()
   template_cache = {}
+  template_stat_cache = {}
 end
 
 --[[
@@ -87,7 +129,7 @@ local function theme_render(f, env)
 
   file = ('%sthemes%s%s%s%s.tpl.%s'):format(currentdir, slash, theme.name, slash, f, env.format)
 
-  local attr, err = lfs.attributes(file)
+  local attr, err = template_stat(file)
   if err then
     return ("template '%s': %s"):format(file, err)
   end

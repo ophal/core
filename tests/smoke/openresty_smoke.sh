@@ -173,7 +173,7 @@ return function(settings, vault)
     hash = (vault.site or {}).hash or 'ophal-smoke-hash',
     logo_title = 'The Ophal Project',
     logo_path = 'images/ophalproject.png',
-    files_path = 'files',
+    files_path = tmp_root .. '/files',
   }
   settings.micro_cache = false
   settings.debugapi = false
@@ -194,6 +194,12 @@ return function(settings, vault)
   settings.modules = {
     lorem_ipsum = true,
   }
+  if scenario == 'file_upload_chunk' or scenario == 'file_merge_chunks' then
+    settings.modules.file = true
+    settings.file = {
+      filedb_storage = false,
+    }
+  end
   settings.db = nil
   settings.theme = {
     name = 'basic',
@@ -488,6 +494,39 @@ assert_regex '^HTTP/1\.[01] 200'
 assert_regex '^X-Smoke: buffered'
 assert_contains 'SMOKE_BUFFERED_OUTPUT=ok'
 report_ok output_buffering
+
+upload_cookie="$SMOKE_ROOT/upload-cookie.txt"
+upload_name="smoke-upload.txt"
+upload_id="smoke-upload-id-1"
+
+run_request file_upload_csrf -c "$upload_cookie" -b "$upload_cookie" "$BASE_URL/__smoke__?scenario=csrf_token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+upload_token=$(extract_marker 'SMOKE_CSRF_TOKEN')
+[[ -n "$upload_token" ]] || fail 'missing CSRF token for file upload smoke'
+report_ok file_upload_csrf
+
+run_request file_upload_chunk \
+  -c "$upload_cookie" -b "$upload_cookie" \
+  -X POST \
+  -H "X-CSRF-Token: $upload_token" \
+  --data 'alpha=part-' \
+  "$BASE_URL/__smoke__?scenario=file_upload_chunk&name=$upload_name&id=$upload_id&index=0"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
+assert_contains 'SMOKE_UPLOAD_BODY=alpha=part-'
+report_ok file_upload_chunk
+
+run_request file_merge_chunks \
+  -c "$upload_cookie" -b "$upload_cookie" \
+  -X POST \
+  -H "X-CSRF-Token: $upload_token" \
+  "$BASE_URL/__smoke__?scenario=file_merge_chunks&name=$upload_name&id=$upload_id&size=11&index=1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_MERGE_SUCCESS=true'
+report_ok file_merge_chunks
 
 run_request cron_smoke "$BASE_URL/cron"
 assert_status_zero

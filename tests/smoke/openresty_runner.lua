@@ -4,6 +4,16 @@ local function render(lines)
   return table.concat(lines, '\n') .. '\n'
 end
 
+local function query_arg(name)
+  local value = _GET and _GET[name]
+
+  if type(value) == 'table' then
+    return value[1]
+  end
+
+  return value
+end
+
 local function run_bootstrap(main)
   require 'includes.bootstrap'
   return ophal.bootstrap(nil, main)
@@ -62,6 +72,36 @@ local scenarios = {
   csrf_token = function()
     return run_bootstrap(function()
       write(render{'SMOKE_CSRF_TOKEN=' .. (csrf_token() or '')})
+    end)
+  end,
+  file_upload_chunk = function()
+    return run_bootstrap(function()
+      local body = request_get_body() or ''
+      local output = ophal.modules.file.upload_service()
+
+      write(render{
+        'SMOKE_UPLOAD_SUCCESS=' .. tostring(output and output.success == true),
+        'SMOKE_UPLOAD_ERROR=' .. tostring(output and output.error or ''),
+        'SMOKE_UPLOAD_BODY=' .. body,
+      })
+    end)
+  end,
+  file_merge_chunks = function()
+    return run_bootstrap(function()
+      local output = ophal.modules.file.merge_service()
+      local file_path = ((settings.site or {}).files_path or '') .. '/' .. (query_arg('name') or '')
+      local handle = io.open(file_path, 'r')
+      local stored = handle and handle:read('*a') or ''
+
+      if handle then
+        handle:close()
+      end
+
+      write(render{
+        'SMOKE_MERGE_SUCCESS=' .. tostring(output and output.success == true),
+        'SMOKE_MERGE_ERROR=' .. tostring(output and output.error or ''),
+        'SMOKE_MERGED_FILE=' .. stored,
+      })
     end)
   end,
 }

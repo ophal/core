@@ -77,6 +77,9 @@ local function new_projection_state()
     route_redirect = {},
     content_public = {},
     content_rows = {},
+    tag_rows = {},
+    field_tag_rows = {},
+    tag_listing_index = {},
   }
 end
 
@@ -124,6 +127,9 @@ local function make_db_query(state)
       end
       state.route_index[args[1]] = kept
       return rows_result({})
+    elseif sql == 'DELETE FROM route_index WHERE kind = ?' then
+      state.route_index[args[1]] = {}
+      return rows_result({})
     elseif sql:match('^INSERT INTO route_index') then
       local bucket = state.route_index[args[1]]
       bucket[#bucket + 1] = {
@@ -134,6 +140,128 @@ local function make_db_query(state)
         http_code = args[5],
       }
       return rows_result({})
+    elseif sql == 'SELECT * FROM tag WHERE id = ?' then
+      row = state.tag_rows[tonumber(args[1])]
+      return rows_result(row and {row} or {})
+    elseif sql == 'SELECT entity_type FROM field_tag WHERE tag_id = ? GROUP BY entity_type' then
+      local seen = {}
+      local rows = {}
+      for _, item in ipairs(state.field_tag_rows) do
+        if tonumber(item.tag_id) == tonumber(args[1]) and not seen[item.entity_type] then
+          seen[item.entity_type] = true
+          rows[#rows + 1] = {entity_type = item.entity_type}
+        end
+      end
+      return rows_result(rows)
+    elseif sql == 'SELECT tag_id id FROM field_tag WHERE entity_type = ? AND entity_id = ?' then
+      local rows = {}
+      for _, item in ipairs(state.field_tag_rows) do
+        if item.entity_type == args[1] and tonumber(item.entity_id) == tonumber(args[2]) then
+          rows[#rows + 1] = {id = item.tag_id}
+        end
+      end
+      return rows_result(rows)
+    elseif sql == 'DELETE FROM field_tag WHERE entity_type = ? AND entity_id = ? AND tag_id = ?' then
+      local kept = {}
+      for _, item in ipairs(state.field_tag_rows) do
+        if not (item.entity_type == args[1] and tonumber(item.entity_id) == tonumber(args[2]) and tonumber(item.tag_id) == tonumber(args[3])) then
+          kept[#kept + 1] = item
+        end
+      end
+      state.field_tag_rows = kept
+      return rows_result({})
+    elseif sql == 'INSERT INTO field_tag(entity_type, entity_id, tag_id) VALUES(?, ?, ?)' then
+      state.field_tag_rows[#state.field_tag_rows + 1] = {
+        entity_type = args[1],
+        entity_id = tonumber(args[2]),
+        tag_id = tonumber(args[3]),
+      }
+      return rows_result({})
+    elseif sql == 'DELETE FROM field_tag WHERE entity_type = ? AND entity_id = ?' then
+      local kept = {}
+      for _, item in ipairs(state.field_tag_rows) do
+        if not (item.entity_type == args[1] and tonumber(item.entity_id) == tonumber(args[2])) then
+          kept[#kept + 1] = item
+        end
+      end
+      state.field_tag_rows = kept
+      return rows_result({})
+    elseif sql == 'DELETE FROM tag_listing_index' then
+      state.tag_listing_index = {}
+      return rows_result({})
+    elseif sql == 'DELETE FROM tag_listing_index WHERE tag_id = ?' then
+      local kept = {}
+      for _, item in ipairs(state.tag_listing_index) do
+        if tonumber(item.tag_id) ~= tonumber(args[1]) then
+          kept[#kept + 1] = item
+        end
+      end
+      state.tag_listing_index = kept
+      return rows_result({})
+    elseif sql:match('^INSERT INTO tag_listing_index') then
+      state.tag_listing_index[#state.tag_listing_index + 1] = {
+        tag_id = tonumber(args[1]),
+        tag_name = args[2],
+        entity_type = args[3],
+        entity_id = tonumber(args[4]),
+        user_id = args[5],
+        language = args[6],
+        title = args[7],
+        teaser = args[8],
+        body = args[9],
+        created = args[10],
+        changed = args[11],
+        status = args[12],
+        promote = args[13],
+        route = args[14],
+        updated_at = args[15],
+      }
+      return rows_result({})
+    elseif sql == 'SELECT COUNT(*) FROM tag_listing_index WHERE tag_id = ?' then
+      local count = 0
+      for _, item in ipairs(state.tag_listing_index) do
+        if tonumber(item.tag_id) == tonumber(args[1]) then
+          count = count + 1
+        end
+      end
+      return rows_result({{count}})
+    elseif sql:match('^SELECT entity_type type, entity_id id, user_id, language, title, teaser, body, created, changed, status, promote, route FROM tag_listing_index') then
+      local rows = {}
+      for _, item in ipairs(state.tag_listing_index) do
+        if tonumber(item.tag_id) == tonumber(args[1]) then
+          rows[#rows + 1] = {
+            type = item.entity_type,
+            id = item.entity_id,
+            user_id = item.user_id,
+            language = item.language,
+            title = item.title,
+            teaser = item.teaser,
+            body = item.body,
+            created = item.created,
+            changed = item.changed,
+            status = item.status,
+            promote = item.promote,
+            route = item.route,
+          }
+        end
+      end
+      table.sort(rows, function(a, b)
+        return (a.created or 0) > (b.created or 0)
+      end)
+      return rows_result(rows)
+    elseif sql:match('^SELECT tag_id id, tag_name name') then
+      local seen = {}
+      local rows = {}
+      for _, item in ipairs(state.tag_listing_index) do
+        if not seen[item.tag_id] then
+          seen[item.tag_id] = true
+          rows[#rows + 1] = {id = item.tag_id, name = item.tag_name}
+        end
+      end
+      table.sort(rows, function(a, b)
+        return a.name < b.name
+      end)
+      return rows_result(rows)
     elseif sql == 'SELECT * FROM content_public WHERE id = ?' then
       row = state.content_public[tonumber(args[1])]
       return rows_result(row and {row} or {})
@@ -155,6 +283,30 @@ local function make_db_query(state)
       table.sort(rows, function(a, b)
         return (a.created or 0) > (b.created or 0)
       end)
+      return rows_result(rows)
+    elseif sql:match("^SELECT t%.id tag_id, t%.name tag_name, 'content' entity_type, cp%.id entity_id,") then
+      local rows = {}
+      for _, rel in ipairs(state.field_tag_rows) do
+        local content = state.content_public[tonumber(rel.entity_id)]
+        local tag = state.tag_rows[tonumber(rel.tag_id)]
+        if rel.entity_type == 'content' and content and tag and content.status == 1 and (args[1] == nil or tonumber(rel.tag_id) == tonumber(args[1])) then
+          rows[#rows + 1] = {
+            tag_id = rel.tag_id,
+            tag_name = tag.name,
+            entity_type = 'content',
+            entity_id = content.id,
+            user_id = content.user_id,
+            language = content.language,
+            title = content.title,
+            teaser = content.teaser,
+            body = content.body,
+            created = content.created,
+            changed = content.changed,
+            status = content.status,
+            promote = content.promote,
+          }
+        end
+      end
       return rows_result(rows)
     elseif sql == 'SELECT * FROM content WHERE id = ?' then
       row = state.content_rows[tonumber(args[1])]
@@ -184,6 +336,30 @@ local function make_db_query(state)
         return (a.created or 0) > (b.created or 0)
       end)
       return rows_result(rows)
+    elseif sql:match("^SELECT t%.id tag_id, t%.name tag_name, 'content' entity_type, c%.id entity_id,") then
+      local rows = {}
+      for _, rel in ipairs(state.field_tag_rows) do
+        local content = state.content_rows[tonumber(rel.entity_id)]
+        local tag = state.tag_rows[tonumber(rel.tag_id)]
+        if rel.entity_type == 'content' and content and tag and content.status == 1 and (args[1] == nil or tonumber(rel.tag_id) == tonumber(args[1])) then
+          rows[#rows + 1] = {
+            tag_id = rel.tag_id,
+            tag_name = tag.name,
+            entity_type = 'content',
+            entity_id = content.id,
+            user_id = content.user_id,
+            language = content.language,
+            title = content.title,
+            teaser = content.teaser,
+            body = content.body,
+            created = content.created,
+            changed = content.changed,
+            status = content.status,
+            promote = content.promote,
+          }
+        end
+      end
+      return rows_result(rows)
     elseif sql == 'DELETE FROM content_public WHERE id = ?' then
       state.content_public[tonumber(args[1])] = nil
       return rows_result({})
@@ -210,6 +386,60 @@ local function make_db_query(state)
 
     return rows_result({})
   end
+end
+
+local function setup_tag_env(state)
+  local user_module = {
+    current = function() return {id = 1} end,
+    is_logged_in = function() return true end,
+    access = function() return true end,
+    load = function(id) return {id = id or 0} end,
+  }
+
+  settings = {
+    tag = {
+      entities = {
+        content = true,
+      },
+      items_per_page = 10,
+    },
+    slash = '/',
+  }
+  ophal = {
+    modules = {
+      user = user_module,
+    },
+  }
+  env = {
+    db_query = make_db_query(state),
+    db_limit = function() return ' LIMIT ?, ?' end,
+    db_last_insert_id = function() return 1 end,
+  }
+  db_query = env.db_query
+  _GET = {}
+  header = function() end
+  pager = function() return {} end
+  l = function(text) return text end
+  page_set_title = function() end
+  add_js = function() end
+  theme = setmetatable({}, {__call = function() return '' end})
+  request_get_body = function() return '' end
+  csrf_validate_request = function() return true end
+  csrf_denied = function() end
+  print_t = function() end
+  format_date = function(value) return tostring(value) end
+  route_arg = function(index)
+    if index == 1 then
+      return '1'
+    end
+  end
+  module_invoke_all = function() end
+  package.loaded['includes.projection'] = nil
+  package.loaded['ophal.modules.tag'] = nil
+  dofile('modules/tag/init.lua')
+  ophal.modules.tag = package.loaded['ophal.modules.tag'] or ophal.modules.tag
+  ophal.modules.tag.init()
+  return ophal.modules.tag
 end
 
 local function query_count(state, pattern)
@@ -299,10 +529,11 @@ io.write '\n-- core migrations registry --\n'
 do
   local migrations = dofile('includes/migrations.lua')
 
-  assert_eq('core_migration_count', #migrations, 3)
+  assert_eq('core_migration_count', #migrations, 4)
   assert_eq('core_migration_route_index', migrations[1].id, '001_route_index')
   assert_eq('core_migration_content_public', migrations[2].id, '002_content_public')
   assert_eq('core_migration_projection_version', migrations[3].id, '003_projection_version')
+  assert_eq('core_migration_tag_listing_index', migrations[4].id, '004_tag_listing_index')
 end
 
 io.write '\n-- route projections --\n'
@@ -340,6 +571,26 @@ do
   assert_eq('route_projection_fallback_alias_loaded', ophal.aliases.source['content/2'], 'legacy-alias')
   assert_eq('route_projection_fallback_inserted', state.route_index.alias[1].target, 'legacy-alias')
   assert_eq('route_projection_fallback_version_touched', state.versions.route_alias_index ~= nil, true)
+end
+
+do
+  local state = new_projection_state()
+
+  state.versions.route_alias_index = 100
+  state.versions.route_alias_source = 200
+  state.route_index.alias = {
+    {source = 'content/old', target = 'stale-alias', language = 'all'},
+  }
+  state.route_alias = {
+    {source = 'content/3', alias = 'fresh-alias', language = 'all'},
+  }
+
+  setup_route_env(state)
+  route_aliases_load()
+
+  assert_eq('route_projection_stale_rebuilt_alias', ophal.aliases.source['content/3'], 'fresh-alias')
+  assert_eq('route_projection_stale_replaced_count', #state.route_index.alias, 1)
+  assert_eq('route_projection_stale_removed_old', state.route_index.alias[1].source, 'content/3')
 end
 
 io.write '\n-- content projections --\n'
@@ -440,6 +691,176 @@ do
   assert_eq('content_projection_frontpage_count_query', query_count(state, '^SELECT count%(%*%) FROM content_public'), 1)
   assert_eq('content_projection_frontpage_rows_query', query_count(state, '^SELECT %* FROM content_public'), 1)
   assert_eq('content_projection_frontpage_legacy_unused', query_count(state, '^SELECT count%(%*%) FROM content WHERE'), 0)
+end
+
+do
+  local state = new_projection_state()
+  local content
+
+  state.versions.content_public = 300
+  state.versions.content_source = 400
+  state.content_public[9] = {
+    id = 9,
+    user_id = 1,
+    title = 'Stale projected row',
+    teaser = 'Stale teaser',
+    body = 'Stale body',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+  state.content_rows[9] = {
+    id = 9,
+    user_id = 1,
+    title = 'Fresh legacy row',
+    teaser = 'Fresh teaser',
+    body = 'Fresh body',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+
+  content = setup_content_env(state)
+  local entity = content.load(9)
+
+  assert_eq('content_projection_stale_rebuilt_title', entity.title, 'Fresh legacy row')
+  assert_eq('content_projection_stale_rebuilt_from_source', query_count(state, '^SELECT %* FROM content$'), 1)
+end
+
+io.write '\n-- tag projections --\n'
+
+do
+  local state = new_projection_state()
+  local tag_mod
+
+  state.versions.tag_listing_index = 400
+  state.tag_rows[1] = {id = 1, name = 'alpha', description = 'Alpha'}
+  state.tag_listing_index = {
+    {
+      tag_id = 1,
+      tag_name = 'alpha',
+      entity_type = 'content',
+      entity_id = 5,
+      user_id = 1,
+      title = 'Projected tagged content',
+      teaser = 'Projected teaser',
+      body = 'Projected body',
+      status = 1,
+      promote = 1,
+      created = 20,
+      route = 'content/5',
+    },
+  }
+
+  tag_mod = setup_tag_env(state)
+  tag_mod.entity_page()
+
+  assert_eq('tag_projection_count_query', query_count(state, '^SELECT COUNT%(%*%) FROM tag_listing_index'), 1)
+  assert_eq('tag_projection_rows_query', query_count(state, '^SELECT entity_type type, entity_id id, user_id, language, title, teaser, body, created, changed, status, promote, route FROM tag_listing_index'), 1)
+  assert_eq('tag_projection_legacy_entity_type_unused', query_count(state, '^SELECT entity_type FROM field_tag'), 0)
+end
+
+do
+  local state = new_projection_state()
+  local tag_mod
+
+  state.tag_rows[1] = {id = 1, name = 'alpha', description = 'Alpha'}
+  state.content_public[5] = {
+    id = 5,
+    user_id = 1,
+    title = 'Projected tagged content',
+    teaser = 'Projected teaser',
+    body = 'Projected body',
+    status = 1,
+    promote = 1,
+    created = 20,
+  }
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 5, tag_id = 1},
+  }
+
+  tag_mod = setup_tag_env(state)
+  tag_mod.entity_page()
+
+  assert_eq('tag_projection_fallback_rebuild_rows', #state.tag_listing_index, 1)
+  assert_eq('tag_projection_fallback_touched', state.versions.tag_listing_index ~= nil, true)
+  assert_eq('tag_projection_fallback_title', state.tag_listing_index[1].title, 'Projected tagged content')
+end
+
+do
+  local state = new_projection_state()
+  local tag_mod
+
+  state.versions.tag_listing_index = 500
+  state.tag_rows[1] = {id = 1, name = 'alpha'}
+  state.tag_rows[2] = {id = 2, name = 'beta'}
+  state.content_public[7] = {
+    id = 7,
+    user_id = 1,
+    title = 'Tagged content',
+    teaser = 'Tagged teaser',
+    body = 'Tagged body',
+    status = 1,
+    promote = 1,
+    created = 30,
+  }
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 7, tag_id = 1},
+  }
+
+  tag_mod = setup_tag_env(state)
+  tag_mod.entity_after_save({
+    type = 'content',
+    id = 7,
+    tags = {1, 2},
+  })
+
+  assert_eq('tag_projection_refresh_row_count', #state.tag_listing_index, 2)
+  assert_eq('tag_projection_refresh_has_beta', state.tag_listing_index[2].tag_id, 2)
+end
+
+do
+  local state = new_projection_state()
+  local tag_mod
+
+  state.versions.tag_listing_index = 600
+  state.versions.content_public = 700
+  state.tag_rows[1] = {id = 1, name = 'alpha'}
+  state.content_public[5] = {
+    id = 5,
+    user_id = 1,
+    title = 'Fresh projected tagged content',
+    teaser = 'Fresh projected teaser',
+    body = 'Fresh projected body',
+    status = 1,
+    promote = 1,
+    created = 40,
+  }
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 5, tag_id = 1},
+  }
+  state.tag_listing_index = {
+    {
+      tag_id = 1,
+      tag_name = 'alpha',
+      entity_type = 'content',
+      entity_id = 5,
+      user_id = 1,
+      title = 'Stale projected tagged content',
+      teaser = 'Stale teaser',
+      body = 'Stale body',
+      status = 1,
+      promote = 1,
+      created = 5,
+      route = 'content/5',
+    },
+  }
+
+  tag_mod = setup_tag_env(state)
+  tag_mod.entity_page()
+
+  assert_eq('tag_projection_stale_rebuilt_title', state.tag_listing_index[1].title, 'Fresh projected tagged content')
+  assert_eq('tag_projection_stale_rebuild_source_query', query_count(state, "^SELECT t%.id tag_id, t%.name tag_name, 'content' entity_type, cp%.id entity_id,"), 1)
 end
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

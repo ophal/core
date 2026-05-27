@@ -18,7 +18,7 @@ local projection = require 'includes.projection'
 local projection_query = projection.query
 local projection_exec = projection.exec
 local projection_touch = projection.touch
-local projection_version = projection.version
+local projection_ensure = projection.ensure
 local projection_is_missing_table = projection.is_missing_table
 
 local set_global = set_global
@@ -27,6 +27,15 @@ module 'ophal.modules.content'
 
 local user_mod, db_query, db_limit, db_last_insert_id
 local CONTENT_PUBLIC_KEY = 'content_public'
+local CONTENT_SOURCE_KEY = 'content_source'
+
+local function content_projection_mark_source(version)
+  local ok, err = projection_touch(CONTENT_SOURCE_KEY, version)
+
+  if not ok then
+    error(err)
+  end
+end
 
 --[[ Implements hook init().
 ]]
@@ -73,9 +82,9 @@ local function load_legacy(id)
   return rs:fetch(true)
 end
 
-local function content_projection_write(entity)
+local function content_projection_write(entity, version)
   local ok, err
-  local updated_at = time()
+  local updated_at = tonumber(version) or time()
 
   ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', entity.id)
   if not ok then
@@ -117,8 +126,10 @@ INSERT INTO content_public(
   return true
 end
 
-local function content_projection_delete(id)
-  local ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', id)
+local function content_projection_delete(id, version)
+  local ok, err
+
+  ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', id)
 
   if not ok then
     if projection_is_missing_table(err, 'content_public') then
@@ -128,7 +139,7 @@ local function content_projection_delete(id)
     return nil, err
   end
 
-  projection_touch(CONTENT_PUBLIC_KEY)
+  projection_touch(CONTENT_PUBLIC_KEY, version)
   return true
 end
 
@@ -158,17 +169,15 @@ local function content_projection_rebuild_all()
 end
 
 local function content_projection_ready()
-  local version, err = projection_version(CONTENT_PUBLIC_KEY)
+  local ok, err = projection_ensure(CONTENT_PUBLIC_KEY, content_projection_rebuild_all, {
+    depends_on = {CONTENT_SOURCE_KEY},
+  })
 
-  if version ~= nil then
-    return true
-  end
-
-  if err and not projection_is_missing_table(err, 'projection_version') then
+  if ok == nil then
     error(err)
   end
 
-  return content_projection_rebuild_all()
+  return ok
 end
 
 local function load_projection(id)
@@ -289,6 +298,7 @@ end
 
 function create(entity)
   local rs, err
+  local updated_at = time()
 
   if entity.type == nil then entity.type = 'content' end
 
@@ -321,6 +331,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?)]],
   end
 
   if not err then
+    content_projection_mark_source(updated_at)
     module_invoke_all('entity_after_save', entity)
   end
   return entity.id, err
@@ -328,8 +339,11 @@ end
 
 function update(entity)
   local rs, err
-  rs, err = db_query('UPDATE content SET title = ?, teaser = ?, body = ?, status = ?, promote = ?, changed = ? WHERE id = ?', entity.title, entity.teaser, entity.body, entity.status, entity.promote, time(), entity.id)
+  local updated_at = time()
+
+  rs, err = db_query('UPDATE content SET title = ?, teaser = ?, body = ?, status = ?, promote = ?, changed = ? WHERE id = ?', entity.title, entity.teaser, entity.body, entity.status, entity.promote, updated_at, entity.id)
   if not err then
+    content_projection_mark_source(updated_at)
     module_invoke_all('entity_after_save', entity)
   end
   return rs, err
@@ -337,8 +351,11 @@ end
 
 function delete(entity)
   local rs, err
+  local updated_at = time()
+
   rs, err = db_query('DELETE FROM content WHERE id = ?', entity.id)
   if not err then
+    content_projection_mark_source(updated_at)
     module_invoke_all('entity_after_delete', entity)
   end
   return rs, err

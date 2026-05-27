@@ -13,12 +13,40 @@ local projection = require 'includes.projection'
 local projection_query = projection.query
 local projection_exec = projection.exec
 local projection_touch = projection.touch
+local projection_ensure = projection.ensure
 local projection_version = projection.version
 local projection_is_missing_table = projection.is_missing_table
 local time = os.time
+local ROUTE_ALIAS_INDEX_KEY = 'route_alias_index'
+local ROUTE_ALIAS_SOURCE_KEY = 'route_alias_source'
+local ROUTE_REDIRECT_INDEX_KEY = 'route_redirect_index'
+local ROUTE_REDIRECT_SOURCE_KEY = 'route_redirect_source'
 
-local function route_projection_save(kind, source, target, language, http_code)
-  local updated_at = time()
+local function route_projection_mark_source(key, version)
+  local ok, err = projection_touch(key, version)
+  if not ok then
+    error(err)
+  end
+end
+
+local function route_projection_clear(kind)
+  local ok, err = projection_exec(
+    'DELETE FROM route_index WHERE kind = ?',
+    kind
+  )
+
+  if not ok then
+    if projection_is_missing_table(err, 'route_index') then
+      return false
+    end
+
+    return nil, err
+  end
+
+  return true
+end
+
+local function route_projection_save(kind, source, target, language, http_code, updated_at)
   local ok, err = projection_exec(
     'DELETE FROM route_index WHERE kind = ? AND source = ?',
     kind,
@@ -52,11 +80,11 @@ VALUES(?, ?, ?, ?, ?, ?)]],
     return nil, err
   end
 
-  projection_touch(kind == 'alias' and 'route_alias_index' or 'route_redirect_index', updated_at)
+  projection_touch(kind == 'alias' and ROUTE_ALIAS_INDEX_KEY or ROUTE_REDIRECT_INDEX_KEY, updated_at)
   return true
 end
 
-local function route_projection_delete(kind, source)
+local function route_projection_delete(kind, source, updated_at)
   local ok, err = projection_exec(
     'DELETE FROM route_index WHERE kind = ? AND source = ?',
     kind,
@@ -71,7 +99,7 @@ local function route_projection_delete(kind, source)
     return nil, err
   end
 
-  projection_touch(kind == 'alias' and 'route_alias_index' or 'route_redirect_index')
+  projection_touch(kind == 'alias' and ROUTE_ALIAS_INDEX_KEY or ROUTE_REDIRECT_INDEX_KEY, updated_at)
   return true
 end
 
@@ -83,9 +111,15 @@ end
 local function route_load_aliases_legacy()
   local alias
   local rs, err = projection_query 'SELECT * FROM route_alias'
+  local updated_at = time()
 
   if not rs then
     error(err)
+  end
+
+  local cleared, clear_err = route_projection_clear('alias')
+  if cleared == nil then
+    error(clear_err)
   end
 
   for row in rs:rows(true) do
@@ -94,21 +128,28 @@ local function route_load_aliases_legacy()
       alias = row.language .. '/' .. row.alias
     end
     route_register_alias(row.source, alias)
-    route_projection_save('alias', row.source, row.alias, row.language)
+    route_projection_save('alias', row.source, row.alias, row.language, nil, updated_at)
   end
 
-  projection_touch('route_alias_index')
+  route_projection_mark_source(ROUTE_ALIAS_SOURCE_KEY, updated_at)
+  projection_touch(ROUTE_ALIAS_INDEX_KEY, updated_at)
+  return true
 end
 
 function route_aliases_load()
   local alias
   local rs, err
-  local version, version_err = projection_version('route_alias_index')
+  local ok
 
-  if version == nil then
-    if version_err and not projection_is_missing_table(version_err, 'projection_version') then
-      error(version_err)
-    end
+  ophal.aliases.source = {}
+  ophal.aliases.alias = {}
+
+  ok, err = projection_ensure(ROUTE_ALIAS_INDEX_KEY, route_load_aliases_legacy, {
+    depends_on = {ROUTE_ALIAS_SOURCE_KEY},
+  })
+  if ok == nil then
+    error(err)
+  elseif ok ~= true then
     return route_load_aliases_legacy()
   end
 
@@ -142,6 +183,7 @@ function route_create_alias(entity)
   local rs, err
 
   if entity.type == nil then entity.type = 'route_alias' end
+  local updated_at = time()
 
   if entity.id then
     rs, err = db_query([[
@@ -164,30 +206,38 @@ VALUES(?, ?, ?)]],
   end
 
   if not err then
-    route_projection_save('alias', entity.source, entity.alias, entity.language)
+    route_projection_mark_source(ROUTE_ALIAS_SOURCE_KEY, updated_at)
+    route_projection_save('alias', entity.source, entity.alias, entity.language, nil, updated_at)
     module_invoke_all('entity_after_save', entity)
   end
   return entity.id, err
 end
 
 function route_update_alias(id, entity)
-  local keys, placeholders = {}, {}
   local record = route_read_alias(id)
+  local original_source = record.source
+  local updated_at = time()
   for _, v in pairs{'source', 'alias', 'language'} do
     record[v] = entity[v]
   end
   local rs, err = db_query('UPDATE route_alias SET source = ?, alias = ?, language = ? WHERE id = ?', record.source, record.alias, record.language, id)
   if not err then
-    route_projection_save('alias', record.source, record.alias, record.language)
+    route_projection_mark_source(ROUTE_ALIAS_SOURCE_KEY, updated_at)
+    if original_source ~= record.source then
+      route_projection_delete('alias', original_source, updated_at)
+    end
+    route_projection_save('alias', record.source, record.alias, record.language, nil, updated_at)
   end
   return rs, err
 end
 
 function route_delete_alias(id)
   local record = route_read_alias(id)
+  local updated_at = time()
   local rs, err = db_query('DELETE FROM route_alias WHERE id = ?', id)
   if not err and record then
-    route_projection_delete('alias', record.source)
+    route_projection_mark_source(ROUTE_ALIAS_SOURCE_KEY, updated_at)
+    route_projection_delete('alias', record.source, updated_at)
   end
   return rs, err
 end
@@ -207,9 +257,15 @@ end
 local function route_load_redirects_legacy()
   local target
   local rs, err = projection_query 'SELECT * FROM route_redirect'
+  local updated_at = time()
 
   if not rs then
     error(err)
+  end
+
+  local cleared, clear_err = route_projection_clear('redirect')
+  if cleared == nil then
+    error(clear_err)
   end
 
   for row in rs:rows(true) do
@@ -218,21 +274,28 @@ local function route_load_redirects_legacy()
       target = row.language .. '/' .. target
     end
     route_register_redirect(row.source, target, row.type)
-    route_projection_save('redirect', row.source, row.target, row.language, row.type)
+    route_projection_save('redirect', row.source, row.target, row.language, row.type, updated_at)
   end
 
-  projection_touch('route_redirect_index')
+  route_projection_mark_source(ROUTE_REDIRECT_SOURCE_KEY, updated_at)
+  projection_touch(ROUTE_REDIRECT_INDEX_KEY, updated_at)
+  return true
 end
 
 function route_redirects_load()
   local target
   local rs, err
-  local version, version_err = projection_version('route_redirect_index')
+  local ok
 
-  if version == nil then
-    if version_err and not projection_is_missing_table(version_err, 'projection_version') then
-      error(version_err)
-    end
+  ophal.redirects.source = {}
+  ophal.redirects.target = {}
+
+  ok, err = projection_ensure(ROUTE_REDIRECT_INDEX_KEY, route_load_redirects_legacy, {
+    depends_on = {ROUTE_REDIRECT_SOURCE_KEY},
+  })
+  if ok == nil then
+    error(err)
+  elseif ok ~= true then
     return route_load_redirects_legacy()
   end
 
@@ -261,6 +324,7 @@ function route_create_redirect(entity)
   local rs, err
 
   if entity.type == nil then entity.type = 'route_redirect' end
+  local updated_at = time()
 
   if entity.id then
     rs, err = db_query([[
@@ -285,7 +349,8 @@ VALUES(?, ?, ?, ?)]],
   end
 
   if not err then
-    route_projection_save('redirect', entity.source, entity.target, entity.language, entity.type)
+    route_projection_mark_source(ROUTE_REDIRECT_SOURCE_KEY, updated_at)
+    route_projection_save('redirect', entity.source, entity.target, entity.language, entity.type, updated_at)
     module_invoke_all('entity_after_save', entity)
   end
   return entity.id, err
@@ -297,23 +362,30 @@ function route_read_redirect(id)
 end
 
 function route_update_redirect(id, entity)
-  local keys, placeholders = {}, {}
   local record = route_read_redirect(id)
-  for _, v in pairs{'source', 'alias', 'language', 'type'} do
+  local original_source = record.source
+  local updated_at = time()
+  for _, v in pairs{'source', 'target', 'language', 'type'} do
     record[v] = entity[v]
   end
   local rs, err = db_query('UPDATE route_redirect SET source = ?, target = ?, language = ?, type = ? WHERE id = ?', record.source, record.target, record.language, record.type, id)
   if not err then
-    route_projection_save('redirect', record.source, record.target, record.language, record.type)
+    route_projection_mark_source(ROUTE_REDIRECT_SOURCE_KEY, updated_at)
+    if original_source ~= record.source then
+      route_projection_delete('redirect', original_source, updated_at)
+    end
+    route_projection_save('redirect', record.source, record.target, record.language, record.type, updated_at)
   end
   return rs, err
 end
 
 function route_delete_redirect(id)
   local record = route_read_redirect(id)
+  local updated_at = time()
   local rs, err = db_query('DELETE FROM route_redirect WHERE id = ?', id)
   if not err and record then
-    route_projection_delete('redirect', record.source)
+    route_projection_mark_source(ROUTE_REDIRECT_SOURCE_KEY, updated_at)
+    route_projection_delete('redirect', record.source, updated_at)
   end
   return rs, err
 end

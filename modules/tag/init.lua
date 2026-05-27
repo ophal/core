@@ -16,8 +16,192 @@ local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
 local _SESSION, tonumber, _GET, ceil = _SESSION, tonumber, _GET, math.ceil
 local pager, print_t, request_get_body = pager, print_t, request_get_body
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
+local projection = require 'includes.projection'
+local projection_query = projection.query
+local projection_exec = projection.exec
+local projection_touch = projection.touch
+local projection_ensure = projection.ensure
+local projection_version = projection.version
+local projection_is_missing_table = projection.is_missing_table
 
 local db_query, db_limit, db_last_insert_id, user_mod
+local TAG_LISTING_KEY = 'tag_listing_index'
+local TAG_LISTING_SOURCE_KEY = 'tag_listing_source'
+
+local function tag_projection_mark_source(version)
+  local ok, err = projection_touch(TAG_LISTING_SOURCE_KEY, version)
+
+  if not ok then
+    error(err)
+  end
+end
+
+local function tag_projection_supported()
+  local entities = config.entities or {}
+  local has_content = false
+
+  for entity_type, enabled in pairs(entities) do
+    if enabled then
+      if entity_type ~= 'content' then
+        return false
+      end
+      has_content = true
+    end
+  end
+
+  return has_content
+end
+
+local function tag_projection_delete_rows(tag_id)
+  local query = 'DELETE FROM tag_listing_index'
+  local ok, err
+
+  if tag_id ~= nil then
+    ok, err = projection_exec(query .. ' WHERE tag_id = ?', tonumber(tag_id))
+  else
+    ok, err = projection_exec(query)
+  end
+
+  if not ok then
+    if projection_is_missing_table(err, 'tag_listing_index') then
+      return false
+    end
+
+    error(err)
+  end
+
+  return true
+end
+
+local function tag_projection_insert(row, version)
+  local ok, err = projection_exec([[
+INSERT INTO tag_listing_index(
+  tag_id, tag_name, entity_type, entity_id, user_id,
+  language, title, teaser, body, created, changed,
+  status, promote, route, updated_at
+) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]],
+    row.tag_id,
+    row.tag_name,
+    row.entity_type,
+    row.entity_id,
+    row.user_id,
+    row.language,
+    row.title,
+    row.teaser,
+    row.body,
+    row.created,
+    row.changed,
+    row.status,
+    row.promote,
+    ('content/%s'):format(row.entity_id),
+    tonumber(version) or time()
+  )
+
+  if not ok then
+    if projection_is_missing_table(err, 'tag_listing_index') then
+      return false
+    end
+
+    error(err)
+  end
+
+  return true
+end
+
+local function tag_projection_source_rows(tag_id)
+  local rs, err
+
+  local projection_sql = [[
+SELECT t.id tag_id, t.name tag_name, 'content' entity_type, cp.id entity_id,
+  cp.user_id, cp.language, cp.title, cp.teaser, cp.body,
+  cp.created, cp.changed, cp.status, cp.promote
+FROM content_public cp
+JOIN field_tag ft ON ft.entity_type = 'content' AND ft.entity_id = cp.id
+JOIN tag t ON t.id = ft.tag_id
+WHERE cp.status = 1]]
+  local legacy_sql = [[
+SELECT t.id tag_id, t.name tag_name, 'content' entity_type, c.id entity_id,
+  c.user_id, c.language, c.title, c.teaser, c.body,
+  c.created, c.changed, c.status, c.promote
+FROM content c
+JOIN field_tag ft ON ft.entity_type = 'content' AND ft.entity_id = c.id
+JOIN tag t ON t.id = ft.tag_id
+WHERE c.status = 1]]
+
+  if tag_id ~= nil then
+    projection_sql = projection_sql .. ' AND ft.tag_id = ?'
+    legacy_sql = legacy_sql .. ' AND ft.tag_id = ?'
+    rs, err = projection_query(projection_sql, tonumber(tag_id))
+  else
+    rs, err = projection_query(projection_sql)
+  end
+
+  if rs then
+    return rs
+  elseif not projection_is_missing_table(err, 'content_public') then
+    error(err)
+  end
+
+  if tag_id ~= nil then
+    rs, err = db_query(legacy_sql, tonumber(tag_id))
+  else
+    rs, err = db_query(legacy_sql)
+  end
+  if err then
+    error(err)
+  end
+
+  return rs
+end
+
+local function tag_projection_rebuild(tag_id, version)
+  local rs
+
+  if not tag_projection_supported() then
+    return false
+  end
+
+  if not tag_projection_delete_rows(tag_id) then
+    return false
+  end
+
+  rs = tag_projection_source_rows(tag_id)
+  for row in rs:rows(true) do
+    if not tag_projection_insert(row, version) then
+      return false
+    end
+  end
+
+  projection_touch(TAG_LISTING_KEY, version)
+  return true
+end
+
+local function tag_projection_ready()
+  if not tag_projection_supported() then
+    return false
+  end
+
+  local ok, err = projection_ensure(TAG_LISTING_KEY, tag_projection_rebuild, {
+    depends_on = {'content_public', TAG_LISTING_SOURCE_KEY},
+  })
+  if ok == nil then
+    error(err)
+  end
+
+  return ok
+end
+
+local function tag_projection_refresh_ids(ids, version)
+  if not tag_projection_supported() then
+    return false
+  end
+
+  for tag_id in pairs(ids or {}) do
+    tag_projection_rebuild(tag_id, version)
+  end
+
+  return true
+end
 
 
 function _M.get_tags()
@@ -162,24 +346,36 @@ end
 ]]
 function _M.entity_after_save(entity)
   local rs, err, tags, in_tags
+  local updated_at = time()
 
-  if not config.entities[entity.type] then return end
+  if entity.type == _M.entity_type then
+    tag_projection_mark_source(updated_at)
+    if entity.id then
+      tag_projection_rebuild(entity.id, updated_at)
+    end
+    return
+  elseif not config.entities[entity.type] then
+    return
+  end
 
   rs, err = db_query('SELECT tag_id id FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
   if err then
     error(err)
   else
     tags, in_tags = {}, {}
+    local affected = {}
 
     -- Load current tags
     for row in rs:rows(true) do
       tags[row.id] = true
+      affected[row.id] = true
     end
 
     -- Add new tags
     for k, v in pairs(entity.tags or {}) do
       v = tonumber(v)
       in_tags[v] = true
+      affected[v] = true
       if not tags[v] then
         rs, err = db_query('INSERT INTO field_tag(entity_type, entity_id, tag_id) VALUES(?, ?, ?)', entity.type, entity.id, v)
         if err then
@@ -197,20 +393,44 @@ function _M.entity_after_save(entity)
         end
       end
     end
+
+    tag_projection_mark_source(updated_at)
+    tag_projection_refresh_ids(affected, updated_at)
   end
 end
 
 --[[ Implements hook entity_after_delete().
 ]]
 function _M.entity_after_delete(entity)
-  local rs, err
+  local rs, err, affected
+  local updated_at = time()
 
-  if not config.entities[entity.type] then return end
+  if entity.type == _M.entity_type then
+    tag_projection_mark_source(updated_at)
+    tag_projection_delete_rows(entity.id)
+    projection_touch(TAG_LISTING_KEY, updated_at)
+    return
+  elseif not config.entities[entity.type] then
+    return
+  end
+
+  affected = {}
+  rs, err = db_query('SELECT tag_id id FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
+  if err then
+    error(err)
+  else
+    for row in rs:rows(true) do
+      affected[row.id] = true
+    end
+  end
 
   rs, err = db_query('DELETE FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
   if err then
     error(err)
   end
+
+  tag_projection_mark_source(updated_at)
+  tag_projection_refresh_ids(affected, updated_at)
 end
 
 --[[ Implements hook menus_alter().
@@ -221,12 +441,30 @@ function _M.menus_alter(menus)
   end
 
   menus.tags_menu = function()
-    local rs, err = db_query [[SELECT t.id, t.name
+    local rs, err
+    local c, items = 0, {}
+
+    if tag_projection_ready() then
+      rs, err = projection_query [[SELECT tag_id id, tag_name name
+FROM tag_listing_index
+GROUP BY tag_id, tag_name
+ORDER BY tag_name]]
+      if rs then
+        for row in rs:rows(true) do
+          c = c + 1
+          items['tag/' .. row.id] = {weight = c*10, ('%s'):format(row.name)}
+        end
+        return items
+      elseif not projection_is_missing_table(err, 'tag_listing_index') then
+        error(err)
+      end
+    end
+
+    rs, err = db_query [[SELECT t.id, t.name
 FROM tag t JOIN field_tag ft ON t.id = ft.tag_id
 WHERE t.status = 1
 GROUP BY t.id
 ORDER BY t.name]]
-    local c, items = 0, {}
     for row in rs:rows(true) do
       c = c + 1
       items['tag/' .. row.id] = {weight = c*10, ('%s'):format(row.name)}
@@ -415,6 +653,7 @@ end
 function _M.entity_page()
   local rs, err, tag, current_page, ipp, num_pages, entity, attr, pagination, sql
   local count, tables, count_query, query, tags, output = 0, {}, {}, {}, {}, {}
+  local use_projection = tag_projection_ready()
 
   tag, err = _M.load(route_arg(1))
 
@@ -424,44 +663,76 @@ function _M.entity_page()
     header('status', 404)
     return page_not_found()
   else
-    -- Get tables to join with
-    rs, err = db_query('SELECT entity_type FROM field_tag WHERE tag_id = ? GROUP BY entity_type', tag.id)
-    if err then
-      error(err)
-    else
-      for v in rs:rows(true) do
-        tinsert(tables, v.entity_type)
-        tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
-        tinsert(query, 'SELECT e.*, ' .. "'" .. v.entity_type .. "'" .. ' "type" FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
-      end
-    end
-
-    -- Count rows
-    if not empty(count_query) then
-      sql = tconcat(count_query, ' UNION ')
-      rs, err = db_query(sql, tag.id)
-      if err then
-        error(err)
-      else
-        count = (rs:fetch() or {})[1]
-      end
-    end
-
     -- Calculate current page
     current_page = tonumber(_GET.page) or 1
     ipp = config.items_per_page or 10
-    num_pages = ceil(count/ipp)
 
-    if count > 0 then
-      -- Render list
-      sql = tconcat(query, ' UNION ') .. ' ORDER BY created DESC' .. db_limit()
-      rs, err = db_query(sql, tag.id, (current_page -1)*ipp, ipp)
+    if use_projection then
+      rs, err = projection_query('SELECT COUNT(*) FROM tag_listing_index WHERE tag_id = ?', tag.id)
+      if rs then
+        count = (rs:fetch() or {})[1]
+      elseif projection_is_missing_table(err, 'tag_listing_index') then
+        use_projection = false
+      else
+        error(err)
+      end
+    end
+
+    if not use_projection then
+      -- Get tables to join with
+      rs, err = db_query('SELECT entity_type FROM field_tag WHERE tag_id = ? GROUP BY entity_type', tag.id)
       if err then
         error(err)
       else
-        for entity in rs:rows(true) do
-          tinsert(output, entity)
+        for v in rs:rows(true) do
+          tinsert(tables, v.entity_type)
+          tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
+          tinsert(query, 'SELECT e.*, ' .. "'" .. v.entity_type .. "'" .. ' "type" FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
         end
+      end
+
+      -- Count rows
+      if not empty(count_query) then
+        sql = tconcat(count_query, ' UNION ')
+        rs, err = db_query(sql, tag.id)
+        if err then
+          error(err)
+        else
+          count = (rs:fetch() or {})[1]
+        end
+      end
+    end
+
+    num_pages = ceil(count/ipp)
+
+    if count > 0 then
+      if use_projection then
+        rs, err = projection_query(
+          'SELECT entity_type type, entity_id id, user_id, language, title, teaser, body, created, changed, status, promote, route FROM tag_listing_index WHERE tag_id = ? ORDER BY created DESC' .. db_limit(),
+          tag.id,
+          (current_page -1)*ipp,
+          ipp
+        )
+        if not rs then
+          if projection_is_missing_table(err, 'tag_listing_index') then
+            use_projection = false
+          else
+            error(err)
+          end
+        end
+      end
+
+      if not use_projection then
+        -- Render list
+        sql = tconcat(query, ' UNION ') .. ' ORDER BY created DESC' .. db_limit()
+        rs, err = db_query(sql, tag.id, (current_page -1)*ipp, ipp)
+        if err then
+          error(err)
+        end
+      end
+
+      for entity in rs:rows(true) do
+        tinsert(output, entity)
       end
     end
 

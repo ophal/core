@@ -50,6 +50,57 @@ function M.version(key)
   return row and row[1] or nil
 end
 
+function M.max_version(keys)
+  local latest
+
+  for _, key in ipairs(keys or {}) do
+    local version, err = M.version(key)
+
+    if version == nil then
+      if err and not M.is_missing_table(err, 'projection_version') then
+        return nil, err
+      end
+    else
+      version = tonumber(version) or version
+      if latest == nil or version > latest then
+        latest = version
+      end
+    end
+  end
+
+  return latest
+end
+
+function M.ensure(key, rebuild, options)
+  local current, err = M.version(key)
+  local latest_dependency
+
+  options = options or {}
+
+  if current == nil then
+    if err and not M.is_missing_table(err, 'projection_version') then
+      return nil, err
+    end
+  else
+    current = tonumber(current) or current
+  end
+
+  latest_dependency, err = M.max_version(options.depends_on)
+  if err then
+    return nil, err
+  end
+
+  if current ~= nil and (latest_dependency == nil or current >= latest_dependency) then
+    return true
+  end
+
+  if type(rebuild) ~= 'function' then
+    return nil, ('projection rebuild is unavailable for %s'):format(normalize_key(key))
+  end
+
+  return rebuild()
+end
+
 function M.touch(key, version)
   local current = tonumber(version) or time()
   local ok, err = M.exec(

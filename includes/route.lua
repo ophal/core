@@ -9,19 +9,121 @@ local aliases = ophal.aliases
 local redirects = ophal.redirects
 local route_set_title, pcall = route_set_title, pcall
 local empty = seawolf.variable.empty
+local projection = require 'includes.projection'
+local projection_query = projection.query
+local projection_exec = projection.exec
+local projection_touch = projection.touch
+local projection_version = projection.version
+local projection_is_missing_table = projection.is_missing_table
+local time = os.time
+
+local function route_projection_save(kind, source, target, language, http_code)
+  local updated_at = time()
+  local ok, err = projection_exec(
+    'DELETE FROM route_index WHERE kind = ? AND source = ?',
+    kind,
+    source
+  )
+
+  if not ok then
+    if projection_is_missing_table(err, 'route_index') then
+      return true
+    end
+
+    return nil, err
+  end
+
+  ok, err = projection_exec([[
+INSERT INTO route_index(kind, source, target, language, http_code, updated_at)
+VALUES(?, ?, ?, ?, ?, ?)]],
+    kind,
+    source,
+    target,
+    language or 'all',
+    http_code,
+    updated_at
+  )
+
+  if not ok then
+    if projection_is_missing_table(err, 'route_index') then
+      return true
+    end
+
+    return nil, err
+  end
+
+  projection_touch(kind == 'alias' and 'route_alias_index' or 'route_redirect_index', updated_at)
+  return true
+end
+
+local function route_projection_delete(kind, source)
+  local ok, err = projection_exec(
+    'DELETE FROM route_index WHERE kind = ? AND source = ?',
+    kind,
+    source
+  )
+
+  if not ok then
+    if projection_is_missing_table(err, 'route_index') then
+      return true
+    end
+
+    return nil, err
+  end
+
+  projection_touch(kind == 'alias' and 'route_alias_index' or 'route_redirect_index')
+  return true
+end
 
 function route_register_alias(source, alias)
   aliases.source[source] = alias
   aliases.alias[alias] = source
 end
 
-function route_aliases_load()
+local function route_load_aliases_legacy()
   local alias
-  local rs, err = db_query 'SELECT * FROM route_alias'
+  local rs, err = projection_query 'SELECT * FROM route_alias'
+
+  if not rs then
+    error(err)
+  end
+
   for row in rs:rows(true) do
     alias = row.alias
     if (row.language or 'all') ~= 'all' and settings.route_aliases_prepend_language then
       alias = row.language .. '/' .. row.alias
+    end
+    route_register_alias(row.source, alias)
+    route_projection_save('alias', row.source, row.alias, row.language)
+  end
+
+  projection_touch('route_alias_index')
+end
+
+function route_aliases_load()
+  local alias
+  local rs, err
+  local version, version_err = projection_version('route_alias_index')
+
+  if version == nil then
+    if version_err and not projection_is_missing_table(version_err, 'projection_version') then
+      error(version_err)
+    end
+    return route_load_aliases_legacy()
+  end
+
+  rs, err = projection_query("SELECT * FROM route_index WHERE kind = 'alias'")
+  if not rs then
+    if projection_is_missing_table(err, 'route_index') then
+      return route_load_aliases_legacy()
+    end
+    error(err)
+  end
+
+  for row in rs:rows(true) do
+    alias = row.target
+    if (row.language or 'all') ~= 'all' and settings.route_aliases_prepend_language then
+      alias = row.language .. '/' .. row.target
     end
     route_register_alias(row.source, alias)
   end
@@ -62,6 +164,7 @@ VALUES(?, ?, ?)]],
   end
 
   if not err then
+    route_projection_save('alias', entity.source, entity.alias, entity.language)
     module_invoke_all('entity_after_save', entity)
   end
   return entity.id, err
@@ -73,11 +176,20 @@ function route_update_alias(id, entity)
   for _, v in pairs{'source', 'alias', 'language'} do
     record[v] = entity[v]
   end
-  return db_query('UPDATE route_alias SET source = ?, alias = ?, language = ? WHERE id = ?', record.source, record.alias, record.language, id)
+  local rs, err = db_query('UPDATE route_alias SET source = ?, alias = ?, language = ? WHERE id = ?', record.source, record.alias, record.language, id)
+  if not err then
+    route_projection_save('alias', record.source, record.alias, record.language)
+  end
+  return rs, err
 end
 
 function route_delete_alias(id)
-  return db_query('DELETE FROM route_alias WHERE id = ?', id)
+  local record = route_read_alias(id)
+  local rs, err = db_query('DELETE FROM route_alias WHERE id = ?', id)
+  if not err and record then
+    route_projection_delete('alias', record.source)
+  end
+  return rs, err
 end
 
 function route_redirect()
@@ -92,9 +204,46 @@ function route_register_redirect(source, target, http_code)
   redirects.target[target] = source
 end
 
+local function route_load_redirects_legacy()
+  local target
+  local rs, err = projection_query 'SELECT * FROM route_redirect'
+
+  if not rs then
+    error(err)
+  end
+
+  for row in rs:rows(true) do
+    target = row.target
+    if (row.language or 'all') ~= 'all' and settings.route_redirects_prepend_language then
+      target = row.language .. '/' .. target
+    end
+    route_register_redirect(row.source, target, row.type)
+    route_projection_save('redirect', row.source, row.target, row.language, row.type)
+  end
+
+  projection_touch('route_redirect_index')
+end
+
 function route_redirects_load()
   local target
-  local rs, err = db_query 'SELECT * FROM route_redirect'
+  local rs, err
+  local version, version_err = projection_version('route_redirect_index')
+
+  if version == nil then
+    if version_err and not projection_is_missing_table(version_err, 'projection_version') then
+      error(version_err)
+    end
+    return route_load_redirects_legacy()
+  end
+
+  rs, err = projection_query("SELECT * FROM route_index WHERE kind = 'redirect'")
+  if not rs then
+    if projection_is_missing_table(err, 'route_index') then
+      return route_load_redirects_legacy()
+    end
+    error(err)
+  end
+
   for row in rs:rows(true) do
     target = row.target
     if (row.language or 'all') ~= 'all' and settings.route_redirects_prepend_language then
@@ -136,6 +285,7 @@ VALUES(?, ?, ?, ?)]],
   end
 
   if not err then
+    route_projection_save('redirect', entity.source, entity.target, entity.language, entity.type)
     module_invoke_all('entity_after_save', entity)
   end
   return entity.id, err
@@ -152,11 +302,20 @@ function route_update_redirect(id, entity)
   for _, v in pairs{'source', 'alias', 'language', 'type'} do
     record[v] = entity[v]
   end
-  return db_query('UPDATE route_redirect SET source = ?, target = ?, language = ?, type = ? WHERE id = ?', record.source, record.target, record.language, record.type, id)
+  local rs, err = db_query('UPDATE route_redirect SET source = ?, target = ?, language = ?, type = ? WHERE id = ?', record.source, record.target, record.language, record.type, id)
+  if not err then
+    route_projection_save('redirect', record.source, record.target, record.language, record.type)
+  end
+  return rs, err
 end
 
 function route_delete_redirect(id)
-  return db_query('DELETE FROM route_redirect WHERE id = ?', id)
+  local record = route_read_redirect(id)
+  local rs, err = db_query('DELETE FROM route_redirect WHERE id = ?', id)
+  if not err and record then
+    route_projection_delete('redirect', record.source)
+  end
+  return rs, err
 end
 
 do

@@ -14,12 +14,19 @@ local print_t, require, modules = print_t, require, ophal.modules
 local module_invoke_all, request_get_body = module_invoke_all, request_get_body
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 local error = error
+local projection = require 'includes.projection'
+local projection_query = projection.query
+local projection_exec = projection.exec
+local projection_touch = projection.touch
+local projection_version = projection.version
+local projection_is_missing_table = projection.is_missing_table
 
 local set_global = set_global
 
 module 'ophal.modules.content'
 
 local user_mod, db_query, db_limit, db_last_insert_id
+local CONTENT_PUBLIC_KEY = 'content_public'
 
 --[[ Implements hook init().
 ]]
@@ -44,7 +51,16 @@ function route()
   return items
 end
 
-function load(id)
+local function hydrate(entity)
+  if entity then
+    entity.type = 'content'
+    module_invoke_all('entity_load', entity)
+  end
+
+  return entity
+end
+
+local function load_legacy(id)
   local rs, err, entity
 
   id = tonumber(id or 0)
@@ -54,14 +70,140 @@ function load(id)
     error(err)
   end
 
-  entity = rs:fetch(true)
+  return rs:fetch(true)
+end
 
-  if entity then
-    entity.type = 'content'
-    module_invoke_all('entity_load', entity)
+local function content_projection_write(entity)
+  local ok, err
+  local updated_at = time()
+
+  ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', entity.id)
+  if not ok then
+    if projection_is_missing_table(err, 'content_public') then
+      return true
+    end
+
+    return nil, err
   end
 
-  return entity
+  ok, err = projection_exec([[
+INSERT INTO content_public(
+  id, user_id, language, title, teaser, body,
+  created, changed, status, promote, route, updated_at
+) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]],
+    entity.id,
+    entity.user_id,
+    entity.language,
+    entity.title,
+    entity.teaser,
+    entity.body,
+    entity.created,
+    entity.changed,
+    entity.status,
+    entity.promote,
+    'content/' .. entity.id,
+    updated_at
+  )
+
+  if not ok then
+    if projection_is_missing_table(err, 'content_public') then
+      return true
+    end
+
+    return nil, err
+  end
+
+  projection_touch(CONTENT_PUBLIC_KEY, updated_at)
+  return true
+end
+
+local function content_projection_delete(id)
+  local ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', id)
+
+  if not ok then
+    if projection_is_missing_table(err, 'content_public') then
+      return true
+    end
+
+    return nil, err
+  end
+
+  projection_touch(CONTENT_PUBLIC_KEY)
+  return true
+end
+
+local function content_projection_rebuild_all()
+  local rs, err = db_query('SELECT * FROM content')
+  local row
+  local ok
+
+  ok, err = projection_exec('DELETE FROM content_public')
+  if not ok then
+    if projection_is_missing_table(err, 'content_public') then
+      return false
+    end
+
+    error(err)
+  end
+
+  for row in rs:rows(true) do
+    ok, err = content_projection_write(row)
+    if not ok then
+      error(err)
+    end
+  end
+
+  projection_touch(CONTENT_PUBLIC_KEY)
+  return true
+end
+
+local function content_projection_ready()
+  local version, err = projection_version(CONTENT_PUBLIC_KEY)
+
+  if version ~= nil then
+    return true
+  end
+
+  if err and not projection_is_missing_table(err, 'projection_version') then
+    error(err)
+  end
+
+  return content_projection_rebuild_all()
+end
+
+local function load_projection(id)
+  local rs, err
+
+  if not content_projection_ready() then
+    return nil
+  end
+
+  rs, err = projection_query('SELECT * FROM content_public WHERE id = ?', id)
+  if not rs then
+    if projection_is_missing_table(err, 'content_public') then
+      return nil
+    end
+
+    error(err)
+  end
+
+  return rs:fetch(true)
+end
+
+function load(id)
+  local entity
+
+  id = tonumber(id or 0)
+  entity = load_projection(id)
+
+  if not entity then
+    entity = load_legacy(id)
+    if entity then
+      content_projection_write(entity)
+    end
+  end
+
+  return hydrate(entity)
 end
 
 function _M.entity_access(entity, action)
@@ -276,30 +418,72 @@ end
 function frontpage()
   local rows = {}
   local rs, err, count, current_page, ipp, num_pages, query
-
-  -- Count rows
-  query = ('SELECT count(*) FROM content WHERE promote = 1 %s'):format(user_mod.is_logged_in() and '' or 'AND status = 1')
-  rs, err = db_query(query)
-  if err then
-    error(err)
-  else
-    count = (rs:fetch() or {})[1]
-  end
+  local use_projection = content_projection_ready()
 
   -- Calculate current page
   current_page = tonumber(_GET.page) or 1
   ipp = config.items_per_page or 10
+  query = (user_mod.is_logged_in() and '' or 'AND status = 1')
+
+  -- Count rows
+  if use_projection then
+    rs, err = projection_query(
+      ('SELECT count(*) FROM content_public WHERE promote = 1 %s'):format(query)
+    )
+    if not rs then
+      if projection_is_missing_table(err, 'content_public') then
+        use_projection = false
+      else
+        error(err)
+      end
+    else
+      count = (rs:fetch() or {})[1]
+    end
+  end
+
+  if not use_projection then
+    rs, err = db_query(('SELECT count(*) FROM content WHERE promote = 1 %s'):format(query))
+    if err then
+      error(err)
+    else
+      count = (rs:fetch() or {})[1]
+    end
+  end
+
   num_pages = ceil(count/ipp)
 
   -- Render list
-  query = ('SELECT * FROM content WHERE promote = 1 %s ORDER BY created DESC' .. db_limit()):format(user_mod.is_logged_in() and '' or 'AND status = 1')
-  rs, err = db_query(query, (current_page -1)*ipp, ipp)
-  if err then
-    error(err)
-  else
-    for row in rs:rows(true) do
-      tinsert(rows, function () print_t{'content_teaser', entity = row} end)
+  if use_projection then
+    rs, err = projection_query(
+      ('SELECT * FROM content_public WHERE promote = 1 %s ORDER BY created DESC' .. db_limit()):format(query),
+      (current_page -1)*ipp,
+      ipp
+    )
+    if not rs then
+      if projection_is_missing_table(err, 'content_public') then
+        use_projection = false
+      else
+        error(err)
+      end
     end
+  end
+
+  if not use_projection then
+    rs, err = db_query(
+      ('SELECT * FROM content WHERE promote = 1 %s ORDER BY created DESC' .. db_limit()):format(query),
+      (current_page -1)*ipp,
+      ipp
+    )
+    if err then
+      error(err)
+    end
+  end
+
+  for row in rs:rows(true) do
+    if not use_projection then
+      content_projection_write(row)
+    end
+    tinsert(rows, function () print_t{'content_teaser', entity = row} end)
   end
 
   if num_pages > 1 then
@@ -309,6 +493,21 @@ function frontpage()
   return function ()
     print_t{'content_frontpage', rows = rows}
     print_t{'pager', pages = pager('content', num_pages, current_page)}
+  end
+end
+
+function entity_after_save(entity)
+  if entity and entity.type == 'content' and entity.id then
+    local stored = load_legacy(entity.id)
+    if stored then
+      content_projection_write(stored)
+    end
+  end
+end
+
+function entity_after_delete(entity)
+  if entity and entity.type == 'content' and entity.id then
+    content_projection_delete(entity.id)
   end
 end
 

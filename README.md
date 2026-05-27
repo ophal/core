@@ -42,10 +42,17 @@ The supported operational posture for `0.2.x` is low-to-moderate traffic. It
 is not presented as a fully nonblocking high-concurrency stack until an
 OpenResty-native database path exists.
 
-The current hardening work is tracked in
+The OpenResty native-hardening work is complete and documented in
 the internal native-hardening notes.
-The remaining focus is validation guardrails and any further low-risk cleanup
-on synchronous file-heavy paths such as uploads and boost caching.
+
+The active next-step architecture work is tracked in
+the internal performance-architecture notes.
+That plan keeps OpenResty as the only web runtime, treats PostgreSQL as the
+required production SQL backend for the performance architecture, and keeps
+Valkey only as a future optional accelerator rather than a core dependency.
+
+For the concrete remaining worker-blocking paths, see
+the internal blocking-surface notes.
 
 ## CLI
 

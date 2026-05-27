@@ -1,4 +1,4 @@
-dbh = {} -- Database handlers
+dbh = {} -- Database handlers kept global for compatibility during DB boundary work
 
 -- OpenResty note:
 -- Ophal 0.2.x still uses synchronous LuaDBI calls. Every connect, prepare,
@@ -6,10 +6,21 @@ dbh = {} -- Database handlers
 -- This runtime model is supported for low-to-moderate traffic, but it is not
 -- a fully nonblocking database stack.
 local DBI, db_id, drivers = require 'DBI', 'default', {}
+local db_result = require 'includes.database.result'
 local xtable = seawolf.contrib.seawolf_table
 
 function db_set_db_id(id)
   db_id = id
+end
+
+function db_connection(id)
+  local key = id or db_id
+
+  if key == nil then
+    return nil
+  end
+
+  return dbh[key]
 end
 
 function db_connect()
@@ -52,8 +63,9 @@ end
 
 function db_query(query, ...)
   local err, sth
+  local connection = db_connection()
 
-  if dbh[db_id] == nil then
+  if connection == nil then
     if type(log_error) == 'function' then
       log_error('database query without connection', {
         event = 'database_query_without_connection',
@@ -63,7 +75,7 @@ function db_query(query, ...)
   end
 
   -- prepare a query
-  sth, err = dbh[db_id]:prepare(query)
+  sth, err = connection:prepare(query)
   if err or nil == sth then
     if type(log_error) == 'function' then
       log_error('database prepare failed', {
@@ -89,7 +101,7 @@ function db_query(query, ...)
     error(err)
   end
 
-  return sth
+  return db_result.wrap(sth)
 end
 
 function db_last_insert_id(...)

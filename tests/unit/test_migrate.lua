@@ -262,6 +262,50 @@ do
   assert_match('apply_failure_error', err, 'boom')
 end
 
+io.write '\n-- migration db handle access --\n'
+
+do
+  local state = new_db_state()
+  local seen_handle
+  local saved_settings = settings
+  local saved_db_connection = db_connection
+  local saved_dbh = dbh
+
+  settings = {
+    db = {
+      default = 'primary',
+      primary = {
+        driver = 'sqlite3',
+      },
+    },
+  }
+  dbh = nil
+  db_connection = function(id)
+    return {id = id}
+  end
+
+  local result = assert(migrate.apply({
+    db_query = db_query_stub(state),
+    settings = settings,
+    module_names = {'system'},
+    core_migrations = {
+      {
+        id = '001_handle',
+        up = function(ctx)
+          seen_handle = ctx.db_handle
+        end,
+      },
+    },
+  }))
+
+  assert_eq('apply_db_handle_count', result.applied_count, 1)
+  assert_eq('apply_db_handle_id', seen_handle.id, 'primary')
+
+  settings = saved_settings
+  db_connection = saved_db_connection
+  dbh = saved_dbh
+end
+
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then
   os.exit(1)

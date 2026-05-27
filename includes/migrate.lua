@@ -22,6 +22,10 @@ local function db_handle(options)
   local settings = settings_value(options)
   local db_key = settings and settings.db and (settings.db.default or 'default')
 
+  if type(_G.db_connection) == 'function' and db_key then
+    return _G.db_connection(db_key)
+  end
+
   if _G.dbh and db_key then
     return _G.dbh[db_key]
   end

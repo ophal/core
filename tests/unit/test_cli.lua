@@ -168,6 +168,8 @@ do
         },
         settings_exists = false,
         vault_exists = false,
+        database_driver = 'SQLite3',
+        runtime_warning = 'SQLite3 is supported for development, CLI, tests, and low-scale compatibility. PostgreSQL is the required production backend for the performance architecture.',
       }
     end,
   })
@@ -177,7 +179,9 @@ do
   assert_match('install_check_missing_stdout', stdout, 'MISSING LuaDBI %(DBI%)')
   assert_match('install_check_summary_stdout', stdout, 'Dependency summary: 1 found, 1 missing')
   assert_match('install_check_settings_stdout', stdout, 'settings%.lua: absent')
+  assert_match('install_check_driver_stdout', stdout, 'database driver: SQLite3')
   assert_match('install_check_files_stdout', stdout, 'files directory: not checked')
+  assert_match('install_check_warning_stdout', stdout, 'WARNING: SQLite3 is supported for development')
   assert_eq('install_check_stderr_empty', stderr, '')
 end
 
@@ -189,6 +193,11 @@ do
         vault_path = '/tmp/site/vault.lua',
         files_dir = '/tmp/site/files',
         htaccess_path = '/tmp/site/files/.htaccess',
+        config = {
+          db = {
+            driver = 'PostgreSQL',
+          },
+        },
       }
     end,
   })
@@ -198,6 +207,7 @@ do
   assert_match('install_init_vault_stdout', stdout, '/tmp/site/vault%.lua')
   assert_match('install_init_files_stdout', stdout, '/tmp/site/files')
   assert_match('install_init_htaccess_stdout', stdout, '/tmp/site/files/%.htaccess')
+  assert_match('install_init_driver_stdout', stdout, 'Database driver: PostgreSQL')
   assert_eq('install_init_stderr_empty', stderr, '')
 end
 

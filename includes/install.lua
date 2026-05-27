@@ -168,10 +168,21 @@ local function load_settings(path, vault, options)
   return settings
 end
 
-local function driver_defaults(driver, config)
-  driver = tostring(driver or 'SQLite3')
+local function normalize_driver_name(driver)
+  local value = tostring(driver or 'PostgreSQL')
+  local lower = value:lower()
 
-  if driver:lower() == 'postgresql' then
+  if lower == 'sqlite' or lower == 'sqlite3' then
+    return 'SQLite3'
+  end
+
+  return 'PostgreSQL'
+end
+
+local function driver_defaults(driver, config)
+  driver = normalize_driver_name(driver)
+
+  if driver == 'PostgreSQL' then
     return {
       driver = 'PostgreSQL',
       database = config.db_database or 'ophal',
@@ -186,6 +197,14 @@ local function driver_defaults(driver, config)
     driver = 'SQLite3',
     database = config.db_database or 'ophal.sqlite3',
   }
+end
+
+local function runtime_warning_for_driver(driver)
+  driver = normalize_driver_name(driver)
+
+  if driver == 'SQLite3' then
+    return 'SQLite3 is supported for development, CLI, tests, and low-scale compatibility. PostgreSQL is the required production backend for the performance architecture.'
+  end
 end
 
 local function generate_site_hash(options)
@@ -389,6 +408,12 @@ function M.check(options)
       results.settings_error = err
       return results
     end
+
+    results.database_driver = normalize_driver_name(
+      (((vault or {}).db or {}).default or {}).driver
+        or (((settings or {}).db or {}).default or {}).driver
+    )
+    results.runtime_warning = runtime_warning_for_driver(results.database_driver)
 
     files_path = settings.site and settings.site.files_path
     results.files_path = files_path

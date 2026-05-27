@@ -51,6 +51,10 @@ That plan keeps OpenResty as the only web runtime, treats PostgreSQL as the
 required production SQL backend for the performance architecture, and keeps
 Valkey only as a future optional accelerator rather than a core dependency.
 
+SQLite remains supported for development, CLI tooling, tests, and low-scale
+compatibility work, but it is no longer treated as a peer production backend
+for the performance architecture.
+
 For the concrete remaining worker-blocking paths, see
 the internal blocking-surface notes.
 

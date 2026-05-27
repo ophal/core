@@ -99,6 +99,21 @@ do
   assert_match('render_vault_postgres_host', vault, 'host = "db%.local"')
 end
 
+do
+  local default_vault = install.render_vault({
+    site_hash = 'hash-234',
+  })
+  local sqlite_vault = install.render_vault({
+    site_hash = 'hash-345',
+    db_driver = 'SQLite3',
+  })
+
+  assert_match('render_vault_default_postgres_driver', default_vault, 'driver = "PostgreSQL"')
+  assert_match('render_vault_default_postgres_database', default_vault, 'database = "ophal"')
+  assert_match('render_vault_sqlite_driver', sqlite_vault, 'driver = "SQLite3"')
+  assert_match('render_vault_sqlite_database', sqlite_vault, 'database = "ophal%.sqlite3"')
+end
+
 io.write '\n-- init --\n'
 
 do
@@ -120,6 +135,7 @@ do
   assert_match('init_settings_comment_module', settings_content, '%["comment"%] = true')
   assert_match('init_settings_hash_indirect', settings_content, 'hash = vault%.site%.hash')
   assert_match('init_vault_shared_hash', vault_content, 'shared%-hash%-1')
+  assert_match('init_vault_default_driver', vault_content, 'driver = "PostgreSQL"')
   assert_match('init_htaccess_content', htaccess_content, 'SetHandler Ophal_Security_Do_Not_Remove')
 end
 
@@ -190,8 +206,30 @@ do
   assert_eq('check_installed_ok', result.ok, true)
   assert_eq('check_settings_present', result.settings_exists, true)
   assert_eq('check_vault_present', result.vault_exists, true)
+  assert_eq('check_driver_postgres', result.database_driver, 'PostgreSQL')
+  assert_eq('check_runtime_warning_absent', result.runtime_warning, nil)
   assert_eq('check_files_writable', result.files_writable, true)
   assert_match('check_files_dir', result.files_dir, 'sitefiles$')
+end
+
+do
+  local tmp = make_temp_dir()
+  assert(install.init({
+    output_dir = tmp,
+    site_hash = 'shared-hash-6',
+    db_driver = 'SQLite3',
+  }))
+
+  local result = install.check({
+    output_dir = tmp,
+    require_module = function()
+      return {}
+    end,
+    lfs = lfs,
+  })
+
+  assert_eq('check_sqlite_driver', result.database_driver, 'SQLite3')
+  assert_match('check_sqlite_warning', result.runtime_warning or '', 'PostgreSQL is the required production backend')
 end
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

@@ -11,7 +11,10 @@ Ophal now runs on OpenResty only. CGI support has been removed.
 
 These instructions assume that you installed Ophal at `/var/www/ophal`.
 
-NOTE: Ophal is compatible with SQLite and PostgreSQL only.
+NOTE: Ophal remains compatible with SQLite and PostgreSQL only. For the
+performance architecture track, PostgreSQL is the required production SQL
+backend. SQLite is kept for development, CLI work, tests, and low-scale
+compatibility deployments.
 
 ### OpenResty
 
@@ -45,6 +48,16 @@ through `settings.runtime_cache`.
 Operationally, `0.2.x` should be treated as suitable for low-to-moderate
 traffic. It is not positioned as a fully nonblocking high-concurrency stack
 until an OpenResty-native database path exists.
+
+OpenResty plus PostgreSQL assumptions for this line:
+
+- PostgreSQL is the required production backend for the performance
+  architecture work
+- the current runtime still opens synchronous LuaDBI connections during
+  bootstrap, so keep database latency low and prefer a local or private-network
+  PostgreSQL deployment or pooler
+- SQLite remains a supported compatibility path, but not the target backend
+  for the performance architecture
 
 
 ## II. Dependencies
@@ -84,6 +97,10 @@ This will verify runtime dependencies and scaffold:
 - `vault.lua`
 - the files directory
 - `.htaccess` inside the files directory
+
+`install init` now scaffolds a PostgreSQL-backed configuration by default. Use
+`--db-driver SQLite3` only when you explicitly want the compatibility or
+development path.
 
 Review the generated configuration, make any desired changes, and set
 appropriate filesystem permissions before starting OpenResty.

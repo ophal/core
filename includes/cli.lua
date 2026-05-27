@@ -573,7 +573,7 @@ function M.run(argv, options)
 
     if not action then
       output(stderr, ('install failed: %s\n'):format(tostring(err)))
-      output(stderr, 'Usage: ophal install check\n       ophal install init [DIR] [--force] [--site-name NAME] [--files-path PATH]\n')
+      output(stderr, 'Usage: ophal install check\n       ophal install init [DIR] [--force] [--site-name NAME] [--files-path PATH] [--db-driver DRIVER]\n')
       return EXIT_ERROR
     end
 
@@ -601,6 +601,9 @@ function M.run(argv, options)
       output(stdout, ('Dependency summary: %d found, %d missing.\n'):format(found, missing))
       output(stdout, ('settings.lua: %s\n'):format(result.settings_exists and 'present' or 'absent'))
       output(stdout, ('vault.lua: %s\n'):format(result.vault_exists and 'present' or 'absent'))
+      if result.database_driver then
+        output(stdout, ('database driver: %s\n'):format(result.database_driver))
+      end
 
       if result.files_dir then
         if result.files_error then
@@ -620,6 +623,10 @@ function M.run(argv, options)
         output(stdout, ('settings load error: %s\n'):format(result.settings_error))
       end
 
+      if result.runtime_warning then
+        output(stdout, ('WARNING: %s\n'):format(result.runtime_warning))
+      end
+
       return result.ok and EXIT_OK or EXIT_ERROR
     elseif action == 'init' then
       result, err = run_install_init(install_options)
@@ -632,10 +639,13 @@ function M.run(argv, options)
       output(stdout, ('Wrote %s\n'):format(result.vault_path))
       output(stdout, ('Ensured files directory %s\n'):format(result.files_dir))
       output(stdout, ('Wrote %s\n'):format(result.htaccess_path))
+      if result.config and result.config.db and result.config.db.driver then
+        output(stdout, ('Database driver: %s\n'):format(result.config.db.driver))
+      end
       return EXIT_OK
     end
 
-    output(stderr, 'Usage: ophal install check\n       ophal install init [DIR] [--force] [--site-name NAME] [--files-path PATH]\n')
+    output(stderr, 'Usage: ophal install check\n       ophal install init [DIR] [--force] [--site-name NAME] [--files-path PATH] [--db-driver DRIVER]\n')
     return EXIT_ERROR
   end
 

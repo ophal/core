@@ -1,9 +1,11 @@
 local M = {}
 
 local time = os.time
+local floor = math.floor
 local version_cache = {}
 local payload_cache = {}
 local CACHE_NIL = {}
+local DEFAULT_PAYLOAD_CACHE_SIZE = 512
 
 local function normalize_key(key)
   return tostring(key or '')
@@ -32,11 +34,88 @@ local function shared_versions_dict()
   end
 end
 
+-- The payload cache lives in worker memory and is only dropped wholesale by a
+-- version change or `cache_clear_all()`, so an unbounded cache grows for the
+-- life of the worker. Each projection gets its own LRU bucket; projection keys
+-- come from code rather than from request input, so bounding each bucket also
+-- bounds the total. A size of 0 disables payload caching entirely.
+local function payload_cache_limit()
+  local performance = (settings or {}).performance or {}
+  local limit = tonumber(performance.projection_payload_cache_size)
+
+  -- `limit ~= limit` is the NaN test.
+  if limit == nil or limit ~= limit or limit < 0 then
+    return DEFAULT_PAYLOAD_CACHE_SIZE
+  end
+
+  return floor(limit)
+end
+
 local function cache_bucket(projection_key)
   local key = normalize_key(projection_key)
+  local bucket = payload_cache[key]
 
-  payload_cache[key] = payload_cache[key] or {}
-  return payload_cache[key]
+  if not bucket then
+    -- `newest` and `oldest` are the ends of an intrusive recency list. Entries
+    -- link through `newer` and `older` so promotion and eviction stay O(1)
+    -- instead of scanning the bucket on every hit.
+    bucket = {entries = {}, count = 0}
+    payload_cache[key] = bucket
+  end
+
+  return bucket
+end
+
+local function lru_unlink(bucket, entry)
+  if entry.newer then
+    entry.newer.older = entry.older
+  else
+    bucket.newest = entry.older
+  end
+
+  if entry.older then
+    entry.older.newer = entry.newer
+  else
+    bucket.oldest = entry.newer
+  end
+
+  entry.newer, entry.older = nil, nil
+end
+
+local function lru_link(bucket, entry)
+  entry.older = bucket.newest
+  entry.newer = nil
+
+  if bucket.newest then
+    bucket.newest.newer = entry
+  end
+
+  bucket.newest = entry
+  bucket.oldest = bucket.oldest or entry
+end
+
+local function lru_promote(bucket, entry)
+  if bucket.newest == entry then
+    return
+  end
+
+  lru_unlink(bucket, entry)
+  lru_link(bucket, entry)
+end
+
+local function lru_evict(bucket, limit)
+  while bucket.count > limit do
+    local oldest = bucket.oldest
+
+    if not oldest then
+      bucket.count = 0
+      return
+    end
+
+    lru_unlink(bucket, oldest)
+    bucket.entries[oldest.key] = nil
+    bucket.count = bucket.count - 1
+  end
 end
 
 function M.query(query, ...)
@@ -208,6 +287,8 @@ end
 
 function M.cached_value(projection_key, cache_key, loader, options)
   local projection_version = options and options.version
+  local limit = payload_cache_limit()
+  local key = normalize_key(cache_key)
   local bucket
   local entry
   local value, err
@@ -219,9 +300,24 @@ function M.cached_value(projection_key, cache_key, loader, options)
     end
   end
 
+  if limit < 1 then
+    -- Caching is off. Drop anything the bucket still holds so turning the cache
+    -- off also releases what it accumulated while it was on.
+    payload_cache[normalize_key(projection_key)] = nil
+
+    value, err = loader(projection_version)
+    if err ~= nil then
+      return nil, err
+    end
+
+    return value
+  end
+
   bucket = cache_bucket(projection_key)
-  entry = bucket[normalize_key(cache_key)]
+  entry = bucket.entries[key]
   if entry and entry.version == projection_version then
+    lru_promote(bucket, entry)
+
     if entry.value == CACHE_NIL then
       return nil
     end
@@ -234,10 +330,22 @@ function M.cached_value(projection_key, cache_key, loader, options)
     return nil, err
   end
 
-  bucket[normalize_key(cache_key)] = {
-    version = projection_version,
-    value = value == nil and CACHE_NIL or value,
-  }
+  if entry then
+    entry.version = projection_version
+    entry.value = value == nil and CACHE_NIL or value
+    lru_promote(bucket, entry)
+  else
+    entry = {
+      key = key,
+      version = projection_version,
+      value = value == nil and CACHE_NIL or value,
+    }
+    bucket.entries[key] = entry
+    bucket.count = bucket.count + 1
+    lru_link(bucket, entry)
+  end
+
+  lru_evict(bucket, limit)
 
   return value
 end

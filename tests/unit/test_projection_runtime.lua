@@ -1026,6 +1026,118 @@ do
   assert_eq('payload_cache_reloaded_once', loads, 2)
 end
 
+-- The payload cache is per-worker and is only dropped by a version change or
+-- cache_clear_all(), so it needs a size bound of its own. Without one a worker
+-- keeps every payload it ever loaded for as long as the version holds still.
+local function counting_loader()
+  local loads = {}
+
+  return loads, function(key)
+    return function()
+      loads[key] = (loads[key] or 0) + 1
+      return {key = key}
+    end
+  end
+end
+
+do
+  local state = new_projection_state()
+  local projection
+  local loads, loader_for = counting_loader()
+
+  state.versions.content_public = 400
+  projection = setup_projection_env(state)
+  settings.performance = {projection_payload_cache_size = 3}
+
+  for i = 1, 5 do
+    local key = ('entity:%d'):format(i)
+    projection.cached_value('content_public', key, loader_for(key))
+  end
+
+  -- The three most recent keys stay resident.
+  for i = 3, 5 do
+    local key = ('entity:%d'):format(i)
+    projection.cached_value('content_public', key, loader_for(key))
+    assert_eq('payload_cache_bound_keeps_' .. i, loads[key], 1)
+  end
+
+  -- The two oldest were evicted, so they have to load again.
+  projection.cached_value('content_public', 'entity:1', loader_for('entity:1'))
+  assert_eq('payload_cache_bound_evicts_oldest', loads['entity:1'], 2)
+end
+
+-- Eviction order must be least-recently-used, not oldest-inserted. A key that
+-- keeps getting hit is exactly the one worth keeping.
+do
+  local state = new_projection_state()
+  local projection
+  local loads, loader_for = counting_loader()
+
+  state.versions.content_public = 400
+  projection = setup_projection_env(state)
+  settings.performance = {projection_payload_cache_size = 2}
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  projection.cached_value('content_public', 'b', loader_for('b'))
+
+  -- Touching 'a' makes 'b' the least recently used entry.
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  projection.cached_value('content_public', 'c', loader_for('c'))
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  assert_eq('payload_cache_lru_keeps_recently_used', loads.a, 1)
+
+  projection.cached_value('content_public', 'b', loader_for('b'))
+  assert_eq('payload_cache_lru_evicts_least_used', loads.b, 2)
+end
+
+-- A fractional or unusable size must not leave the cache unbounded.
+do
+  local state = new_projection_state()
+  local projection
+  local loads, loader_for = counting_loader()
+
+  state.versions.content_public = 400
+  projection = setup_projection_env(state)
+  settings.performance = {projection_payload_cache_size = 2.9}
+
+  for _, key in ipairs{'a', 'b', 'c'} do
+    projection.cached_value('content_public', key, loader_for(key))
+  end
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  assert_eq('payload_cache_size_floors', loads.a, 2)
+
+  -- A nonsense value falls back to the default rather than to no bound.
+  settings.performance = {projection_payload_cache_size = 'plenty'}
+  projection.cached_value('content_public', 'z', loader_for('z'))
+  projection.cached_value('content_public', 'z', loader_for('z'))
+  assert_eq('payload_cache_size_invalid_defaults', loads.z, 1)
+end
+
+-- A size of 0 turns payload caching off, which is the operational escape hatch
+-- for debugging a suspected stale payload.
+do
+  local state = new_projection_state()
+  local projection
+  local loads, loader_for = counting_loader()
+
+  state.versions.content_public = 400
+  projection = setup_projection_env(state)
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  settings.performance = {projection_payload_cache_size = 0}
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  assert_eq('payload_cache_disabled_always_loads', loads.a, 3)
+
+  -- Turning it back on must not resurrect what was cached before.
+  settings.performance = {projection_payload_cache_size = 8}
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  assert_eq('payload_cache_disabled_drops_bucket', loads.a, 4)
+end
+
 -- projection_cache_clear() must drop both tiers of per-worker state.
 do
   local state = new_projection_state()

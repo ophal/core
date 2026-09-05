@@ -15,6 +15,7 @@ local page_set_title, json, time = page_set_title, require 'dkjson', os.time
 local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
 local _SESSION, tonumber, _GET, ceil = _SESSION, tonumber, _GET, math.ceil
 local pager, print_t, request_get_body = pager, print_t, request_get_body
+local pager_current_page = pager_current_page
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 local projection = require 'includes.projection'
 local projection_query = projection.query
@@ -663,8 +664,6 @@ function _M.entity_page()
     header('status', 404)
     return page_not_found()
   else
-    -- Calculate current page
-    current_page = tonumber(_GET.page) or 1
     ipp = config.items_per_page or 10
 
     if use_projection then
@@ -705,6 +704,11 @@ function _M.entity_page()
 
     num_pages = ceil(count/ipp)
 
+    -- Calculate current page. Tag listings do not use the payload cache yet,
+    -- but they share the frontpage's unclamped-offset shape, so clamp here too
+    -- rather than leave the hazard behind for the Phase 4 tag work.
+    current_page = pager_current_page(_GET.page, num_pages)
+
     if count > 0 then
       if use_projection then
         rs, err = projection_query(
@@ -744,7 +748,7 @@ function _M.entity_page()
       tag.links[1 + #tag.links] = l('delete', ('tag/delete/%s'):format(tag.id))
     end
 
-    page_set_title(("%s (page %s)"):format(tag.name, _GET.page or 1))
+    page_set_title(("%s (page %s)"):format(tag.name, current_page))
 
     return function()
       print_t{'tag_page', tag = tag, rows = output}

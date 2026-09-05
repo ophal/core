@@ -8,6 +8,7 @@ local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
 local ipairs = ipairs
 local pager, l, page_set_title, arg = pager, l, page_set_title, route_arg
+local pager_current_page = pager_current_page
 local tonumber, format_date = tonumber, format_date
 local empty, add_js, ophal, t = seawolf.variable.empty, add_js, ophal, t
 local header, json, type, time = header, require 'dkjson', type, os.time
@@ -473,8 +474,6 @@ function frontpage()
   local rs, err, count, current_page, ipp, num_pages, query
   local use_projection = content_projection_ready()
 
-  -- Calculate current page
-  current_page = tonumber(_GET.page) or 1
   ipp = config.items_per_page or 10
   query = (user_mod.is_logged_in() and '' or 'AND status = 1')
 
@@ -513,6 +512,10 @@ function frontpage()
   end
 
   num_pages = ceil(count/ipp)
+
+  -- Calculate current page. Clamping happens here, after the count, because
+  -- `current_page` becomes part of the payload cache key below.
+  current_page = pager_current_page(_GET.page, num_pages)
 
   -- Render list
   if use_projection then
@@ -571,7 +574,7 @@ function frontpage()
   end
 
   if num_pages > 1 then
-    page_set_title(("%s (page %s)"):format(t('Frontpage'), _GET.page or 1))
+    page_set_title(("%s (page %s)"):format(t('Frontpage'), current_page))
   end
 
   return function ()

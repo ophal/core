@@ -24,6 +24,13 @@ end
 seawolf = require 'seawolf'
 seawolf.__build('text', 'variable', 'contrib', 'fs')
 
+-- Bootstrap loads includes/pager.lua before any module, and the content and tag
+-- modules localize `pager_current_page` from it at load time. Load it here for
+-- the same reason, so the listing tests below exercise the real clamp rather
+-- than a stub. The setups stub `pager` itself; only the clamp is shared.
+theme = theme or {}
+require 'includes.pager'
+
 local pass_count, fail_count = 0, 0
 
 local function assert_eq(label, got, expected)
@@ -702,6 +709,53 @@ do
   assert_eq('content_projection_frontpage_count_query', query_count(state, '^SELECT count%(%*%) FROM content_public'), 1)
   assert_eq('content_projection_frontpage_rows_query', query_count(state, '^SELECT %* FROM content_public'), 1)
   assert_eq('content_projection_frontpage_legacy_unused', query_count(state, '^SELECT count%(%*%) FROM content WHERE'), 0)
+end
+
+-- `current_page` is interpolated into the projection payload cache key, and the
+-- payload cache is per-worker and unbounded. Without clamping, each distinct
+-- `?page=` value would fill a cache entry that nothing ever evicts, so an
+-- anonymous visitor could grow a worker's memory by walking the query string.
+-- Clamping collapses every out-of-range value onto a page that exists, which
+-- shows up here as a single cache fill instead of one per requested page.
+do
+  local state = new_projection_state()
+  local content
+
+  state.versions.content_public = 300
+  state.content_public[11] = {
+    id = 11,
+    user_id = 1,
+    title = 'Only page',
+    teaser = 'A',
+    body = 'A',
+    status = 1,
+    promote = 1,
+    created = 20,
+  }
+
+  content = setup_content_env(state)
+
+  -- One row at 10 per page means page 1 is the only page that exists.
+  for _, page in ipairs{'2', '3', '9999', '1e300', '-1', '0', '1.5', 'abc'} do
+    _GET.page = page
+    content.frontpage()
+  end
+
+  assert_eq('frontpage_clamp_single_rows_query', query_count(state, '^SELECT %* FROM content_public'), 1)
+
+  -- The count is cached under a page-independent key, so it stays at one too.
+  assert_eq('frontpage_clamp_single_count_query', query_count(state, '^SELECT count%(%*%) FROM content_public'), 1)
+
+  -- The offset handed to SQL is the clamped page, never the raw parameter.
+  do
+    local offsets = {}
+    for _, query in ipairs(state.queries) do
+      if query.sql:match('^SELECT %* FROM content_public') then
+        offsets[#offsets + 1] = query.params[1]
+      end
+    end
+    assert_eq('frontpage_clamp_offset', offsets[1], 0)
+  end
 end
 
 do

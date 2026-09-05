@@ -1,4 +1,4 @@
-local tconcat = table.concat
+local tconcat, floor = table.concat, math.floor
 local seawolf = require 'seawolf'.__build('contrib')
 
 function pager_url(path, page, selector)
@@ -14,6 +14,37 @@ function pager_url(path, page, selector)
   end
 
   return result:concat()
+end
+
+-- Normalize a caller-supplied `?page=` value into a whole page number within
+-- `1 .. num_pages`. Listing pages feed the result into projection payload cache
+-- keys, so an unclamped value lets any visitor mint an unbounded number of
+-- per-worker cache entries by walking the query string.
+function pager_current_page(page, num_pages)
+  local last = tonumber(num_pages)
+
+  -- `last ~= last` is the NaN test; `ceil(count/ipp)` yields NaN for 0/0.
+  if last == nil or last ~= last or last < 1 then
+    last = 1
+  else
+    last = floor(last)
+  end
+
+  page = tonumber(page)
+
+  if page == nil or page ~= page then
+    return 1
+  end
+
+  page = floor(page)
+
+  if page < 1 then
+    return 1
+  elseif page > last then
+    return last
+  end
+
+  return page
 end
 
 function pager(route, num_pages, current_page, selector)

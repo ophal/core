@@ -6,6 +6,7 @@ ophal.modules[_M.entity_type] = _M
 local config = settings.content
 local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
+local ipairs = ipairs
 local pager, l, page_set_title, arg = pager, l, page_set_title, route_arg
 local tonumber, format_date = tonumber, format_date
 local empty, add_js, ophal, t = seawolf.variable.empty, add_js, ophal, t
@@ -19,6 +20,7 @@ local projection_query = projection.query
 local projection_exec = projection.exec
 local projection_touch = projection.touch
 local projection_ensure = projection.ensure
+local projection_cached_value = projection.cached_value
 local projection_is_missing_table = projection.is_missing_table
 
 local set_global = set_global
@@ -28,6 +30,26 @@ module 'ophal.modules.content'
 local user_mod, db_query, db_limit, db_last_insert_id
 local CONTENT_PUBLIC_KEY = 'content_public'
 local CONTENT_SOURCE_KEY = 'content_source'
+
+local function copy_row(row)
+  local copied = {}
+
+  for key, value in pairs(row or {}) do
+    copied[key] = value
+  end
+
+  return copied
+end
+
+local function copy_rows(rows)
+  local copied = {}
+
+  for i = 1, #(rows or {}) do
+    copied[i] = copy_row(rows[i])
+  end
+
+  return copied
+end
 
 local function content_projection_mark_source(version)
   local ok, err = projection_touch(CONTENT_SOURCE_KEY, version)
@@ -181,14 +203,25 @@ local function content_projection_ready()
 end
 
 local function load_projection(id)
-  local rs, err
+  local row, err
 
   if not content_projection_ready() then
     return nil
   end
 
-  rs, err = projection_query('SELECT * FROM content_public WHERE id = ?', id)
-  if not rs then
+  row, err = projection_cached_value(
+    CONTENT_PUBLIC_KEY,
+    ('entity:%s'):format(id),
+    function()
+      local rs, query_err = projection_query('SELECT * FROM content_public WHERE id = ?', id)
+      if not rs then
+        return nil, query_err
+      end
+
+      return rs:fetch(true)
+    end
+  )
+  if err then
     if projection_is_missing_table(err, 'content_public') then
       return nil
     end
@@ -196,7 +229,9 @@ local function load_projection(id)
     error(err)
   end
 
-  return rs:fetch(true)
+  if row then
+    return copy_row(row)
+  end
 end
 
 function load(id)
@@ -434,6 +469,7 @@ end
 
 function frontpage()
   local rows = {}
+  local entities
   local rs, err, count, current_page, ipp, num_pages, query
   local use_projection = content_projection_ready()
 
@@ -444,17 +480,26 @@ function frontpage()
 
   -- Count rows
   if use_projection then
-    rs, err = projection_query(
-      ('SELECT count(*) FROM content_public WHERE promote = 1 %s'):format(query)
+    count, err = projection_cached_value(
+      CONTENT_PUBLIC_KEY,
+      ('frontpage:count:%s'):format(user_mod.is_logged_in() and 'all' or 'published'),
+      function()
+        local count_rs, query_err = projection_query(
+          ('SELECT count(*) FROM content_public WHERE promote = 1 %s'):format(query)
+        )
+        if not count_rs then
+          return nil, query_err
+        end
+
+        return (count_rs:fetch() or {})[1]
+      end
     )
-    if not rs then
+    if err then
       if projection_is_missing_table(err, 'content_public') then
         use_projection = false
       else
         error(err)
       end
-    else
-      count = (rs:fetch() or {})[1]
     end
   end
 
@@ -471,12 +516,27 @@ function frontpage()
 
   -- Render list
   if use_projection then
-    rs, err = projection_query(
-      ('SELECT * FROM content_public WHERE promote = 1 %s ORDER BY created DESC' .. db_limit()):format(query),
-      (current_page -1)*ipp,
-      ipp
+    entities, err = projection_cached_value(
+      CONTENT_PUBLIC_KEY,
+      ('frontpage:rows:%s:%s:%s'):format(
+        user_mod.is_logged_in() and 'all' or 'published',
+        current_page,
+        ipp
+      ),
+      function()
+        local rows_rs, query_err = projection_query(
+          ('SELECT * FROM content_public WHERE promote = 1 %s ORDER BY created DESC' .. db_limit()):format(query),
+          (current_page -1)*ipp,
+          ipp
+        )
+        if not rows_rs then
+          return nil, query_err
+        end
+
+        return rows_rs:all(true)
+      end
     )
-    if not rs then
+    if err then
       if projection_is_missing_table(err, 'content_public') then
         use_projection = false
       else
@@ -496,10 +556,17 @@ function frontpage()
     end
   end
 
-  for row in rs:rows(true) do
-    if not use_projection then
+  if use_projection then
+    entities = copy_rows(entities or {})
+  else
+    entities = {}
+    for row in rs:rows(true) do
       content_projection_write(row)
+      tinsert(entities, row)
     end
+  end
+
+  for _, row in ipairs(entities) do
     tinsert(rows, function () print_t{'content_teaser', entity = row} end)
   end
 

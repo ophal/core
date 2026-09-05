@@ -21,11 +21,53 @@ local ROUTE_ALIAS_INDEX_KEY = 'route_alias_index'
 local ROUTE_ALIAS_SOURCE_KEY = 'route_alias_source'
 local ROUTE_REDIRECT_INDEX_KEY = 'route_redirect_index'
 local ROUTE_REDIRECT_SOURCE_KEY = 'route_redirect_source'
+local loaded_route_alias_version
+local loaded_route_redirect_version
 
 local function route_projection_mark_source(key, version)
   local ok, err = projection_touch(key, version)
   if not ok then
     error(err)
+  end
+end
+
+local function route_projection_read_version(key)
+  local version, err = projection_version(key)
+
+  if err and not projection_is_missing_table(err, 'projection_version') then
+    error(err)
+  end
+
+  return version
+end
+
+local function route_projection_record_loaded(kind)
+  local version = route_projection_read_version(
+    kind == 'alias' and ROUTE_ALIAS_INDEX_KEY or ROUTE_REDIRECT_INDEX_KEY
+  )
+
+  if kind == 'alias' then
+    loaded_route_alias_version = version
+  else
+    loaded_route_redirect_version = version
+  end
+end
+
+local function route_projection_sync()
+  local version
+
+  if settings.route_aliases_storage then
+    version = route_projection_read_version(ROUTE_ALIAS_INDEX_KEY)
+    if version ~= loaded_route_alias_version then
+      route_aliases_load()
+    end
+  end
+
+  if settings.route_redirects_storage then
+    version = route_projection_read_version(ROUTE_REDIRECT_INDEX_KEY)
+    if version ~= loaded_route_redirect_version then
+      route_redirects_load()
+    end
   end
 end
 
@@ -168,6 +210,8 @@ function route_aliases_load()
     end
     route_register_alias(row.source, alias)
   end
+
+  route_projection_record_loaded('alias')
 end
 
 function route_read_alias(id)
@@ -243,6 +287,7 @@ function route_delete_alias(id)
 end
 
 function route_redirect()
+  route_projection_sync()
   local redirect = ophal.redirects.source[request_path()]
   if redirect then
     go_to(redirect[1], redirect[2])
@@ -314,6 +359,8 @@ function route_redirects_load()
     end
     route_register_redirect(row.source, target, row.type)
   end
+
+  route_projection_record_loaded('redirect')
 end
 
 function route_create_redirect(entity)
@@ -398,6 +445,7 @@ do
 
     index = index + 1
     if arguments == nil then
+      route_projection_sync()
       rp = request_path()
       source = aliases.alias[rp]
       if source then

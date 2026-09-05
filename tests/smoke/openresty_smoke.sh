@@ -229,6 +229,8 @@ http {
   lua_package_path '$VENDOR_LUA_PATH';
   lua_package_cpath '$VENDOR_LUA_CPATH';
 
+  lua_shared_dict ophal_projection_versions 1m;
+
   access_log logs/access.log;
   client_body_temp_path client_body_temp;
   proxy_temp_path proxy_temp;
@@ -452,6 +454,13 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 404'
 assert_contains 'The requested page could not be found.'
 report_ok not_found
+
+run_request projection_shared_dict "$BASE_URL/__smoke__?scenario=projection_shared_dict"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_DICT_DECLARED=true'
+assert_contains 'SMOKE_DICT_VERSION=12345'
+report_ok projection_shared_dict
 
 run_request request_metadata "$BASE_URL/__smoke__?foo=bar&scenario=request_metadata"
 assert_status_zero

@@ -22,6 +22,9 @@ function cache_clear_all()
   if type(db_schema_cache_clear) == 'function' then
     db_schema_cache_clear()
   end
+  if type(projection_cache_clear) == 'function' then
+    projection_cache_clear()
+  end
 
   -- Module caches
   local modules = (ophal and ophal.modules) or {}

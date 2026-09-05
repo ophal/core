@@ -50,7 +50,8 @@ end
 
 local function rows_result(items)
   local index = 0
-  return {
+  local result
+  result = {
     fetch = function(_, named)
       index = index + 1
       return items[index]
@@ -62,7 +63,17 @@ local function rows_result(items)
         return items[row_index]
       end
     end,
+    all = function(self, named)
+      local collected = {}
+
+      for row in self:rows(named) do
+        collected[#collected + 1] = row
+      end
+
+      return collected
+    end,
   }
+  return result
 end
 
 local function new_projection_state()
@@ -862,6 +873,121 @@ do
   assert_eq('tag_projection_stale_rebuilt_title', state.tag_listing_index[1].title, 'Fresh projected tagged content')
   assert_eq('tag_projection_stale_rebuild_source_query', query_count(state, "^SELECT t%.id tag_id, t%.name tag_name, 'content' entity_type, cp%.id entity_id,"), 1)
 end
+
+io.write '\n-- projection version cache --\n'
+
+local function new_shared_dict()
+  local store = {}
+
+  return {
+    get = function(_, key) return store[key] end,
+    set = function(_, key, value) store[key] = value return true end,
+    store = store,
+  }
+end
+
+local function setup_projection_env(state, shared)
+  settings = {}
+  db_query = make_db_query(state)
+  if shared then
+    ngx = {shared = {ophal_projection_versions = shared}}
+  else
+    ngx = nil
+  end
+  package.loaded['includes.projection'] = nil
+  return require 'includes.projection'
+end
+
+local VERSION_SQL = '^SELECT version FROM projection_version WHERE projection_key = %?$'
+
+-- Per-worker cache must answer without re-querying SQL. The pre-fix code ran
+-- the SELECT unconditionally, so the cache removed no database work at all.
+do
+  local state = new_projection_state()
+  local projection
+
+  state.versions.content_public = 200
+  projection = setup_projection_env(state)
+
+  assert_eq('version_cache_first_read', projection.version('content_public'), 200)
+  assert_eq('version_cache_second_read', projection.version('content_public'), 200)
+  assert_eq('version_cache_single_sql', query_count(state, VERSION_SQL), 1)
+end
+
+-- A version already published to the shared dict is served without SQL.
+do
+  local state = new_projection_state()
+  local shared = new_shared_dict()
+  local projection
+
+  state.versions.content_public = 200
+  shared.store.content_public = 500
+  projection = setup_projection_env(state, shared)
+
+  assert_eq('version_shared_hit_value', projection.version('content_public'), 500)
+  assert_eq('version_shared_hit_no_sql', query_count(state, VERSION_SQL), 0)
+end
+
+-- touch() must publish the new version so other workers observe the write.
+do
+  local state = new_projection_state()
+  local shared = new_shared_dict()
+  local projection = setup_projection_env(state, shared)
+
+  projection.touch('content_public', 900)
+
+  assert_eq('version_touch_publishes_shared', shared.store.content_public, 900)
+  assert_eq('version_touch_persists_sql', state.versions.content_public, 900)
+end
+
+-- Cross-worker invalidation: this worker caches a payload at version 1, another
+-- worker bumps the shared version, and the stale payload must not be reused.
+do
+  local state = new_projection_state()
+  local shared = new_shared_dict()
+  local projection
+  local loads = 0
+  local function loader()
+    loads = loads + 1
+    return {title = ('load %d'):format(loads)}
+  end
+  local first, second, third
+
+  shared.store.content_public = 1
+  projection = setup_projection_env(state, shared)
+
+  first = projection.cached_value('content_public', 'entity:1', loader)
+  second = projection.cached_value('content_public', 'entity:1', loader)
+
+  assert_eq('payload_cache_first_value', first.title, 'load 1')
+  assert_eq('payload_cache_reused_value', second.title, 'load 1')
+  assert_eq('payload_cache_single_load', loads, 1)
+
+  -- Another worker writes and bumps the shared version.
+  shared.store.content_public = 2
+
+  third = projection.cached_value('content_public', 'entity:1', loader)
+
+  assert_eq('payload_cache_invalidated_value', third.title, 'load 2')
+  assert_eq('payload_cache_reloaded_once', loads, 2)
+end
+
+-- projection_cache_clear() must drop both tiers of per-worker state.
+do
+  local state = new_projection_state()
+  local projection
+
+  state.versions.content_public = 200
+  projection = setup_projection_env(state)
+
+  projection.version('content_public')
+  projection_cache_clear()
+  projection.version('content_public')
+
+  assert_eq('version_cache_clear_requeries', query_count(state, VERSION_SQL), 2)
+end
+
+ngx = nil
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then

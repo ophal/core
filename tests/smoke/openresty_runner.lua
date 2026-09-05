@@ -31,6 +31,27 @@ local function get_scenario()
 end
 
 local scenarios = {
+  -- Proves the `lua_shared_dict` name declared in nginx.conf matches the name
+  -- includes/projection.lua resolves. The module falls back to a per-worker
+  -- table silently when they disagree, so only an end-to-end probe catches it.
+  projection_shared_dict = function()
+    return run_bootstrap(function()
+      local projection = require 'includes.projection'
+      local dict = ngx.shared.ophal_projection_versions
+
+      -- Seed the zone directly, the way a peer worker publishing a version
+      -- would, then read it back through the module. A name mismatch between
+      -- nginx.conf and the module makes the read fall through to SQL instead.
+      if dict then
+        dict:set('smoke_probe', 12345)
+      end
+
+      write(render{
+        'SMOKE_DICT_DECLARED=' .. tostring(dict ~= nil),
+        'SMOKE_DICT_VERSION=' .. tostring(projection.version('smoke_probe')),
+      })
+    end)
+  end,
   request_metadata = function()
     return run_bootstrap(function()
       write(render{

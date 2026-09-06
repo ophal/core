@@ -54,6 +54,13 @@ function db_connect()
 
   drivers[db_id] = require('includes.database.' .. connection.driver:lower())
 
+  -- Per-driver connection setup. SQLite uses this to widen its locking
+  -- defaults, which multi-worker OpenResty needs and the driver defaults do
+  -- not give; drivers without connection state simply omit the hook.
+  if type(drivers[db_id].on_connect) == 'function' then
+    drivers[db_id].on_connect(connection)
+  end
+
   -- commit the transaction
   dbh[db_id]:autocommit(connection.autocommit)
 

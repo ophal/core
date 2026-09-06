@@ -3,9 +3,11 @@ local M = {}
 local time = os.time
 local floor = math.floor
 local version_cache = {}
+local version_miss = {}
 local payload_cache = {}
 local CACHE_NIL = {}
 local DEFAULT_PAYLOAD_CACHE_SIZE = 512
+local DEFAULT_VERSION_MISS_TTL = 5
 
 local function normalize_key(key)
   return tostring(key or '')
@@ -49,6 +51,29 @@ local function payload_cache_limit()
   end
 
   return floor(limit)
+end
+
+-- A projection with no version row is a miss the L1 table cannot represent:
+-- storing nil is indistinguishable from storing nothing, so `version()` fell
+-- through to SQL on every call for the whole life of the worker. That is the
+-- ordinary case for a source key nothing has touched yet, which put one
+-- `projection_version` round trip on every anonymous page. Misses are recorded
+-- separately instead, and they expire.
+--
+-- The TTL is what keeps the negative cache honest. A version row can appear
+-- from outside the web workers -- a CLI migration, a cron rebuild -- and those
+-- processes have no shared zone to publish into, so nothing would tell this
+-- worker to look again. A TTL of 0 disables miss caching.
+local function version_miss_ttl()
+  local performance = (settings or {}).performance or {}
+  local ttl = tonumber(performance.projection_version_miss_ttl)
+
+  -- `ttl ~= ttl` is the NaN test.
+  if ttl == nil or ttl ~= ttl or ttl < 0 then
+    return DEFAULT_VERSION_MISS_TTL
+  end
+
+  return floor(ttl)
 end
 
 local function cache_bucket(projection_key)
@@ -167,6 +192,12 @@ function M.version(key)
     return cached
   end
 
+  -- A remembered miss short-circuits the same round trip. With a shared zone
+  -- the peer worker publishes on touch(), so this stays correct there too.
+  if (version_miss[normalized] or 0) > time() then
+    return nil
+  end
+
   rs, err = M.query(
     'SELECT version FROM projection_version WHERE projection_key = ?',
     normalized
@@ -178,6 +209,12 @@ function M.version(key)
 
   row = rs:fetch()
   row = normalize_version(row and row[1] or nil)
+
+  if row == nil then
+    version_miss[normalized] = time() + version_miss_ttl()
+  else
+    version_miss[normalized] = nil
+  end
 
   version_cache[normalized] = row
   if shared and row ~= nil then
@@ -250,6 +287,7 @@ function M.touch(key, version)
   if not ok then
     if M.is_missing_table(err, 'projection_version') then
       version_cache[normalized] = current
+      version_miss[normalized] = nil
       payload_cache[normalized] = nil
       if shared then
         shared:set(normalized, current)
@@ -269,6 +307,7 @@ function M.touch(key, version)
 
   if not ok and M.is_missing_table(err, 'projection_version') then
     version_cache[normalized] = current
+    version_miss[normalized] = nil
     payload_cache[normalized] = nil
     if shared then
       shared:set(normalized, current)
@@ -277,6 +316,7 @@ function M.touch(key, version)
   end
 
   version_cache[normalized] = current
+  version_miss[normalized] = nil
   payload_cache[normalized] = nil
   if shared then
     shared:set(normalized, current)
@@ -352,6 +392,7 @@ end
 
 function projection_cache_clear()
   version_cache = {}
+  version_miss = {}
   payload_cache = {}
 end
 

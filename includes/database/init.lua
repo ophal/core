@@ -7,6 +7,7 @@ dbh = {} -- Database handlers kept global for compatibility during DB boundary w
 -- a fully nonblocking database stack.
 local DBI, db_id, drivers = require 'DBI', 'default', {}
 local db_result = require 'includes.database.result'
+local db_stats = require 'includes.database.stats'
 local xtable = seawolf.contrib.seawolf_table
 
 function db_set_db_id(id)
@@ -81,6 +82,8 @@ function db_query(query, ...)
     error 'No database connection'
   end
 
+  db_stats.record(query)
+
   -- prepare a query
   sth, err = connection:prepare(query)
   if err or nil == sth then
@@ -109,6 +112,17 @@ function db_query(query, ...)
   end
 
   return db_result.wrap(sth)
+end
+
+-- Reports how many queries this worker has issued and how many of them still
+-- read normalized tables. Public delivery should hold `normalized` at zero once
+-- the worker is warm; anything else names the path that still falls through.
+function db_query_stats()
+  return db_stats.snapshot()
+end
+
+function db_query_stats_reset()
+  db_stats.reset()
 end
 
 function db_last_insert_id(...)

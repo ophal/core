@@ -1138,6 +1138,60 @@ do
   assert_eq('payload_cache_disabled_drops_bucket', loads.a, 4)
 end
 
+-- A projection with no version row must not re-query on every call. Storing a
+-- nil in the L1 table is indistinguishable from storing nothing, so before the
+-- miss cache this put one `projection_version` SELECT on every anonymous page
+-- for any source key nothing had touched yet.
+do
+  local state = new_projection_state()
+  local projection = setup_projection_env(state)
+
+  assert_eq('version_miss_first_read', projection.version('content_source'), nil)
+  assert_eq('version_miss_second_read', projection.version('content_source'), nil)
+  assert_eq('version_miss_single_sql', query_count(state, VERSION_SQL), 1)
+end
+
+-- The same hole existed on the shared-zone path, which is the one production
+-- runs: an absent zone entry fell straight through to SQL.
+do
+  local state = new_projection_state()
+  local shared = new_shared_dict()
+  local projection = setup_projection_env(state, shared)
+
+  projection.version('content_source')
+  projection.version('content_source')
+
+  assert_eq('version_miss_shared_single_sql', query_count(state, VERSION_SQL), 1)
+end
+
+-- A miss must not be remembered past its TTL, because a version row can appear
+-- from a CLI or cron process that has no shared zone to publish into.
+do
+  local state = new_projection_state()
+  local projection
+
+  settings = {}
+  projection = setup_projection_env(state)
+  settings.performance = {projection_version_miss_ttl = 0}
+
+  projection.version('content_source')
+  projection.version('content_source')
+
+  assert_eq('version_miss_ttl_zero_requeries', query_count(state, VERSION_SQL), 2)
+end
+
+-- touch() publishes a version, which must retire the remembered miss rather
+-- than leave the worker serving nil until the TTL lapses.
+do
+  local state = new_projection_state()
+  local projection = setup_projection_env(state)
+
+  projection.version('content_source')
+  projection.touch('content_source', 700)
+
+  assert_eq('version_miss_cleared_by_touch', projection.version('content_source'), 700)
+end
+
 -- projection_cache_clear() must drop both tiers of per-worker state.
 do
   local state = new_projection_state()
@@ -1151,6 +1205,157 @@ do
   projection.version('content_public')
 
   assert_eq('version_cache_clear_requeries', query_count(state, VERSION_SQL), 2)
+end
+
+io.write '\n-- anonymous SQL budget --\n'
+
+-- Phase 4 exits when normal anonymous delivery stops reading normalized
+-- tables. The assertions above name one query shape at a time, which only
+-- proves that the fallbacks someone already thought of are gone. These walk
+-- every query a warm read still issues and fail on any table that is not a
+-- projection, so a newly introduced fallback surfaces without anyone having
+-- predicted it. The classifier is the one `db_query()` uses in production, so
+-- the budget measured here is the budget a real worker reports.
+local db_stats = require 'includes.database.stats'
+
+local function first_normalized_since(state, mark)
+  for index = mark + 1, #state.queries do
+    local sql = state.queries[index].sql
+
+    for _, name in ipairs(db_stats.tables(sql)) do
+      if not db_stats.is_projection_table(name) then
+        return ('%s in %q'):format(name, sql)
+      end
+    end
+  end
+
+  return 'none'
+end
+
+local function queries_since(state, mark)
+  return #state.queries - mark
+end
+
+-- Front page: the second anonymous hit is served entirely from the payload
+-- cache, so it reaches neither normalized tables nor SQL at all.
+do
+  local state = new_projection_state()
+  local content
+  local mark
+
+  state.versions.content_public = 300
+  state.content_public[21] = {
+    id = 21,
+    user_id = 1,
+    title = 'Front A',
+    teaser = 'A',
+    body = 'A',
+    status = 1,
+    promote = 1,
+    created = 20,
+  }
+
+  content = setup_content_env(state)
+  content.frontpage()
+  mark = #state.queries
+  content.frontpage()
+
+  assert_eq('budget_frontpage_no_normalized', first_normalized_since(state, mark), 'none')
+  assert_eq('budget_frontpage_warm_queries', queries_since(state, mark), 0)
+end
+
+-- Content page: same claim for a single entity read.
+do
+  local state = new_projection_state()
+  local content
+  local mark
+
+  state.versions.content_public = 300
+  state.content_public[22] = {
+    id = 22,
+    user_id = 1,
+    title = 'Projected',
+    teaser = 'T',
+    body = 'B',
+    status = 1,
+    promote = 1,
+    created = 20,
+  }
+
+  content = setup_content_env(state)
+  content.load(22)
+  mark = #state.queries
+  content.load(22)
+
+  assert_eq('budget_content_load_no_normalized', first_normalized_since(state, mark), 'none')
+  assert_eq('budget_content_load_warm_queries', queries_since(state, mark), 0)
+end
+
+-- Route resolution: the alias and redirect indexes are held in worker memory
+-- and only resync when the projection version moves, so a repeat request
+-- resolves without touching `route_alias` or `route_redirect`.
+do
+  local state = new_projection_state()
+  local mark
+
+  state.versions.route_alias_index = 100
+  state.versions.route_redirect_index = 100
+  state.route_index.alias = {
+    {kind = 'alias', source = 'content/21', target = 'front-a', language = 'en'},
+  }
+
+  setup_route_env(state)
+  route_aliases_load()
+  route_redirects_load()
+  route_redirect()
+  mark = #state.queries
+  route_redirect()
+
+  assert_eq('budget_route_no_normalized', first_normalized_since(state, mark), 'none')
+  assert_eq('budget_route_warm_queries', queries_since(state, mark), 0)
+end
+
+-- Tag listing: reads are projection-backed, so the budget holds, but the
+-- payload cache does not cover them yet. The warm request still issues the
+-- count and rows queries against `tag_listing_index`, which is the measurement
+-- behind the remaining Phase 4 item rather than a defect in this test.
+do
+  local state = new_projection_state()
+  local tag_mod
+  local mark
+
+  state.versions.tag_listing_index = 400
+  state.tag_rows[1] = {id = 1, name = 'alpha', description = 'Alpha'}
+  state.tag_listing_index = {
+    {
+      tag_id = 1,
+      tag_name = 'alpha',
+      entity_type = 'content',
+      entity_id = 5,
+      user_id = 1,
+      title = 'Projected tagged content',
+      teaser = 'Projected teaser',
+      body = 'Projected body',
+      status = 1,
+      promote = 1,
+      created = 20,
+      route = 'content/5',
+    },
+  }
+
+  tag_mod = setup_tag_env(state)
+  tag_mod.entity_page()
+  mark = #state.queries
+  tag_mod.entity_page()
+
+  -- Two gaps the probe found and Phase 4 has not closed yet: the tag entity is
+  -- still loaded from the normalized `tag` table on every request, and the
+  -- listing itself is read past the payload cache. These assertions record the
+  -- measurement so the numbers cannot drift while the work is pending.
+  assert_eq('budget_tag_listing_normalized_read', first_normalized_since(state, mark),
+    'tag in "SELECT * FROM tag WHERE id = ?"')
+  -- The three are the tag entity load plus the listing count and rows.
+  assert_eq('budget_tag_listing_warm_queries', queries_since(state, mark), 3)
 end
 
 ngx = nil

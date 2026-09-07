@@ -1137,7 +1137,7 @@ authored_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\
 # write path has to state what it did to the cost, and the breakdown is what
 # makes the number readable:
 #
-#   projection_version  10   five touch() calls, each a DELETE plus an INSERT
+#   projection_version   8   four touch() calls, each a DELETE plus an INSERT
 #   content_public       3   the projection DELETE and INSERT, and the tag
 #                            rebuild's source read, which joins it
 #   content              2   the INSERT, then load_legacy() in entity_after_save
@@ -1148,12 +1148,9 @@ authored_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\
 #   tag                  1
 #   plus the connection's two pragmas
 #
-# Two costs remain that need no Phase 5 work. `projection.touch()` is a DELETE
-# plus an INSERT where an upsert is one query, which alone is five of the ten.
-# And `tag_listing_source` is touched twice in one request -- once by
-# `entity_after_save()` and again inside `tag_projection_rebuild()` -- at the
-# same version.
-assert_query_budget 24 5
+# One cost remains that needs no Phase 5 work: `projection.touch()` is a DELETE
+# plus an INSERT where an upsert is one query, which is half of the eight.
+assert_query_budget 22 5
 report_ok "db_content_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # What the write left for the next visitor. This is anonymous on purpose: the
@@ -1180,9 +1177,10 @@ measure_request db_content_update -c "$author_cookie" -b "$author_cookie" \
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_regex '"success" *: *true'
-# An update costs about what a create does, less the insert-side work: two
-# `content` queries rather than three, and one fewer normalized read.
-assert_query_budget 24 5
+# An update costs about what a create does. It reads one more row from
+# `content_public` -- `load(id)`, which an update genuinely needs and a create
+# no longer performs -- and does one less insert-side write.
+assert_query_budget 22 5
 report_ok "db_content_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_content_page_after_update "$DB_URL/content/$authored_id"

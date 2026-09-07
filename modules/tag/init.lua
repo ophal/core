@@ -203,15 +203,33 @@ local function tag_projection_rebuild(tag_id, version)
     end
   end
 
-  -- The rebuild has just read the source, so it records a source version too,
-  -- the way `route_load_aliases_legacy()` does. Without it a site whose tags
-  -- arrived from an installer or a dump rather than through the entity hooks
-  -- never gets a `tag_listing_source` row at all, and an absent version row is
-  -- re-queried every time the miss cache lapses -- once every
-  -- `projection_version_miss_ttl` seconds, per worker, on every page that loads
-  -- a taggable entity.
-  tag_projection_mark_source(updated_at)
+  -- Only the index. Recording a source version is the caller's job, because
+  -- the two callers need it at different moments: a write has to stamp the
+  -- source whether or not the rebuild runs at all, and it does so before
+  -- getting here. Marking it again from inside the rebuild wrote the same row a
+  -- second time on every save -- see tag_projection_rebuild_all().
   projection_touch(TAG_LISTING_KEY, updated_at)
+  return true
+end
+
+-- What `projection_ensure()` calls when the listing projection is missing or
+-- behind. It rebuilds every tag, and unlike the write paths it records a source
+-- version too, the way `route_load_aliases_legacy()` does. Without that, a site
+-- whose tags arrived from an installer or a dump rather than through the entity
+-- hooks never gets a `tag_listing_source` row at all, and an absent version row
+-- is re-queried every time the miss cache lapses -- once every
+-- `projection_version_miss_ttl` seconds, per worker, on every page that loads a
+-- taggable entity.
+local function tag_projection_rebuild_all()
+  -- One version for the index and the source, so neither ends up a second ahead
+  -- of the other and reads as stale on the very next request.
+  local updated_at = time()
+
+  if not tag_projection_rebuild(nil, updated_at) then
+    return false
+  end
+
+  tag_projection_mark_source(updated_at)
   return true
 end
 
@@ -220,7 +238,7 @@ local function tag_projection_ready()
     return false
   end
 
-  local ok, err = projection_ensure(TAG_LISTING_KEY, tag_projection_rebuild, {
+  local ok, err = projection_ensure(TAG_LISTING_KEY, tag_projection_rebuild_all, {
     depends_on = {'content_public', TAG_LISTING_SOURCE_KEY},
   })
   if ok == nil then

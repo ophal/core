@@ -729,12 +729,20 @@ function _M.save_service()
   return output
 end
   
--- The listing page reads its tag entity on every request, and that read was the
--- last normalized SQL left on a warm anonymous page. It is cached against the
--- listing projection version rather than against a projection of its own,
+-- The listing page reads its tag entity on every request. It is cached against
+-- the listing projection version rather than against a projection of its own,
 -- because every write that can change a tag row already moves that version:
 -- create and update reach entity_after_save() and delete reaches
 -- entity_after_delete(), and both touch TAG_LISTING_KEY.
+--
+-- That holds only inside the gate. `entity_after_save()` moves the index
+-- version through `tag_projection_rebuild()`, which returns early when the
+-- projection is unsupported or its table is missing, so on its own the index
+-- version is not a key every tag write is guaranteed to move. `cacheable` is
+-- the caller's `tag_projection_ready()`, which is false in exactly those cases,
+-- and that is what closes the gap. Anything cached here outside that gate needs
+-- TAG_LISTING_SOURCE_KEY instead, which the writers touch unconditionally --
+-- see tag_entity_tags().
 --
 -- `entity_id` is route input on its way into a cache key, so it is normalized
 -- first, and only a non-negative integer is cached. The normalization rejects

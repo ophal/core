@@ -503,7 +503,10 @@ local function query_count(state, pattern)
   return count
 end
 
-local function setup_route_env(state)
+-- `projection_overrides` replaces functions on the projection module before
+-- `includes/route.lua` captures them as upvalues, which is the only way to make
+-- `ensure` answer something the current code cannot yet produce.
+local function setup_route_env(state, projection_overrides)
   ophal = {
     aliases = {source = {}, alias = {}},
     redirects = {source = {}, target = {}},
@@ -521,6 +524,15 @@ local function setup_route_env(state)
   request_path = function() return '' end
   go_to = function() end
   package.loaded['includes.projection'] = nil
+
+  if projection_overrides then
+    local projection = require 'includes.projection'
+
+    for name, replacement in pairs(projection_overrides) do
+      projection[name] = replacement
+    end
+  end
+
   dofile('includes/route.lua')
 end
 
@@ -643,6 +655,92 @@ do
   assert_eq('route_projection_stale_rebuilt_alias', ophal.aliases.source['content/3'], 'fresh-alias')
   assert_eq('route_projection_stale_replaced_count', #state.route_index.alias, 1)
   assert_eq('route_projection_stale_removed_old', state.route_index.alias[1].source, 'content/3')
+end
+
+-- A rebuild is `N + 4` statements, not `3N + 4`. The per-source DELETE and the
+-- per-row version touch were both redundant: the clear at the top has already
+-- removed every row of this kind, and the touch at the end writes the same
+-- value the N touches before it wrote. It matters because this rebuild runs
+-- from bootstrap, before routing, on a table whose size is the number of
+-- aliases on the site.
+do
+  local state = new_projection_state()
+
+  state.route_alias = {
+    {source = 'content/1', alias = 'a-1', language = 'all'},
+    {source = 'content/2', alias = 'a-2', language = 'all'},
+    {source = 'content/3', alias = 'a-3', language = 'all'},
+  }
+
+  setup_route_env(state)
+  route_aliases_load()
+
+  assert_eq(
+    'route_rebuild_clears_kind_once',
+    query_count(state, '^DELETE FROM route_index WHERE kind = %?$'),
+    1
+  )
+  assert_eq(
+    'route_rebuild_skips_per_source_delete',
+    query_count(state, '^DELETE FROM route_index WHERE kind = %? AND source = %?$'),
+    0
+  )
+  assert_eq(
+    'route_rebuild_inserts_each_row',
+    query_count(state, '^INSERT INTO route_index'),
+    3
+  )
+  -- Two touches for three rows: the index key and the source key, once each.
+  assert_eq(
+    'route_rebuild_touches_each_version_once',
+    query_count(state, '^INSERT INTO projection_version%\('),
+    2
+  )
+  assert_eq('route_rebuild_registered_all', ophal.aliases.source['content/3'], 'a-3')
+end
+
+-- What happens when `ensure` declines to rebuild. Nothing produces that answer
+-- yet, so it is forced here: the point of splitting the loader from the writer
+-- is that this branch reads the source and writes nothing, and the branch is
+-- worth pinning before anything depends on it. Calling the rebuild here instead
+-- -- which is what the code did -- would make deferral a no-op on the one
+-- projection that loads before routing on every request.
+do
+  local state = new_projection_state()
+
+  state.route_alias = {
+    {source = 'content/9', alias = 'deferred-alias', language = 'all'},
+  }
+
+  setup_route_env(state, {ensure = function() return false end})
+  route_aliases_load()
+
+  assert_eq('route_deferred_serves_from_source', ophal.aliases.source['content/9'], 'deferred-alias')
+  assert_eq('route_deferred_writes_no_rows', #state.route_index.alias, 0)
+  assert_eq(
+    'route_deferred_writes_no_versions',
+    query_count(state, '^INSERT INTO projection_version%\('),
+    0
+  )
+  assert_eq(
+    'route_deferred_does_not_clear',
+    query_count(state, '^DELETE FROM route_index'),
+    0
+  )
+end
+
+do
+  local state = new_projection_state()
+
+  state.route_redirect = {
+    {source = 'old', target = 'new', language = 'all', type = 301},
+  }
+
+  setup_route_env(state, {ensure = function() return false end})
+  route_redirects_load()
+
+  assert_eq('route_deferred_redirect_from_source', ophal.redirects.source['old'][1], 'new')
+  assert_eq('route_deferred_redirect_writes_no_rows', #state.route_index.redirect, 0)
 end
 
 io.write '\n-- content projections --\n'

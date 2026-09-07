@@ -126,6 +126,39 @@ VALUES(?, ?, ?, ?, ?, ?)]],
   return true
 end
 
+--[[ The rebuild's per-row write.
+
+  `route_projection_save()` is a DELETE, an INSERT and a version touch, which is
+  what a single alias changing needs. A full rebuild needs none of the first and
+  none of the last: it has already cleared every row of its kind, so the delete
+  has nothing to find, and it touches the index version once at the end, so N
+  touches writing the same value are N - 1 statements that change nothing. That
+  is what made a rebuild `3N + 4` statements instead of `N + 4`, on a table
+  whose size is the number of aliases on the site.
+]]
+local function route_projection_insert(kind, source, target, language, http_code, updated_at)
+  local ok, err = projection_exec([[
+INSERT INTO route_index(kind, source, target, language, http_code, updated_at)
+VALUES(?, ?, ?, ?, ?, ?)]],
+    kind,
+    source,
+    target,
+    language or 'all',
+    http_code,
+    updated_at
+  )
+
+  if not ok then
+    if projection_is_missing_table(err, 'route_index') then
+      return true
+    end
+
+    return nil, err
+  end
+
+  return true
+end
+
 local function route_projection_delete(kind, source, updated_at)
   local ok, err = projection_exec(
     'DELETE FROM route_index WHERE kind = ? AND source = ?',
@@ -150,18 +183,22 @@ function route_register_alias(source, alias)
   aliases.alias[alias] = source
 end
 
-local function route_load_aliases_legacy()
+--[[ Populate `ophal.aliases` from the normalized source, writing nothing.
+
+  Reading the source and rebuilding the projection used to be the same
+  function, which meant a request that could not use the projection paid to
+  repair it, from inside whatever page happened to notice. They are separate
+  now: this is the fallback, and it is what a request takes.
+
+  `on_row` is how the rebuild reuses the read without this function knowing that
+  a projection exists.
+]]
+local function route_aliases_read(on_row)
   local alias
   local rs, err = projection_query 'SELECT * FROM route_alias'
-  local updated_at = time()
 
   if not rs then
     error(err)
-  end
-
-  local cleared, clear_err = route_projection_clear('alias')
-  if cleared == nil then
-    error(clear_err)
   end
 
   for row in rs:rows(true) do
@@ -170,8 +207,28 @@ local function route_load_aliases_legacy()
       alias = row.language .. '/' .. row.alias
     end
     route_register_alias(row.source, alias)
-    route_projection_save('alias', row.source, row.alias, row.language, nil, updated_at)
+
+    if on_row then
+      on_row(row)
+    end
   end
+
+  return true
+end
+
+-- Read plus the projection writes: the rebuild. One clear, one insert per row,
+-- and one touch of each version at the end.
+local function route_aliases_project()
+  local updated_at = time()
+  local cleared, clear_err = route_projection_clear('alias')
+
+  if cleared == nil then
+    error(clear_err)
+  end
+
+  route_aliases_read(function(row)
+    route_projection_insert('alias', row.source, row.alias, row.language, nil, updated_at)
+  end)
 
   route_projection_mark_source(ROUTE_ALIAS_SOURCE_KEY, updated_at)
   projection_touch(ROUTE_ALIAS_INDEX_KEY, updated_at)
@@ -186,19 +243,26 @@ function route_aliases_load()
   ophal.aliases.source = {}
   ophal.aliases.alias = {}
 
-  ok, err = projection_ensure(ROUTE_ALIAS_INDEX_KEY, route_load_aliases_legacy, {
+  ok, err = projection_ensure(ROUTE_ALIAS_INDEX_KEY, route_aliases_project, {
     depends_on = {ROUTE_ALIAS_SOURCE_KEY},
   })
   if ok == nil then
     error(err)
   elseif ok ~= true then
-    return route_load_aliases_legacy()
+    -- `ensure` reported the projection unusable rather than rebuilding it.
+    -- Read the source and leave the repair to whoever owns it. This branch was
+    -- unreachable while the rebuild only ever returned true or raised; calling
+    -- the rebuild here is what would have made deferral a no-op on routes, and
+    -- routes are the one projection loaded before routing on every request.
+    route_aliases_read()
+    return route_projection_record_loaded('alias')
   end
 
   rs, err = projection_query("SELECT * FROM route_index WHERE kind = 'alias'")
   if not rs then
     if projection_is_missing_table(err, 'route_index') then
-      return route_load_aliases_legacy()
+      route_aliases_read()
+      return route_projection_record_loaded('alias')
     end
     error(err)
   end
@@ -299,18 +363,13 @@ function route_register_redirect(source, target, http_code)
   redirects.target[target] = source
 end
 
-local function route_load_redirects_legacy()
+-- The redirect half of the same split; see `route_aliases_read()`.
+local function route_redirects_read(on_row)
   local target
   local rs, err = projection_query 'SELECT * FROM route_redirect'
-  local updated_at = time()
 
   if not rs then
     error(err)
-  end
-
-  local cleared, clear_err = route_projection_clear('redirect')
-  if cleared == nil then
-    error(clear_err)
   end
 
   for row in rs:rows(true) do
@@ -319,8 +378,26 @@ local function route_load_redirects_legacy()
       target = row.language .. '/' .. target
     end
     route_register_redirect(row.source, target, row.type)
-    route_projection_save('redirect', row.source, row.target, row.language, row.type, updated_at)
+
+    if on_row then
+      on_row(row)
+    end
   end
+
+  return true
+end
+
+local function route_redirects_project()
+  local updated_at = time()
+  local cleared, clear_err = route_projection_clear('redirect')
+
+  if cleared == nil then
+    error(clear_err)
+  end
+
+  route_redirects_read(function(row)
+    route_projection_insert('redirect', row.source, row.target, row.language, row.type, updated_at)
+  end)
 
   route_projection_mark_source(ROUTE_REDIRECT_SOURCE_KEY, updated_at)
   projection_touch(ROUTE_REDIRECT_INDEX_KEY, updated_at)
@@ -335,19 +412,21 @@ function route_redirects_load()
   ophal.redirects.source = {}
   ophal.redirects.target = {}
 
-  ok, err = projection_ensure(ROUTE_REDIRECT_INDEX_KEY, route_load_redirects_legacy, {
+  ok, err = projection_ensure(ROUTE_REDIRECT_INDEX_KEY, route_redirects_project, {
     depends_on = {ROUTE_REDIRECT_SOURCE_KEY},
   })
   if ok == nil then
     error(err)
   elseif ok ~= true then
-    return route_load_redirects_legacy()
+    route_redirects_read()
+    return route_projection_record_loaded('redirect')
   end
 
   rs, err = projection_query("SELECT * FROM route_index WHERE kind = 'redirect'")
   if not rs then
     if projection_is_missing_table(err, 'route_index') then
-      return route_load_redirects_legacy()
+      route_redirects_read()
+      return route_projection_record_loaded('redirect')
     end
     error(err)
   end

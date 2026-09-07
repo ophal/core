@@ -214,7 +214,7 @@ end
 
 -- What `projection_ensure()` calls when the listing projection is missing or
 -- behind. It rebuilds every tag, and unlike the write paths it records a source
--- version too, the way `route_load_aliases_legacy()` does. Without that, a site
+-- version too, the way `route_aliases_project()` does. Without that, a site
 -- whose tags arrived from an installer or a dump rather than through the entity
 -- hooks never gets a `tag_listing_source` row at all, and an absent version row
 -- is re-queried every time the miss cache lapses -- once every

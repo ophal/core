@@ -192,7 +192,7 @@ local function content_projection_rebuild_all()
   end
 
   -- The rebuild has just read `content`, so it records a source version too, the
-  -- way `route_load_aliases_legacy()` does. A site installed from a dump or by
+  -- way `route_aliases_project()` does. A site installed from a dump or by
   -- the installer never writes `content_source` through the entity hooks, and an
   -- absent version row is re-queried every time the miss cache lapses: once
   -- every `projection_version_miss_ttl` seconds, per worker, on every anonymous

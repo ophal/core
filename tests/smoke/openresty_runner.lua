@@ -4,8 +4,16 @@ local function render(lines)
   return table.concat(lines, '\n') .. '\n'
 end
 
+--[[ One URI argument, read straight from nginx.
+
+  Not from `_GET`. This function is created with the runner chunk's environment
+  and `_GET` is set on the jailed environment bootstrap builds, so reading it
+  here answered nil however the request was made -- silently, which is why
+  `stale_projection` could take a `key` argument that never did anything.
+]]
 local function query_arg(name)
-  local value = _GET and _GET[name]
+  local args = ngx.req.get_uri_args()
+  local value = args and args[name]
 
   if type(value) == 'table' then
     return value[1]
@@ -20,14 +28,7 @@ local function run_bootstrap(main)
 end
 
 local function get_scenario()
-  local args = ngx.req.get_uri_args()
-  local scenario = args.scenario
-
-  if type(scenario) == 'table' then
-    return scenario[1]
-  end
-
-  return scenario
+  return query_arg('scenario')
 end
 
 local scenarios = {

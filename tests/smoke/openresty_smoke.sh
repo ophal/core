@@ -1273,6 +1273,19 @@ report_ok "db_tag_after_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMA
 # turn on the Lua gate rather than on the nginx one -- which is the point, since
 # the token is what protects a site whose cron runs from another host.
 
+# The queue, end to end, against a real SQLite file: enqueue, refuse, drain,
+# observe. It is interleaved with the token assertions on purpose -- a refused
+# request has to leave the queue alone, which is the part of the gate that
+# actually matters. A 403 that had already drained the queue would still pass an
+# assertion on the status line.
+
+run_request db_jobs_enqueue "$DB_URL/__smoke__?scenario=jobs_enqueue"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_JOBS_ENQUEUED=true'
+assert_contains 'SMOKE_JOBS_PENDING=1'
+report_ok db_jobs_enqueue
+
 run_request db_cron_requires_token "$DB_URL/cron"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 403'
@@ -1283,10 +1296,28 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 403'
 report_ok db_cron_rejects_wrong_token
 
+run_request db_jobs_survive_refused_cron "$DB_URL/__smoke__?scenario=jobs_status"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_JOBS_PENDING=1'
+assert_contains 'SMOKE_JOBS_STATUS=pending'
+report_ok db_jobs_survive_refused_cron
+
 run_request db_cron_authorized "$DB_URL/cron?token=smoke-cron-token"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 report_ok db_cron_authorized
+
+# The claim, the handler dispatch, the payload round trip through JSON and the
+# completion, all against a real database. This is the only place the SQLite
+# claim statement is executed rather than pattern-matched.
+run_request db_jobs_drained "$DB_URL/__smoke__?scenario=jobs_status"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_JOBS_PENDING=0'
+assert_contains 'SMOKE_JOBS_STATUS=done'
+assert_contains 'SMOKE_JOBS_HANDLER=smoke handler ran'
+report_ok db_jobs_drained
 
 run_request db_cron_header_token "$DB_URL/cron" \
   -H 'X-Ophal-Cron-Token: smoke-cron-token'

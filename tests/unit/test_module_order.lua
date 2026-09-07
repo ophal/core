@@ -339,6 +339,55 @@ end)
 -- 15. Route freeze: reading existing keys still works
 assert_eq('freeze_read_ok', conflict_routes['shared/page'].title, 'From Beta')
 
+-- ====================================== module_invoke_all return handling
+
+-- What a hook may return is a contract, not an implementation detail, and the
+-- deferred work queue depends on it: `modules/system` owns the queue drain and
+-- `system` is always ordered first, so a return value it gets wrong takes every
+-- other module's hook with it. `jobs.drain()` returns nothing precisely because
+-- of what these three cases do.
+reset_globals()
+settings.modules = {alpha = true}
+package.loaded['modules.alpha.info'] = {name = 'alpha', dependencies = {}, weight = 1}
+dofile('includes/module.lua')
+
+do
+  local reached
+
+  ophal.modules.system = {cron = function() end}
+  ophal.modules.alpha = {cron = function() reached = true end}
+  module_invoke_all('cron')
+  assert_eq('invoke_all_nil_return_continues', reached, true)
+end
+
+-- A truthy second return is read as an error: the loop stops where it is and
+-- every later module's hook is skipped.
+do
+  local reached
+
+  ophal.modules.system = {cron = function() return nil, 'queue unavailable' end}
+  ophal.modules.alpha = {cron = function() reached = true end}
+
+  local result, err = module_invoke_all('cron')
+  assert_eq('invoke_all_error_return_stops', reached, nil)
+  assert_eq('invoke_all_error_return_result', result, nil)
+  assert_eq('invoke_all_error_return_err', err, 'queue unavailable')
+end
+
+-- And a table returned as the first value is walked as a set of route-like
+-- records, each stamped with its module name -- so a hook returning a plain
+-- summary table raises rather than being ignored.
+do
+  ophal.modules.system = {cron = function() return {ran = 1, failed = 0} end}
+  ophal.modules.alpha = {cron = function() end}
+
+  assert_eq(
+    'invoke_all_plain_table_return_raises',
+    pcall(module_invoke_all, 'cron'),
+    false
+  )
+end
+
 -- ================================================================ summary
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

@@ -57,6 +57,58 @@ local scenarios = {
   -- number it exists to report. With `lua_code_cache on` and one worker this
   -- reads the very table `db_query()` counts into, so the difference between
   -- two probes is exactly what the requests between them cost.
+  -- The queue, end to end. Registering the handler here and draining it from
+  -- `/cron` works because both locations run in the same worker with
+  -- `lua_code_cache on`, so `package.loaded` keeps one `includes.jobs` table
+  -- with one handler registry across requests -- the same sharing the drain
+  -- relies on in production, where a module registers its kinds at load time.
+  --
+  -- What the drain did is read back out of the database rather than out of a
+  -- counter in this file. A `content_by_lua_file` chunk is re-executed on every
+  -- request even with the code cache on, so a file-level local would be zero
+  -- again by the time the next probe asked.
+  jobs_enqueue = function()
+    return run_bootstrap(function()
+      local jobs = require 'includes.jobs'
+
+      jobs.register('smoke_probe', function(payload)
+        if not (payload and payload.marker == 'drained') then
+          return false
+        end
+
+        db_query(
+          'UPDATE ophal_jobs SET last_error = ? WHERE kind = ?',
+          'smoke handler ran',
+          'smoke_probe'
+        )
+
+        return true
+      end)
+
+      write(render{
+        'SMOKE_JOBS_ENQUEUED=' .. tostring(
+          jobs.enqueue('smoke_probe', 'smoke:probe', {marker = 'drained'})
+        ),
+        'SMOKE_JOBS_PENDING=' .. tostring(jobs.pending_count()),
+      })
+    end)
+  end,
+  jobs_status = function()
+    return run_bootstrap(function()
+      local jobs = require 'includes.jobs'
+      local rs = db_query(
+        'SELECT status, last_error FROM ophal_jobs WHERE kind = ? ORDER BY id',
+        'smoke_probe'
+      )
+      local row = rs and rs:fetch()
+
+      write(render{
+        'SMOKE_JOBS_PENDING=' .. tostring(jobs.pending_count()),
+        'SMOKE_JOBS_STATUS=' .. tostring(row and row[1] or ''),
+        'SMOKE_JOBS_HANDLER=' .. tostring(row and row[2] or ''),
+      })
+    end)
+  end,
   db_stats = function()
     local stats = require 'includes.database.stats'
     local snapshot = stats.snapshot()

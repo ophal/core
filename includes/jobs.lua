@@ -326,6 +326,55 @@ function M.run_pending(options)
   return {ran = ran, failed = failed, claimed = #jobs}
 end
 
+--[[ Run whatever is waiting, from a cron request, without ever breaking cron.
+
+  This exists instead of calling `run_pending()` from the hook directly because
+  of what `module_invoke_all()` does with a hook's return value, and because
+  `system` -- which owns the drain -- is always ordered first, so it is the one
+  module whose return value can cost every other module its hook.
+
+  Two shapes are unsafe there, both pinned in `test_module_order.lua`: a truthy
+  second return is read as an error and abandons every module the loop has not
+  reached yet, and a table returned as the first value is walked as a set of
+  route-like records and stamped with `v.module`, which raises on a summary
+  whose values are numbers. So this returns nothing at all, and what happened
+  goes to the log instead.
+
+  The hook as written calls this as a statement and discards what it gets, so
+  neither shape can reach `module_invoke_all()` today. That is why this is a
+  contract rather than a bug fix: it makes `return jobs.drain()` -- the obvious
+  way to write that line, and the way a later edit is likely to write it --
+  safe by construction rather than by the accident of a missing `return`.
+]]
+function M.drain(options)
+  -- Both failure shapes end up here. `run_pending()` returns `nil, err` when
+  -- the queue cannot be read at all, and raises only if something below it
+  -- does; a `pcall` alone would catch the second and silently discard the
+  -- first, which is the more likely of the two.
+  local ok, result, err = pcall(M.run_pending, options)
+
+  if not ok or result == nil then
+    if not ok then
+      err = result
+    end
+
+    if err ~= nil and type(log_error) == 'function' then
+      log_error('job drain failed', {event = 'job_drain_failed', error = err})
+    end
+
+    return
+  end
+
+  if result.claimed > 0 and type(log_notice) == 'function' then
+    log_notice('job drain completed', {
+      event = 'job_drain_completed',
+      claimed = result.claimed,
+      ran = result.ran,
+      failed = result.failed,
+    })
+  end
+end
+
 --[[ How much work is waiting. Used by the CLI and by tests; not on the request
   path.
 ]]

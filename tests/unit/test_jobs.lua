@@ -325,6 +325,65 @@ do
   assert_match('run_unknown_kind_error', state.rows[1].last_error, 'no handler registered')
 end
 
+io.write '\n-- cron drain --\n'
+
+-- `module_invoke_all()` treats a truthy second return as an error and abandons
+-- every module it has not reached yet, and `system` -- which owns the drain --
+-- is ordered first. So the contract `drain()` has to meet is narrower than "it
+-- works": it must return nothing at all, under every outcome.
+do
+  local state = new_state()
+  install_db(state)
+  local jobs = load_jobs()
+  local ran = 0
+
+  jobs.registry_clear()
+  jobs.register('rebuild', function()
+    ran = ran + 1
+    return true
+  end)
+
+  jobs.enqueue('rebuild', 'a')
+
+  assert_eq('drain_returns_nothing', select('#', jobs.drain{worker_id = 'cron'}), 0)
+  assert_eq('drain_ran_the_job', ran, 1)
+  assert_eq('drain_emptied_the_queue', jobs.pending_count(), 0)
+end
+
+-- An unmigrated site reaches the drain on every cron run. It has to be a quiet
+-- no-op there, not an error that stops session cleanup for the rest of time.
+do
+  local state = new_state()
+  install_db(state)
+  state.missing_table = true
+  local jobs = load_jobs()
+
+  assert_eq('drain_unmigrated_returns_nothing', select('#', jobs.drain()), 0)
+end
+
+-- And a queue that is broken for some other reason -- a permission, a corrupt
+-- file, a driver fault -- must be logged rather than raised, for the same
+-- reason. This is the case `pcall` in `drain()` exists for: `claim()` only
+-- swallows a missing table, so anything else comes back out as an error.
+do
+  local state = new_state()
+  install_db(state)
+  local jobs = load_jobs()
+  local logged
+
+  db_query = function()
+    error('database is locked')
+  end
+  log_error = function(message, context)
+    logged = context and context.event
+  end
+
+  assert_eq('drain_broken_returns_nothing', select('#', jobs.drain()), 0)
+  assert_eq('drain_broken_logged', logged, 'job_drain_failed')
+
+  log_error = nil
+end
+
 io.write '\n-- driver claim statements --\n'
 
 do

@@ -1,4 +1,5 @@
--- Unit tests for CSRF helpers and POST form token injection.
+-- Unit tests for includes/security.lua: CSRF helpers, POST form token
+-- injection, constant-time comparison, and the cron endpoint's token gate.
 
 local pass_count, fail_count = 0, 0
 
@@ -147,6 +148,91 @@ local get_form = theme{'form',
   },
 }
 assert_eq('get_form_no_csrf', get_form:match('name="csrf_token"') == nil, true)
+
+io.write '\n-- secure comparison --\n'
+
+setup_security_env()
+
+assert_eq('secure_equals_match', secure_equals('abc', 'abc'), true)
+assert_eq('secure_equals_mismatch', secure_equals('abc', 'abd'), false)
+assert_eq('secure_equals_length', secure_equals('abc', 'abcd'), false)
+assert_eq('secure_equals_prefix', secure_equals('abcd', 'abc'), false)
+assert_eq('secure_equals_empty', secure_equals('', ''), true)
+assert_eq('secure_equals_nil', secure_equals(nil, ''), true)
+assert_eq('secure_equals_nil_mismatch', secure_equals(nil, 'x'), false)
+-- A byte-wise comparison that stopped at the first difference would still pass
+-- every case above. This one pins the property that makes it constant-time:
+-- the strings differ at their first byte and are long, so a short-circuiting
+-- implementation returns without ever reading the rest.
+assert_eq(
+  'secure_equals_full_length_mismatch',
+  secure_equals(('a'):rep(64), 'b' .. ('a'):rep(63)),
+  false
+)
+-- The length term is not redundant with the byte loop, though every case above
+-- passes without it: a byte past the end of the shorter string reads as 0, so
+-- without the length check a value with a trailing NUL compares equal to the
+-- same value without one. Lua strings are byte strings, and a hash or a token
+-- arrives from a database column or a request header, so neither is guaranteed
+-- NUL-free.
+assert_eq('secure_equals_trailing_nul', secure_equals('abc\0', 'abc'), false)
+
+io.write '\n-- cron token gate --\n'
+
+-- The endpoint drains a queue of unbounded rebuilds, so who may ask for that
+-- is a security question rather than an operational one.
+do
+  setup_security_env()
+  settings.cron = {token = 'cron-secret'}
+
+  _GET = {}
+  request_headers = {}
+  assert_eq('cron_denies_missing_token', cron_access(), false)
+
+  _GET = {token = 'wrong'}
+  assert_eq('cron_denies_wrong_token', cron_access(), false)
+
+  _GET = {token = 'cron-secret'}
+  assert_eq('cron_allows_query_token', cron_access(), true)
+
+  _GET = {}
+  request_headers = {['X-Ophal-Cron-Token'] = 'cron-secret'}
+  assert_eq('cron_allows_header_token', cron_access(), true)
+
+  request_headers = {['x-ophal-cron-token'] = 'cron-secret'}
+  assert_eq('cron_header_case_insensitive', cron_access(), true)
+
+  request_headers = {['X-Ophal-Cron-Token'] = 'wrong'}
+  assert_eq('cron_denies_wrong_header', cron_access(), false)
+end
+
+-- An unconfigured token warns and allows, so upgrading a deployment does not
+-- silently stop its scheduled work. The nginx `allow`/`deny` is what protects
+-- this default, and the warning is what makes the gap visible.
+do
+  setup_security_env()
+  _GET = {}
+  request_headers = {}
+
+  settings.cron = nil
+  assert_eq('cron_allows_when_unconfigured', cron_access(), true)
+
+  settings.cron = {token = ''}
+  assert_eq('cron_allows_when_token_empty', cron_access(), true)
+
+  settings.cron = {}
+  assert_eq('cron_allows_when_token_absent', cron_access(), true)
+
+  settings.cron = {token = 'cron-secret'}
+  assert_eq('cron_token_reads_setting', cron_token(), 'cron-secret')
+end
+
+-- A refusal has to be a refusal the client can see, not a silent empty 200.
+do
+  setup_security_env()
+  cron_denied()
+  assert_eq('cron_denied_status', last_header and last_header.v, 403)
+end
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then

@@ -10,6 +10,16 @@ local m = {
     hash = nil,
   },
 
+  --[[ Cron settings
+    The shared secret the /cron endpoint requires, passed as `?token=` or as an
+    X-Ophal-Cron-Token header. Leave it nil and Ophal warns on every cron run
+    and allows it, so an upgrade does not silently stop scheduled work -- the
+    `allow`/`deny` in nginx.ophal.conf is what guards that default.
+  ]]
+  cron = {
+    token = nil,
+  },
+
   --[[ Database connection settings
     Ophal automatically connects on bootstrap to a database if a the key
     'db' is set with connection settings.

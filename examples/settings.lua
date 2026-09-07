@@ -11,6 +11,16 @@ return function(settings, vault)
     logo_path = 'images/ophalproject.png',
     files_path = 'files',
   }
+
+  --[[ Cron settings (see vault.lua)
+    The key is optional, so it is read defensively: a site that takes this file
+    from a newer release without updating its vault should get a warning on the
+    next cron run, not a bootstrap error on every page.
+  ]]
+  settings.cron = {
+    token = (vault.cron or {}).token,
+  }
+
   settings.micro_cache = false
   settings.debugapi = true
   settings.maintenance_mode = false

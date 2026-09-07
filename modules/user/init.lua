@@ -10,6 +10,11 @@ local route_execute_callback, _GET = route_execute_callback, _GET
 local _SERVER = _SERVER
 local xtable = seawolf.contrib.seawolf_table
 local settings, floor = settings, math.floor
+-- From `includes/security.lua`, which bootstrap requires before
+-- `module_load_all()`. It is captured here, at load time, because `module()`
+-- below replaces this file's environment with the module table, so a bare
+-- global call would not resolve once the module is open.
+local secure_equals = secure_equals
 
 module 'ophal.modules.user'
 
@@ -66,25 +71,6 @@ do
   end
 
   hash = seawolf.other and type(seawolf.other.hash) == 'function' and seawolf.other.hash or fallback_hash
-end
-
-local function secure_equals(left, right)
-  local max_len, mismatch
-  left, right = tostring(left or ''), tostring(right or '')
-  max_len = #left
-  mismatch = #left == #right and 0 or 1
-
-  if #right > max_len then
-    max_len = #right
-  end
-
-  for i = 1, max_len do
-    if (left:byte(i) or 0) ~= (right:byte(i) or 0) then
-      mismatch = mismatch + 1
-    end
-  end
-
-  return mismatch == 0
 end
 
 local function redirect_authority(target)

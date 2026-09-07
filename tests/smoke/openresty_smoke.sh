@@ -491,6 +491,14 @@ return function(settings, vault)
     query_stats = true,
   }
 
+  -- This profile is the one that configures a cron token, so both halves of
+  -- the gate are covered across the suite: `cron_smoke` on the other instance
+  -- has none and must still be allowed, and `/cron` here has one and must
+  -- refuse a caller without it.
+  settings.cron = {
+    token = (vault.cron or {}).token,
+  }
+
   if db_path and db_path ~= '' then
     settings.db = {
       default = {
@@ -510,6 +518,9 @@ LUA
 return {
   site = {
     hash = 'ophal-smoke-hash',
+  },
+  cron = {
+    token = 'smoke-cron-token',
   },
 }
 LUA
@@ -543,6 +554,22 @@ http {
     server_name example.com;
     root $SMOKE_DB_DOCROOT;
 
+    # Shaped like the /cron location in nginx.ophal.conf, allow/deny included,
+    # because the drain endpoint's two guards are meant to be tested together.
+    # curl reaches it from 127.0.0.1, so the assertions turn on the token.
+    location = /cron {
+      allow 127.0.0.1;
+      deny all;
+
+      lua_code_cache on;
+      default_type text/html;
+      set \$ophal_script_name /cron.lua;
+      rewrite_by_lua_block {
+        require('lfs').chdir(ngx.var.document_root)
+      }
+      content_by_lua_file \$document_root/cron.lua;
+    }
+
     location = /__smoke__ {
       lua_code_cache on;
       default_type text/html;
@@ -565,6 +592,7 @@ http {
     }
 
     location = /index.lua { return 404; }
+    location = /cron.lua { return 404; }
     location = /settings.lua { return 404; }
     location = /vault.lua { return 404; }
     location ^~ /includes/ { return 404; }
@@ -1230,6 +1258,41 @@ assert_contains "$AUTHORED_UPDATED_TITLE"
 # rows themselves are still projection reads.
 assert_query_budget 6 1
 report_ok "db_tag_after_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# ---------------------------------------------------------------------------
+# The cron endpoint's token gate
+#
+# This is the only profile that configures `settings.cron.token`, which is why
+# both halves are covered: `cron_smoke` on the other instance has no token and
+# must still be served, because refusing there would break every deployment
+# that upgrades without editing its vault. Here a token exists, so a caller
+# without it must be refused.
+#
+# The `allow 127.0.0.1; deny all;` in this profile's /cron location is shipped
+# in nginx.ophal.conf too. curl reaches it from 127.0.0.1, so these assertions
+# turn on the Lua gate rather than on the nginx one -- which is the point, since
+# the token is what protects a site whose cron runs from another host.
+
+run_request db_cron_requires_token "$DB_URL/cron"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 403'
+report_ok db_cron_requires_token
+
+run_request db_cron_rejects_wrong_token "$DB_URL/cron?token=not-the-token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 403'
+report_ok db_cron_rejects_wrong_token
+
+run_request db_cron_authorized "$DB_URL/cron?token=smoke-cron-token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_cron_authorized
+
+run_request db_cron_header_token "$DB_URL/cron" \
+  -H 'X-Ophal-Cron-Token: smoke-cron-token'
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_cron_header_token
 
 printf 'all openresty smoke scenarios passed
 '

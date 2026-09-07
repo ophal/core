@@ -1138,22 +1138,22 @@ authored_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\
 # makes the number readable:
 #
 #   projection_version  10   five touch() calls, each a DELETE plus an INSERT
-#   content_public       4   the id-0 lookup below, then a DELETE and INSERT
-#   content              3   the INSERT, the last-insert-id read, load_legacy()
-#   field_tag            3   the existing-tags read, the INSERT, the rebuild
+#   content_public       3   the projection DELETE and INSERT, and the tag
+#                            rebuild's source read, which joins it
+#   content              2   the INSERT, then load_legacy() in entity_after_save
+#   field_tag            3   the existing-tags read, the INSERT, the rebuild's
+#                            source read
 #   tag_listing_index    3   one DELETE plus a row per tagged entity
 #   route_index          1   the route lookup every request pays
 #   tag                  1
 #   plus the connection's two pragmas
 #
-# Three of those costs are avoidable and none of the three needs Phase 5.
-# `projection.touch()` is a DELETE plus an INSERT where an upsert is one query,
-# which alone is five of the ten. `save_service()` calls `load(id)` before it
-# knows the action, so a create looks up id 0 in `content_public` and then in
-# `content`, and both misses are certain. And `tag_listing_source` is touched
-# twice in one request -- once by `entity_after_save()` and again inside
-# `tag_projection_rebuild()` -- at the same version.
-assert_query_budget 26 6
+# Two costs remain that need no Phase 5 work. `projection.touch()` is a DELETE
+# plus an INSERT where an upsert is one query, which alone is five of the ten.
+# And `tag_listing_source` is touched twice in one request -- once by
+# `entity_after_save()` and again inside `tag_projection_rebuild()` -- at the
+# same version.
+assert_query_budget 24 5
 report_ok "db_content_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # What the write left for the next visitor. This is anonymous on purpose: the

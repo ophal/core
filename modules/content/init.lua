@@ -300,7 +300,14 @@ function save_service()
     action = empty(id) and 'create' or 'update'
     output = {}
 
-    entity = load(id)
+    -- Only an update has an entity to load. A create used to call `load(nil)`,
+    -- which resolves to id 0 and buys two certain misses: one in
+    -- `content_public` and one in `content`. Nothing here wants it --
+    -- `entity_access(entity, 'create')` never looks at the entity, and the
+    -- `empty(entity)` branch below is update-only.
+    if action == 'update' then
+      entity = load(id)
+    end
 
     output.success = false
     input = request_get_body()

@@ -1280,6 +1280,24 @@ assert_regex '"success" *: *true'
 assert_query_budget 17 5
 report_ok "db_content_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
+# Saving over an id that does not exist is a 404, not a 500. The access check
+# for an update compares `entity.user_id` against the account, so it has to run
+# after the entity is known to exist; when it ran first it indexed a nil. This
+# needs the authored session rather than an anonymous one to mean anything:
+# `smokeauthor` holds `edit own content` and not `administer content`, which is
+# the exact permission shape that reached the dereference. An admin returns
+# true above it and an anonymous caller is refused before it.
+run_request db_content_save_missing -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  -H "X-CSRF-Token: $author_csrf" \
+  --data-binary '{"title":"nothing to update","body":"nothing to update"}' \
+  "$DB_URL/content/save/9999"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+assert_regex '"success" *: *false'
+assert_contains 'No such content.'
+report_ok db_content_save_missing
+
 measure_request db_content_page_after_update "$DB_URL/content/$authored_id"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'

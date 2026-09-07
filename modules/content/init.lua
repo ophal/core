@@ -373,11 +373,20 @@ function save_service()
       output.error = err
     elseif not csrf_validate_request(parsed) then
       csrf_denied(output)
-    elseif not _M.entity_access(entity, action) then
-      header('status', 401)
+    -- Existence is checked before access because the access answer depends on
+    -- the entity: the update and delete arms of `entity_access()` compare
+    -- `entity.user_id` against the account, and `load()` returns nil for an id
+    -- that is not there. In the other order, `content/save/9999` raised on that
+    -- index, and the module dispatcher turned the raise into a 200 whose JSON
+    -- body carried the file and line of the error rather than a 404. Only a
+    -- user holding `edit own content` ever reached it -- `administer content`
+    -- returns true before the comparison, and without the permission the `and`
+    -- short-circuits before it -- which is why it survived this long.
     elseif action == 'update' and empty(entity) then
       header('status', 404)
       output.error = 'No such content.'
+    elseif not _M.entity_access(entity, action) then
+      header('status', 401)
     elseif 'table' == type(parsed) and not empty(parsed) then
         parsed.id = id
         parsed.type = 'content'

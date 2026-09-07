@@ -381,11 +381,19 @@ do
       local user_roles = {}
       local roles = get_roles()
 
-      -- Add default authenticated role
-      if _SESSION.user_id == user_id then
-        user_roles.authenticated = 'authenticated'
-      else
+      -- Add default authenticated role. Which of the two a user id gets is a
+      -- property of the id -- 0 is the anonymous account, anything else is a
+      -- real one -- and deliberately not a property of the running session.
+      -- This compared against `_SESSION.user_id`, which made the answer depend
+      -- on who was logged in when the worker first cached that id: a user
+      -- warmed into the cache by somebody else's request was stored as
+      -- anonymous and lost every `authenticated` permission until the worker
+      -- restarted. Under CGI the cache died with the request and it never
+      -- showed.
+      if empty(user_id) then
         user_roles.anonymous = 'anonymous'
+      else
+        user_roles.authenticated = 'authenticated'
       end
 
       -- Traverse config.user_role to users_roles

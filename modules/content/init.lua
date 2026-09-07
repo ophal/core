@@ -105,20 +105,13 @@ local function load_legacy(id)
   return rs:fetch(true)
 end
 
-local function content_projection_write(entity, version)
-  local ok, err
-  local updated_at = tonumber(version) or time()
-
-  ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', entity.id)
-  if not ok then
-    if projection_is_missing_table(err, 'content_public') then
-      return true
-    end
-
-    return nil, err
-  end
-
-  ok, err = projection_exec([[
+-- The row write on its own. A full rebuild uses this directly: it has already
+-- emptied `content_public`, so the delete in `content_projection_write()` finds
+-- nothing, and it touches the version once at the end, so N touches writing the
+-- same value are N - 1 statements that change nothing. That is the difference
+-- between a rebuild costing `3N + 3` statements and `N + 3`.
+local function content_projection_insert(entity, updated_at)
+  local ok, err = projection_exec([[
 INSERT INTO content_public(
   id, user_id, language, title, teaser, body,
   created, changed, status, promote, route, updated_at
@@ -142,6 +135,27 @@ INSERT INTO content_public(
       return true
     end
 
+    return nil, err
+  end
+
+  return true
+end
+
+local function content_projection_write(entity, version)
+  local ok, err
+  local updated_at = tonumber(version) or time()
+
+  ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', entity.id)
+  if not ok then
+    if projection_is_missing_table(err, 'content_public') then
+      return true
+    end
+
+    return nil, err
+  end
+
+  ok, err = content_projection_insert(entity, updated_at)
+  if not ok then
     return nil, err
   end
 
@@ -185,7 +199,7 @@ local function content_projection_rebuild_all()
   end
 
   for row in rs:rows(true) do
-    ok, err = content_projection_write(row, updated_at)
+    ok, err = content_projection_insert(row, updated_at)
     if not ok then
       error(err)
     end
@@ -214,11 +228,18 @@ local function content_projection_ready()
   return ok
 end
 
+--[[ Read one entity from the projection.
+
+  The second return value is whether the projection was usable at all, which is
+  not the same question as whether the row was found. `load()` needs both: a
+  miss in a current projection is worth backfilling, and a miss in one whose
+  rebuild has not happened yet is not.
+]]
 local function load_projection(id)
   local row, err
 
   if not content_projection_ready() then
-    return nil
+    return nil, false
   end
 
   row, err = projection_cached_value(
@@ -235,26 +256,35 @@ local function load_projection(id)
   )
   if err then
     if projection_is_missing_table(err, 'content_public') then
-      return nil
+      return nil, false
     end
 
     error(err)
   end
 
   if row then
-    return copy_row(row)
+    return copy_row(row), true
   end
+
+  return nil, true
 end
 
 function load(id)
-  local entity
+  local entity, projection_usable
 
   id = tonumber(id or 0)
-  entity = load_projection(id)
+  entity, projection_usable = load_projection(id)
 
   if not entity then
     entity = load_legacy(id)
-    if entity then
+
+    -- Backfill only into a projection that is otherwise current. Writing one
+    -- row into a projection that is waiting to be rebuilt would touch
+    -- `content_public`'s version, and a version is the only thing `ensure()`
+    -- compares: the projection would read as fresh while holding a fraction of
+    -- its rows, and the front page would render from that fraction. The
+    -- rebuild rewrites every row anyway, so there is nothing to preserve here.
+    if entity and projection_usable then
       content_projection_write(entity)
     end
   end
@@ -582,7 +612,9 @@ function frontpage()
   else
     entities = {}
     for row in rs:rows(true) do
-      content_projection_write(row)
+      -- No backfill here either, and for the reason given in `load()`: this
+      -- branch runs precisely when the projection is not usable, so writing one
+      -- page of rows into it would stamp a completeness it does not have.
       tinsert(entities, row)
     end
   end

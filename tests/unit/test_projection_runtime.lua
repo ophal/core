@@ -536,7 +536,7 @@ local function setup_route_env(state, projection_overrides)
   dofile('includes/route.lua')
 end
 
-local function setup_content_env(state)
+local function setup_content_env(state, projection_overrides)
   local user_module = {
     current = function() return {id = 1} end,
     is_logged_in = function() return false end,
@@ -581,6 +581,18 @@ local function setup_content_env(state)
   module_invoke_all = function() end
   package.loaded['includes.projection'] = nil
   package.loaded['ophal.modules.content'] = nil
+
+  -- Same trick as `setup_route_env()`: the module captures the projection
+  -- functions as upvalues at load time, so an override has to be in place
+  -- before the file is read.
+  if projection_overrides then
+    local projection = require 'includes.projection'
+
+    for name, replacement in pairs(projection_overrides) do
+      projection[name] = replacement
+    end
+  end
+
   dofile('modules/content/init.lua')
   ophal.modules.content = package.loaded['ophal.modules.content'] or ophal.modules.content
   ophal.modules.content.init()
@@ -927,6 +939,111 @@ do
   -- re-read every time the miss cache lapses, on every anonymous page.
   assert_eq('content_projection_rebuild_marks_source',
     state.versions.content_source, state.versions.content_public)
+end
+
+-- A rebuild is `N + 3` statements, not `3N + 3`. Same reasoning as the route
+-- rebuild above: the whole table has just been emptied, so the per-row DELETE
+-- finds nothing, and the per-row version touch writes the value the final touch
+-- writes anyway.
+do
+  local state = new_projection_state()
+  local content
+
+  state.versions.content_source = 500
+  for id = 1, 3 do
+    state.content_rows[id] = {
+      id = id,
+      user_id = 1,
+      title = 'Row ' .. id,
+      teaser = 'T',
+      body = 'B',
+      status = 1,
+      promote = 1,
+      created = 10,
+    }
+  end
+
+  content = setup_content_env(state)
+  content.frontpage()
+
+  assert_eq(
+    'content_rebuild_clears_table_once',
+    query_count(state, '^DELETE FROM content_public$'),
+    1
+  )
+  assert_eq(
+    'content_rebuild_skips_per_row_delete',
+    query_count(state, '^DELETE FROM content_public WHERE id = %?$'),
+    0
+  )
+  assert_eq(
+    'content_rebuild_inserts_each_row',
+    query_count(state, '^INSERT INTO content_public'),
+    3
+  )
+  -- Two touches for three rows: `content_public` and `content_source`.
+  assert_eq(
+    'content_rebuild_touches_each_version_once',
+    query_count(state, '^INSERT INTO projection_version%('),
+    2
+  )
+end
+
+-- A miss in a usable projection is worth backfilling; a miss in one that is not
+-- usable is not. The distinction is what keeps a single page view from stamping
+-- `content_public` complete while it holds one row -- see `load()`.
+do
+  local state = new_projection_state()
+  local content
+
+  state.versions.content_public = 300
+  state.versions.content_source = 300
+  state.content_rows[7] = {
+    id = 7,
+    user_id = 1,
+    title = 'Not yet projected',
+    teaser = 'T',
+    body = 'B',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+
+  content = setup_content_env(state)
+  content.load(7)
+
+  assert_eq('content_backfill_writes_row', state.content_public[7] ~= nil, true)
+end
+
+do
+  local state = new_projection_state()
+  local content
+
+  state.versions.content_public = 300
+  state.versions.content_source = 300
+  state.content_rows[8] = {
+    id = 8,
+    user_id = 1,
+    title = 'Not yet projected',
+    teaser = 'T',
+    body = 'B',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+
+  -- Force the answer `ensure()` cannot give yet: the projection exists but is
+  -- not usable, because its rebuild has not happened.
+  content = setup_content_env(state, {ensure = function() return false end})
+
+  content.load(8)
+
+  assert_eq('content_backfill_skipped_when_unusable', state.content_public[8], nil)
+  assert_eq(
+    'content_backfill_touches_no_version',
+    query_count(state, '^INSERT INTO projection_version%('),
+    0
+  )
 end
 
 io.write '\n-- tag projections --\n'

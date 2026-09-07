@@ -20,6 +20,8 @@ local projection = require 'includes.projection'
 local projection_query = projection.query
 local projection_exec = projection.exec
 local projection_touch = projection.touch
+local projection_rebuild_pending = projection.rebuild_pending
+local projection_register_rebuild = projection.register_rebuild
 local projection_ensure = projection.ensure
 local projection_cached_value = projection.cached_value
 local projection_is_missing_table = projection.is_missing_table
@@ -141,9 +143,26 @@ INSERT INTO content_public(
   return true
 end
 
+--[[ Whether incremental maintenance of `content_public` is suspended.
+
+  While a full rebuild is queued and has not run, the projection is a fraction
+  of the answer and `ensure()` reports it unusable, so nothing reads it. Writing
+  single rows into it in the meantime buys nothing -- the rebuild rewrites every
+  row -- and touching its version would be a lie: a version is the only thing
+  `ensure()` compares, so one incremental touch would announce a completeness
+  the projection does not have and send every reader to a table holding one row.
+]]
+local function content_projection_deferred()
+  return projection_rebuild_pending(CONTENT_PUBLIC_KEY) ~= nil
+end
+
 local function content_projection_write(entity, version)
   local ok, err
   local updated_at = tonumber(version) or time()
+
+  if content_projection_deferred() then
+    return true
+  end
 
   ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', entity.id)
   if not ok then
@@ -165,6 +184,10 @@ end
 
 local function content_projection_delete(id, version)
   local ok, err
+
+  if content_projection_deferred() then
+    return true
+  end
 
   ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', id)
 
@@ -216,9 +239,13 @@ local function content_projection_rebuild_all()
   return true
 end
 
+-- The queue carries a projection key, so the runner finds the rebuild here.
+projection_register_rebuild(CONTENT_PUBLIC_KEY, content_projection_rebuild_all)
+
 local function content_projection_ready()
   local ok, err = projection_ensure(CONTENT_PUBLIC_KEY, content_projection_rebuild_all, {
     depends_on = {CONTENT_SOURCE_KEY},
+    defer = true,
   })
 
   if ok == nil then

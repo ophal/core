@@ -67,6 +67,24 @@ local scenarios = {
   -- counter in this file. A `content_by_lua_file` chunk is re-executed on every
   -- request even with the code cache on, so a file-level local would be zero
   -- again by the time the next probe asked.
+  -- Drags one projection's version behind its source, which is what a restore,
+  -- a CLI write or a failed rebuild does on a real site. Version 1 is used
+  -- rather than a future value on purpose: a rebuild stamps both keys with
+  -- `time()`, so a version ahead of the clock would leave the projection stale
+  -- forever and the queue spinning.
+  stale_projection = function()
+    return run_bootstrap(function()
+      local projection = require 'includes.projection'
+      local key = query_arg('key') or 'content_public'
+
+      projection.touch(key, 1)
+
+      write(render{
+        'SMOKE_STALE_KEY=' .. key,
+        'SMOKE_STALE_VERSION=' .. tostring(projection.version(key)),
+      })
+    end)
+  end,
   jobs_enqueue = function()
     return run_bootstrap(function()
       local jobs = require 'includes.jobs'

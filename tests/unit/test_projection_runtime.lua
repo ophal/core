@@ -98,6 +98,7 @@ local function new_projection_state()
     tag_rows = {},
     field_tag_rows = {},
     tag_listing_index = {},
+    jobs = {},
   }
 end
 
@@ -122,7 +123,32 @@ local function make_db_query(state)
       error(state.fail_error or 'no such table: tag_listing_index')
     end
 
-    if sql == 'SELECT version FROM projection_version WHERE projection_key = ?' then
+    if sql:match('^INSERT INTO ophal_jobs') then
+      -- `ON CONFLICT(active_key) DO NOTHING`. A deferred rebuild is queued once
+      -- however many requests notice it, which is the only reason deferral is
+      -- cheaper than rebuilding: without the dedup every request in the stale
+      -- window would queue another copy of the same work.
+      local active_key = args[3]
+
+      if state.jobs_absent then
+        error('no such table: ophal_jobs')
+      end
+
+      if active_key ~= nil then
+        for _, job in ipairs(state.jobs) do
+          if job.active_key == active_key then
+            return rows_result({})
+          end
+        end
+      end
+
+      state.jobs[#state.jobs + 1] = {
+        kind = args[1],
+        dedup_key = args[2],
+        active_key = active_key,
+      }
+      return rows_result({})
+    elseif sql == 'SELECT version FROM projection_version WHERE projection_key = ?' then
       row = state.versions[args[1]]
       if row == nil then
         return rows_result({})
@@ -353,6 +379,29 @@ local function make_db_query(state)
         rows[#rows + 1] = item
       end
       return rows_result(rows)
+    elseif sql:match('^SELECT COUNT%(%*%) FROM content e JOIN field_tag ft') then
+      -- The tag listing's legacy count, one UNION arm per tagged entity type.
+      -- Deferral made this path ordinary traffic rather than a missing-table
+      -- fallback, so the fake has to answer it.
+      local count = 0
+      for _, rel in ipairs(state.field_tag_rows) do
+        local content = state.content_rows[tonumber(rel.entity_id)]
+        if rel.entity_type == 'content' and content and content.status == 1
+            and tonumber(rel.tag_id) == tonumber(args[1]) then
+          count = count + 1
+        end
+      end
+      return rows_result({{count}})
+    elseif sql:match('^SELECT e%.%*, .content. "type" FROM content e JOIN field_tag ft') then
+      local rows = {}
+      for _, rel in ipairs(state.field_tag_rows) do
+        local content = state.content_rows[tonumber(rel.entity_id)]
+        if rel.entity_type == 'content' and content and content.status == 1
+            and tonumber(rel.tag_id) == tonumber(args[1]) then
+          rows[#rows + 1] = content
+        end
+      end
+      return rows_result(rows)
     elseif sql:match('^SELECT count%(%*%) FROM content WHERE') then
       local count = 0
       for _, item in pairs(state.content_rows) do
@@ -491,6 +540,25 @@ local function setup_tag_env(state, entities)
   ophal.modules.tag = package.loaded['ophal.modules.tag'] or ophal.modules.tag
   ophal.modules.tag.init()
   return ophal.modules.tag
+end
+
+-- The projection keys a run has queued a rebuild for, in order.
+local function queued_rebuilds(state)
+  local keys = {}
+
+  for _, job in ipairs(state.jobs) do
+    keys[#keys + 1] = tostring(job.dedup_key)
+  end
+
+  return table.concat(keys, ',')
+end
+
+-- Stands in for the cron drain. The queue round trip is covered in
+-- `test_jobs.lua` and end to end in the smoke suite; what these tests are about
+-- is that the request queued the work and served correct content without doing
+-- it, and that running it afterwards puts the projection back.
+local function run_queued_rebuild(key)
+  return require('includes.projection').run_rebuild(key)
 end
 
 local function query_count(state, pattern)
@@ -635,6 +703,11 @@ do
   assert_eq('route_projection_legacy_redirect_unused', query_count(state, '^SELECT %* FROM route_redirect$'), 0)
 end
 
+-- A projection that has never been built is not rebuilt from inside the request
+-- that noticed. The request registers its aliases from the normalized source --
+-- correct, and one query -- and queues the rebuild for the runner. This is the
+-- whole point of the phase, and routes are where it matters most: the alias
+-- table is loaded in bootstrap, before routing, on every single request.
 do
   local state = new_projection_state()
   state.route_alias = {
@@ -644,9 +717,49 @@ do
   setup_route_env(state)
   route_aliases_load()
 
-  assert_eq('route_projection_fallback_alias_loaded', ophal.aliases.source['content/2'], 'legacy-alias')
-  assert_eq('route_projection_fallback_inserted', state.route_index.alias[1].target, 'legacy-alias')
-  assert_eq('route_projection_fallback_version_touched', state.versions.route_alias_index ~= nil, true)
+  assert_eq('route_deferred_fallback_alias_loaded', ophal.aliases.source['content/2'], 'legacy-alias')
+  assert_eq('route_deferred_fallback_queued', queued_rebuilds(state), 'route_alias_index')
+  assert_eq('route_deferred_fallback_wrote_nothing', #state.route_index.alias, 0)
+  assert_eq('route_deferred_fallback_version_unmoved', state.versions.route_alias_index, nil)
+
+  -- A second request in the same window queues nothing more and still serves
+  -- the right answer. Without the dedup, a stale window costs one job per
+  -- request.
+  route_aliases_load()
+  assert_eq('route_deferred_queued_once', queued_rebuilds(state), 'route_alias_index')
+
+  -- And the runner puts it back.
+  run_queued_rebuild('route_alias_index')
+  assert_eq('route_deferred_rebuild_inserted', state.route_index.alias[1].target, 'legacy-alias')
+  assert_eq('route_deferred_rebuild_version_touched', state.versions.route_alias_index ~= nil, true)
+
+  -- Once rebuilt, the next request reads the index and never touches the
+  -- normalized table again.
+  local before = query_count(state, '^SELECT %* FROM route_alias$')
+  route_aliases_load()
+  assert_eq(
+    'route_deferred_rebuilt_serves_from_index',
+    query_count(state, '^SELECT %* FROM route_alias$'),
+    before
+  )
+  assert_eq('route_deferred_rebuilt_alias', ophal.aliases.source['content/2'], 'legacy-alias')
+end
+
+-- An unmigrated site has no queue to defer into, so it rebuilds inline exactly
+-- as it always did. Nothing in this phase changes behavior before `005_jobs`.
+do
+  local state = new_projection_state()
+  state.jobs_absent = true
+  state.route_alias = {
+    {source = 'content/4', alias = 'unmigrated-alias', language = 'all'},
+  }
+
+  setup_route_env(state)
+  route_aliases_load()
+
+  assert_eq('route_unmigrated_rebuilds_inline', state.route_index.alias[1].target, 'unmigrated-alias')
+  assert_eq('route_unmigrated_queued_nothing', queued_rebuilds(state), '')
+  assert_eq('route_unmigrated_version_touched', state.versions.route_alias_index ~= nil, true)
 end
 
 do
@@ -664,9 +777,20 @@ do
   setup_route_env(state)
   route_aliases_load()
 
-  assert_eq('route_projection_stale_rebuilt_alias', ophal.aliases.source['content/3'], 'fresh-alias')
-  assert_eq('route_projection_stale_replaced_count', #state.route_index.alias, 1)
-  assert_eq('route_projection_stale_removed_old', state.route_index.alias[1].source, 'content/3')
+  -- The stale index is not read and not repaired: the request registers the
+  -- fresh aliases from the source and queues the rebuild. Serving from an index
+  -- known to be behind is the bug this replaces; rebuilding it here is the
+  -- latency this phase exists to remove.
+  assert_eq('route_stale_serves_fresh_alias', ophal.aliases.source['content/3'], 'fresh-alias')
+  assert_eq('route_stale_old_alias_gone', ophal.aliases.source['content/old'], nil)
+  assert_eq('route_stale_queued', queued_rebuilds(state), 'route_alias_index')
+  assert_eq('route_stale_index_untouched', #state.route_index.alias, 1)
+  assert_eq('route_stale_version_unmoved', state.versions.route_alias_index, 100)
+
+  run_queued_rebuild('route_alias_index')
+
+  assert_eq('route_stale_rebuilt_replaced_count', #state.route_index.alias, 1)
+  assert_eq('route_stale_rebuilt_removed_old', state.route_index.alias[1].source, 'content/3')
 end
 
 -- A rebuild is `N + 4` statements, not `3N + 4`. The per-source DELETE and the
@@ -686,6 +810,7 @@ do
 
   setup_route_env(state)
   route_aliases_load()
+  run_queued_rebuild('route_alias_index')
 
   assert_eq(
     'route_rebuild_clears_kind_once',
@@ -932,12 +1057,26 @@ do
   content = setup_content_env(state)
   local entity = content.load(9)
 
-  assert_eq('content_projection_stale_rebuilt_title', entity.title, 'Fresh legacy row')
-  assert_eq('content_projection_stale_rebuilt_from_source', query_count(state, '^SELECT %* FROM content$'), 1)
+  -- The stale row is not served and the rebuild does not happen here. The
+  -- request reads the one entity it needs from the normalized table -- bounded
+  -- work -- and queues the unbounded part.
+  assert_eq('content_stale_serves_from_source', entity.title, 'Fresh legacy row')
+  assert_eq('content_stale_queued', queued_rebuilds(state), 'content_public')
+  assert_eq('content_stale_did_not_rebuild', query_count(state, '^SELECT %* FROM content$'), 0)
+  assert_eq('content_stale_version_unmoved', state.versions.content_public, 300)
+  -- Not even the single row it just loaded: writing it would touch
+  -- `content_public`, and a touch is what tells every other reader the whole
+  -- projection is current.
+  assert_eq('content_stale_no_backfill', state.content_public[9].title, 'Stale projected row')
+
+  run_queued_rebuild('content_public')
+
+  assert_eq('content_stale_rebuilt_row', state.content_public[9].title, 'Fresh legacy row')
+  assert_eq('content_stale_rebuilt_from_source', query_count(state, '^SELECT %* FROM content$'), 1)
   -- The rebuild records the source version it just read, and stamps it with the
   -- same value as the projection. An absent or trailing `content_source` row is
   -- re-read every time the miss cache lapses, on every anonymous page.
-  assert_eq('content_projection_rebuild_marks_source',
+  assert_eq('content_stale_rebuild_marks_source',
     state.versions.content_source, state.versions.content_public)
 end
 
@@ -965,6 +1104,7 @@ do
 
   content = setup_content_env(state)
   content.frontpage()
+  run_queued_rebuild('content_public')
 
   assert_eq(
     'content_rebuild_clears_table_once',
@@ -1098,16 +1238,44 @@ do
     {entity_type = 'content', entity_id = 5, tag_id = 1},
   }
 
-  tag_mod = setup_tag_env(state)
-  tag_mod.entity_page()
+  -- The listing projection is the most expensive rebuild in the codebase: a
+  -- full DELETE followed by one INSERT per tags-by-content join row, reached
+  -- from the tags menu that renders on every page. So it is the one that most
+  -- needs to be queued rather than run from inside a page view.
+  state.content_rows[5] = {
+    id = 5,
+    user_id = 1,
+    title = 'Projected tagged content',
+    teaser = 'Projected teaser',
+    body = 'Projected body',
+    status = 1,
+    promote = 1,
+    created = 20,
+  }
 
-  assert_eq('tag_projection_fallback_rebuild_rows', #state.tag_listing_index, 1)
-  assert_eq('tag_projection_fallback_touched', state.versions.tag_listing_index ~= nil, true)
-  assert_eq('tag_projection_fallback_title', state.tag_listing_index[1].title, 'Projected tagged content')
+  tag_mod = setup_tag_env(state)
+  -- `entity_page()` returns the theme closure; calling it is what renders.
+  tag_mod.entity_page()()
+
+  assert_eq('tag_deferred_queued', queued_rebuilds(state), 'tag_listing_index')
+  assert_eq('tag_deferred_wrote_no_rows', #state.tag_listing_index, 0)
+  assert_eq('tag_deferred_version_unmoved', state.versions.tag_listing_index, nil)
+  -- Served anyway, from the normalized join the fallback has always used.
+  assert_eq(
+    'tag_deferred_page_rendered',
+    state.rendered_tag_page and state.rendered_tag_page.rows[1].title,
+    'Projected tagged content'
+  )
+
+  run_queued_rebuild('tag_listing_index')
+
+  assert_eq('tag_deferred_rebuild_rows', #state.tag_listing_index, 1)
+  assert_eq('tag_deferred_rebuild_touched', state.versions.tag_listing_index ~= nil, true)
+  assert_eq('tag_deferred_rebuild_title', state.tag_listing_index[1].title, 'Projected tagged content')
   -- A rebuild records the source version it just read. An absent version row is
   -- re-queried every time the miss cache lapses, so a site whose tags never went
   -- through the entity hooks would pay a `projection_version` SELECT forever.
-  assert_eq('tag_projection_fallback_marks_source',
+  assert_eq('tag_deferred_rebuild_marks_source',
     state.versions.tag_listing_source, state.versions.tag_listing_index)
 end
 
@@ -1183,8 +1351,27 @@ do
   tag_mod = setup_tag_env(state)
   tag_mod.entity_page()
 
-  assert_eq('tag_projection_stale_rebuilt_title', state.tag_listing_index[1].title, 'Fresh projected tagged content')
-  assert_eq('tag_projection_stale_rebuild_source_query', query_count(state, "^SELECT t%.id tag_id, t%.name tag_name, 'content' entity_type, cp%.id entity_id,"), 1)
+  -- The stale listing is left exactly as it was. It is the cascade that makes
+  -- this one matter: `tag_listing_index` declares `content_public` as a
+  -- dependency, so before deferral a content rebuild pulled a full tag rebuild
+  -- into the same request.
+  assert_eq('tag_stale_queued', queued_rebuilds(state), 'tag_listing_index')
+  assert_eq('tag_stale_index_untouched', state.tag_listing_index[1].title, 'Stale projected tagged content')
+  assert_eq('tag_stale_version_unmoved', state.versions.tag_listing_index, 600)
+  assert_eq(
+    'tag_stale_did_not_read_join',
+    query_count(state, "^SELECT t%.id tag_id, t%.name tag_name, 'content' entity_type, cp%.id entity_id,"),
+    0
+  )
+
+  run_queued_rebuild('tag_listing_index')
+
+  assert_eq('tag_stale_rebuilt_title', state.tag_listing_index[1].title, 'Fresh projected tagged content')
+  assert_eq(
+    'tag_stale_rebuild_source_query',
+    query_count(state, "^SELECT t%.id tag_id, t%.name tag_name, 'content' entity_type, cp%.id entity_id,"),
+    1
+  )
 end
 
 io.write '\n-- tag entity load cache --\n'
@@ -1535,6 +1722,162 @@ do
     query_count(state, '^SELECT entity_type FROM field_tag'), 1)
   assert_eq('tag_listing_rows_fallback_union_query',
     query_count(state, '^SELECT e%.%*'), 1)
+end
+
+io.write '\n-- deferred rebuild markers --\n'
+
+-- The marker is the piece version numbers cannot supply. Everything below is
+-- about one property: while a rebuild is queued, the projection is not usable
+-- and nothing may say otherwise.
+do
+  local state = new_projection_state()
+  local projection
+
+  state.versions.content_public = 500
+  state.versions.content_source = 500
+
+  setup_content_env(state)
+  projection = require 'includes.projection'
+
+  -- Fresh by every version comparison there is.
+  assert_eq('pending_absent_reads_fresh', projection.ensure('content_public', function() end, {
+    depends_on = {'content_source'},
+  }), true)
+
+  projection.mark_pending('content_public', 500)
+
+  -- And not usable anyway, because a queued rebuild outranks the comparison.
+  -- This is the case the whole design turns on: a projection can be complete by
+  -- its version and a fraction of itself in fact.
+  assert_eq('pending_marker_outranks_version', projection.ensure('content_public', function() end, {
+    depends_on = {'content_source'},
+  }), false)
+
+  assert_eq('pending_marker_readable', projection.rebuild_pending('content_public'), 500)
+
+  projection.clear_pending('content_public')
+  assert_eq('pending_marker_cleared', projection.rebuild_pending('content_public'), nil)
+  assert_eq('pending_cleared_reads_fresh', projection.ensure('content_public', function() end, {
+    depends_on = {'content_source'},
+  }), true)
+end
+
+-- A site with no cron scheduled must not be stuck on the fallback forever. The
+-- marker expires, and the request that finds it gone rebuilds inline -- slower
+-- than a drained queue, and the same thing the code did before this phase.
+do
+  local state = new_projection_state()
+  local projection
+
+  setup_content_env(state)
+  settings.performance = {projection_rebuild_pending_ttl = 0}
+  projection = require 'includes.projection'
+
+  projection.mark_pending('content_public', 100)
+  assert_eq('pending_marker_expires', projection.rebuild_pending('content_public'), nil)
+end
+
+-- Deferring records the marker, and the runner clears it. Clearing has to
+-- happen before the rebuild runs, not after: the rebuild ends by touching its
+-- own version, and every incremental write is suspended while the marker
+-- stands.
+do
+  local state = new_projection_state()
+  local projection
+  local pending_during_rebuild
+
+  state.versions.content_public = 300
+  state.versions.content_source = 400
+  state.content_rows[1] = {
+    id = 1,
+    user_id = 1,
+    title = 'Row',
+    teaser = 'T',
+    body = 'B',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+
+  local content = setup_content_env(state)
+  projection = require 'includes.projection'
+
+  content.frontpage()
+  assert_eq('defer_marks_pending', projection.rebuild_pending('content_public'), 400)
+
+  projection.register_rebuild('probe', function()
+    pending_during_rebuild = projection.rebuild_pending('probe')
+    return true
+  end)
+  projection.mark_pending('probe', 1)
+  projection.run_rebuild('probe')
+
+  assert_eq('run_rebuild_clears_marker_first', pending_during_rebuild, nil)
+
+  run_queued_rebuild('content_public')
+  assert_eq('rebuild_clears_pending', projection.rebuild_pending('content_public'), nil)
+end
+
+-- An unknown projection key is an error the runner reports, not a raise. A job
+-- carrying a key no module registered would otherwise take the drain down and,
+-- through `module_invoke_all()`, every other module's cron hook with it.
+do
+  local state = new_projection_state()
+  local projection
+
+  setup_content_env(state)
+  projection = require 'includes.projection'
+
+  local ok, err = projection.run_rebuild('not_a_projection')
+  assert_eq('run_rebuild_unknown_key_nil', ok, nil)
+  assert_match('run_rebuild_unknown_key_error', err, 'no rebuild registered')
+end
+
+-- While a rebuild is queued, a save stops maintaining the projection
+-- incrementally. Writing the row would be wasted -- the rebuild rewrites every
+-- row -- and the version touch that comes with it is the actual hazard: a
+-- version is all `ensure()` compares, so one incremental touch would announce
+-- that a projection holding a fraction of its rows is complete.
+do
+  local state = new_projection_state()
+  local content
+  local projection
+
+  state.versions.content_public = 300
+  state.versions.content_source = 300
+  state.content_rows[3] = {
+    id = 3,
+    user_id = 1,
+    title = 'Saved while a rebuild was queued',
+    teaser = 'T',
+    body = 'B',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+
+  content = setup_content_env(state)
+  projection = require 'includes.projection'
+  projection.mark_pending('content_public', 300)
+
+  local versions_before = query_count(state, '^INSERT INTO projection_version%(')
+  content.entity_after_save({type = 'content', id = 3})
+
+  assert_eq('save_while_pending_writes_no_row', state.content_public[3], nil)
+  assert_eq(
+    'save_while_pending_touches_no_version',
+    query_count(state, '^INSERT INTO projection_version%(') - versions_before,
+    0
+  )
+
+  -- And once the rebuild has run, the same save maintains it again.
+  projection.clear_pending('content_public')
+  content.entity_after_save({type = 'content', id = 3})
+  assert_eq(
+    'save_after_rebuild_writes_row',
+    state.content_public[3].title,
+    'Saved while a rebuild was queued'
+  )
 end
 
 io.write '\n-- projection version cache --\n'

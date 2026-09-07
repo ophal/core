@@ -22,6 +22,8 @@ local projection = require 'includes.projection'
 local projection_query = projection.query
 local projection_exec = projection.exec
 local projection_touch = projection.touch
+local projection_rebuild_pending = projection.rebuild_pending
+local projection_register_rebuild = projection.register_rebuild
 local projection_ensure = projection.ensure
 local projection_cached_value = projection.cached_value
 local projection_version = projection.version
@@ -233,6 +235,17 @@ local function tag_projection_rebuild_all()
   return true
 end
 
+-- The queue carries a projection key, so the runner finds the rebuild here.
+projection_register_rebuild(TAG_LISTING_KEY, tag_projection_rebuild_all)
+
+-- While a full rebuild of the listing is queued, per-tag maintenance is skipped
+-- for the reason given in `content_projection_deferred()`: the rebuild rewrites
+-- every row, and the version touch a per-tag rebuild ends with would announce a
+-- completeness the index does not have.
+local function tag_projection_deferred()
+  return projection_rebuild_pending(TAG_LISTING_KEY) ~= nil
+end
+
 local function tag_projection_ready()
   if not tag_projection_supported() then
     return false
@@ -240,6 +253,7 @@ local function tag_projection_ready()
 
   local ok, err = projection_ensure(TAG_LISTING_KEY, tag_projection_rebuild_all, {
     depends_on = {'content_public', TAG_LISTING_SOURCE_KEY},
+    defer = true,
   })
   if ok == nil then
     error(err)
@@ -249,7 +263,7 @@ local function tag_projection_ready()
 end
 
 local function tag_projection_refresh_ids(ids, version)
-  if not tag_projection_supported() then
+  if not tag_projection_supported() or tag_projection_deferred() then
     return false
   end
 
@@ -435,7 +449,7 @@ function _M.entity_after_save(entity)
 
   if entity.type == _M.entity_type then
     tag_projection_mark_source(updated_at)
-    if entity.id then
+    if entity.id and not tag_projection_deferred() then
       tag_projection_rebuild(entity.id, updated_at)
     end
     return
@@ -492,8 +506,10 @@ function _M.entity_after_delete(entity)
 
   if entity.type == _M.entity_type then
     tag_projection_mark_source(updated_at)
-    tag_projection_delete_rows(entity.id)
-    projection_touch(TAG_LISTING_KEY, updated_at)
+    if not tag_projection_deferred() then
+      tag_projection_delete_rows(entity.id)
+      projection_touch(TAG_LISTING_KEY, updated_at)
+    end
     return
   elseif not (config.entities or {})[entity.type] then
     return
@@ -855,6 +871,13 @@ function _M.entity_page()
       end
     end
 
+    -- Neither branch is guaranteed to produce a number: a projection read can
+    -- come back empty, and the legacy branch below skips its query entirely
+    -- when the tag has no tagged entity types. `count` divides `ipp` a few
+    -- lines down, so a nil here is a 500 on a tag page. It was unreachable
+    -- while a stale projection always rebuilt inline before this point.
+    count = tonumber(count) or 0
+
     if not use_projection then
       count_query, query = tag_legacy_source_queries(tag.id)
 
@@ -865,7 +888,7 @@ function _M.entity_page()
         if err then
           error(err)
         else
-          count = (rs:fetch() or {})[1]
+          count = tonumber((rs:fetch() or {})[1]) or 0
         end
       end
     end

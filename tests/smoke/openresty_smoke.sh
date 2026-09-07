@@ -1021,7 +1021,9 @@ assert_query_budget() {
   [[ "$MEASURED_INFRASTRUCTURE" -eq "$expected_infrastructure" ]] ||
     fail "expected $expected_infrastructure infrastructure queries, measured $MEASURED_INFRASTRUCTURE (tables so far: $MEASURED_TABLES)"
   [[ "$MEASURED_TOTAL" -eq "$expected_total" ]] ||
-    fail "expected $expected_total queries, measured $MEASURED_TOTAL (tables so far: $MEASURED_TABLES)"
+    fail "expected $expected_total queries, measured $MEASURED_TOTAL
+  before: $MEASURED_TABLES_BEFORE
+  after:  $MEASURED_TABLES"
 }
 
 # Cold pass. This is the request that builds every projection from the seeded
@@ -1047,6 +1049,39 @@ run_request db_alias_cold "$DB_URL/$SEED_ALIAS"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 report_ok db_alias_cold
+
+# The cold pass no longer builds anything. Each of those four requests found a
+# projection that had never been built, served the page from the normalized
+# source, and queued one rebuild -- deduplicated, so four requests over three
+# projections leave three jobs, not twelve. This is what the phase is for: the
+# unbounded work is off the request, and the requests above still rendered the
+# right pages, which the assertions on their content already proved.
+#
+# So the drain has to happen here, and every budget below now depends on it.
+# That is not an artifact of the test: it is the deployment contract. A site
+# that never runs cron serves correct pages forever from the fallback and never
+# gets the projections, until the pending marker's TTL lapses and one unlucky
+# request rebuilds inline.
+run_request db_cron_builds_projections "$DB_URL/cron?token=smoke-cron-token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_cron_builds_projections
+
+run_request db_jobs_after_build "$DB_URL/__smoke__?scenario=jobs_status"
+assert_status_zero
+assert_contains 'SMOKE_JOBS_PENDING=0'
+report_ok db_jobs_after_build
+
+# One unmeasured pass over the freshly built projections. It is the first read
+# of each of them, so it is what fills the per-worker payload caches -- the cold
+# pass above could not, because it never touched a projection. Measuring here
+# would measure the cache fill; the pass after it is the delivery.
+for prime_path in "/" "/content/1" "/tag/1" "/$SEED_ALIAS"; do
+  run_request db_prime "$DB_URL$prime_path"
+  assert_status_zero
+  assert_regex '^HTTP/1\.[01] 200'
+done
+report_ok db_projections_primed
 
 # Warm pass. Every assertion below is on a whole request, so a page that
 # renders nothing would also report zero queries -- the content assertions are
@@ -1324,6 +1359,68 @@ run_request db_cron_header_token "$DB_URL/cron" \
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 report_ok db_cron_header_token
+
+# ---------------------------------------------------------------------------
+# A projection that falls behind after it was built
+#
+# The cold pass above covered the never-built case. This is the other one, and
+# the one the phase is named for: a projection exists, its source moves ahead of
+# it, and the request that notices must not be the one that rebuilds it. On a
+# real site that happens after a restore, a CLI write, or a rebuild that failed
+# partway.
+
+run_request db_make_content_stale "$DB_URL/__smoke__?scenario=stale_projection&key=content_public"
+assert_status_zero
+assert_contains 'SMOKE_STALE_VERSION=1'
+report_ok db_make_content_stale
+
+# Correct page, bounded cost, and one write to the queue rather than a rebuild.
+# Six: the two connection pragmas, the route alias index, the fallback's count
+# and page of rows straight from `content`, and the enqueue. Bounded is the word
+# that matters -- the two normalized reads are one page of content, not the
+# whole table, which is what the rebuild this replaced would have read.
+#
+# The enqueue is counted apart from both other buckets. A normalized read means
+# the request reconstructed source data, and these two did; the queue write is
+# not that, and hiding it in either number would make one of them stop meaning
+# what every other budget in this file uses it to mean.
+measure_request db_frontpage_stale "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+assert_contains "$SEED_SECOND_TITLE"
+assert_query_budget 6 2 1
+report_ok "db_frontpage_stale (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED infrastructure=$MEASURED_INFRASTRUCTURE)"
+
+# The second reader in the same window queues nothing: the unique index on
+# `active_key` is what keeps a stale window costing one job instead of one per
+# request. Same page, same fallback, no infrastructure query at all.
+measure_request db_frontpage_stale_again "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+assert_query_budget 5 2 0
+report_ok "db_frontpage_stale_again (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+run_request db_cron_rebuilds_stale "$DB_URL/cron?token=smoke-cron-token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_cron_rebuilds_stale
+
+run_request db_reprime "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_reprime
+
+# And the budget comes back. This is the assertion that says the whole loop
+# closed: stale, deferred, served from source, queued once, drained, current.
+measure_request db_frontpage_after_rebuild "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+assert_contains "$SEED_SECOND_TITLE"
+assert_query_budget 3 0
+report_ok "db_frontpage_after_rebuild (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 printf 'all openresty smoke scenarios passed
 '

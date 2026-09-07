@@ -2,6 +2,19 @@ local _M = {}
 ophal.modules.system = _M
 
 local jobs = require 'includes.jobs'
+local projection = require 'includes.projection'
+
+--[[ The handler for every deferred projection rebuild.
+
+  One kind covers all of them because the queue carries a projection key and
+  `projection.run_rebuild()` looks the rebuild up in the registry each module
+  fills at load time. Registering here rather than in `includes/projection.lua`
+  keeps the queue out of that module's load-time dependencies -- `includes/jobs`
+  requires it, so the arrow only points one way.
+]]
+jobs.register('projection_rebuild', function(payload)
+  return projection.run_rebuild((payload or {}).projection)
+end)
 
 function _M.cron()
   session_destroy_expired()

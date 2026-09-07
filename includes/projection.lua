@@ -8,6 +8,10 @@ local payload_cache = {}
 local CACHE_NIL = {}
 local DEFAULT_PAYLOAD_CACHE_SIZE = 512
 local DEFAULT_VERSION_MISS_TTL = 5
+local DEFAULT_PENDING_TTL = 900
+local PENDING_PREFIX = 'rebuild_pending:'
+local pending_cache = {}
+local rebuilds = {}
 local CACHE_EVENTS = {'hits', 'misses', 'stale', 'evictions'}
 local cache_stats_on
 local cache_counts = {}
@@ -285,6 +289,151 @@ function M.max_version(keys)
   return latest
 end
 
+local function pending_ttl()
+  local performance = (settings or {}).performance or {}
+  local ttl = tonumber(performance.projection_rebuild_pending_ttl)
+
+  if ttl == nil or ttl < 0 then
+    return DEFAULT_PENDING_TTL
+  end
+
+  return ttl
+end
+
+--[[ Record that a full rebuild of this projection is queued and has not run.
+
+  Deferral needs a state that version numbers cannot express. A version says
+  "this projection was complete as of that second"; nothing in the algebra says
+  "a rebuild is outstanding, and what you can see is a fraction of the answer".
+  Without that state, one page view during a deferred window backfills a single
+  row, stamps the projection newer than its source, and every later reader is
+  told a projection holding one row is current.
+
+  The marker is deliberately not a `projection_version` row. `ensure()` runs on
+  every request and the anonymous budget is three queries; a fourth is not
+  available. It lives in the shared zone -- the same one versions are published
+  through -- so peer workers see it, and falls back to a per-worker table on a
+  site with no zone, which is the same degradation versions already take there.
+
+  It carries the source version the rebuild was queued for, so a marker left
+  behind by a runner that died is worth nothing once the source moves again, and
+  it expires on its own besides: a site with no cron scheduled falls back to
+  rebuilding inline after `projection_rebuild_pending_ttl` seconds rather than
+  never rebuilding at all.
+]]
+function M.mark_pending(key, version)
+  local normalized = normalize_key(key)
+  local shared = shared_versions_dict()
+  local ttl = pending_ttl()
+  local value = normalize_version(version) or time()
+
+  if shared then
+    shared:set(PENDING_PREFIX .. normalized, value, ttl)
+    return true
+  end
+
+  pending_cache[normalized] = {version = value, expires = time() + ttl}
+
+  return true
+end
+
+-- The source version a queued rebuild was asked for, or nil when none is
+-- outstanding.
+function M.rebuild_pending(key)
+  local normalized = normalize_key(key)
+  local shared = shared_versions_dict()
+  local entry
+
+  if shared then
+    return normalize_version(shared:get(PENDING_PREFIX .. normalized))
+  end
+
+  entry = pending_cache[normalized]
+
+  if entry == nil then
+    return nil
+  end
+
+  if entry.expires <= time() then
+    pending_cache[normalized] = nil
+    return nil
+  end
+
+  return entry.version
+end
+
+function M.clear_pending(key)
+  local normalized = normalize_key(key)
+  local shared = shared_versions_dict()
+
+  if shared then
+    shared:delete(PENDING_PREFIX .. normalized)
+  end
+
+  pending_cache[normalized] = nil
+
+  return true
+end
+
+--[[ Associate a projection key with the function that rebuilds it.
+
+  The queue carries a projection key, not a closure, so the runner has to be
+  able to find the rebuild from the key alone. Modules register at load time,
+  which is before any request and before cron drains anything.
+]]
+function M.register_rebuild(key, rebuild)
+  if type(rebuild) ~= 'function' then
+    return nil, 'a projection rebuild must be a function'
+  end
+
+  rebuilds[normalize_key(key)] = rebuild
+
+  return true
+end
+
+function M.rebuild_for(key)
+  return rebuilds[normalize_key(key)]
+end
+
+-- Test seam, and the counterpart of `jobs.registry_clear()`.
+function M.rebuild_registry_clear()
+  rebuilds = {}
+end
+
+--[[ Run a queued rebuild. This is what the job handler calls.
+
+  The marker is cleared first, not last: the rebuild ends by touching its own
+  version, and a touch is refused while a rebuild is pending -- that refusal is
+  the whole point of the marker. Clearing first also means a rebuild that raises
+  leaves no marker behind, so the next request rebuilds inline rather than
+  waiting out the TTL.
+]]
+function M.run_rebuild(key)
+  local normalized = normalize_key(key)
+  local rebuild = rebuilds[normalized]
+
+  if rebuild == nil then
+    return nil, ('no rebuild registered for projection %s'):format(normalized)
+  end
+
+  M.clear_pending(normalized)
+
+  return rebuild()
+end
+
+-- Required at call time rather than at load time. `includes/jobs.lua` requires
+-- this module for `is_missing_table`, so a require in the other direction at
+-- load time is a cycle.
+local function jobs_module()
+  local ok, jobs = pcall(require, 'includes.jobs')
+
+  if not ok then
+    return nil
+  end
+
+  return jobs
+end
+
 function M.ensure(key, rebuild, options)
   local current, err = M.version(key)
   local latest_dependency
@@ -304,12 +453,35 @@ function M.ensure(key, rebuild, options)
     return nil, err
   end
 
+  -- An outstanding rebuild outranks the version comparison, in both
+  -- directions. It is checked before the freshness test because an incomplete
+  -- projection can read as fresh -- that is precisely the failure the marker
+  -- exists to prevent -- and the answer either way is the same: not usable yet,
+  -- take the fallback.
+  if M.rebuild_pending(key) ~= nil then
+    return false
+  end
+
   if current ~= nil and (latest_dependency == nil or current >= latest_dependency) then
     return true
   end
 
   if type(rebuild) ~= 'function' then
     return nil, ('projection rebuild is unavailable for %s'):format(normalize_key(key))
+  end
+
+  -- Deferral is best-effort by design. `enqueue()` reports false on a site that
+  -- has not run `005_jobs`, and there is no queue module at all in a context
+  -- that never loaded one, so both fall through to the inline rebuild this has
+  -- always done. Nothing here changes behavior until a site is migrated.
+  if options.defer then
+    local jobs = jobs_module()
+    local normalized = normalize_key(key)
+
+    if jobs and jobs.enqueue('projection_rebuild', normalized, {projection = normalized}) then
+      M.mark_pending(normalized, latest_dependency)
+      return false
+    end
   end
 
   return rebuild()

@@ -16,6 +16,8 @@ local projection_touch = projection.touch
 local projection_ensure = projection.ensure
 local projection_version = projection.version
 local projection_is_missing_table = projection.is_missing_table
+local projection_rebuild_pending = projection.rebuild_pending
+local projection_register_rebuild = projection.register_rebuild
 local time = os.time
 local ROUTE_ALIAS_INDEX_KEY = 'route_alias_index'
 local ROUTE_ALIAS_SOURCE_KEY = 'route_alias_source'
@@ -88,7 +90,25 @@ local function route_projection_clear(kind)
   return true
 end
 
+--[[ Whether incremental maintenance of a route index is suspended.
+
+  While a full rebuild is queued, the index holds a fraction of the site's
+  routes and `ensure()` reports it unusable, so nothing reads it. A single-row
+  write into it buys nothing -- the rebuild rewrites every row -- and the
+  version touch that comes with one would announce a completeness the index does
+  not have.
+]]
+local function route_projection_deferred(kind)
+  local key = kind == 'alias' and ROUTE_ALIAS_INDEX_KEY or ROUTE_REDIRECT_INDEX_KEY
+
+  return projection_rebuild_pending(key) ~= nil
+end
+
 local function route_projection_save(kind, source, target, language, http_code, updated_at)
+  if route_projection_deferred(kind) then
+    return true
+  end
+
   local ok, err = projection_exec(
     'DELETE FROM route_index WHERE kind = ? AND source = ?',
     kind,
@@ -160,6 +180,10 @@ VALUES(?, ?, ?, ?, ?, ?)]],
 end
 
 local function route_projection_delete(kind, source, updated_at)
+  if route_projection_deferred(kind) then
+    return true
+  end
+
   local ok, err = projection_exec(
     'DELETE FROM route_index WHERE kind = ? AND source = ?',
     kind,
@@ -235,6 +259,9 @@ local function route_aliases_project()
   return true
 end
 
+-- The queue carries a projection key, so the runner finds the rebuild here.
+projection_register_rebuild(ROUTE_ALIAS_INDEX_KEY, route_aliases_project)
+
 function route_aliases_load()
   local alias
   local rs, err
@@ -245,6 +272,7 @@ function route_aliases_load()
 
   ok, err = projection_ensure(ROUTE_ALIAS_INDEX_KEY, route_aliases_project, {
     depends_on = {ROUTE_ALIAS_SOURCE_KEY},
+    defer = true,
   })
   if ok == nil then
     error(err)
@@ -404,6 +432,8 @@ local function route_redirects_project()
   return true
 end
 
+projection_register_rebuild(ROUTE_REDIRECT_INDEX_KEY, route_redirects_project)
+
 function route_redirects_load()
   local target
   local rs, err
@@ -414,6 +444,7 @@ function route_redirects_load()
 
   ok, err = projection_ensure(ROUTE_REDIRECT_INDEX_KEY, route_redirects_project, {
     depends_on = {ROUTE_REDIRECT_SOURCE_KEY},
+    defer = true,
   })
   if ok == nil then
     error(err)

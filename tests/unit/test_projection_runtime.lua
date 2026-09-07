@@ -1328,6 +1328,157 @@ do
   assert_eq('payload_cache_disabled_drops_bucket', loads.a, 4)
 end
 
+io.write '\n-- payload cache stats --\n'
+
+-- Counting is off by default, because it is per-lookup bookkeeping on the hot
+-- path. Occupancy is not: bucket sizes are maintained either way, and reading
+-- `entries` against `limit` is how an operator decides whether the size a site
+-- configured is the right one for it.
+do
+  local state = new_projection_state()
+  local projection
+  local loads, loader_for = counting_loader()
+  local stats
+
+  state.versions.content_public = 400
+  projection = setup_projection_env(state)
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  stats = projection.cache_stats()
+
+  assert_eq('cache_stats_off_no_hits', stats.hits, 0)
+  assert_eq('cache_stats_off_no_misses', stats.misses, 0)
+  assert_eq('cache_stats_off_reports_entries', stats.entries, 1)
+  assert_eq('cache_stats_off_reports_limit', stats.limit, 512)
+end
+
+-- With counting on, a lookup lands in exactly one bucket, and the per-
+-- projection breakdown is what names which read model is missing.
+do
+  local state = new_projection_state()
+  local projection
+  local loads, loader_for = counting_loader()
+  local stats
+
+  state.versions.content_public = 400
+  projection = setup_projection_env(state)
+  settings.performance = {projection_cache_stats = true}
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  projection.cached_value('content_public', 'b', loader_for('b'))
+  stats = projection.cache_stats()
+
+  assert_eq('cache_stats_counts_hits', stats.hits, 1)
+  assert_eq('cache_stats_counts_misses', stats.misses, 2)
+  assert_eq('cache_stats_names_projection', stats.projections.content_public.hits, 1)
+  assert_eq('cache_stats_names_entries', stats.projections.content_public.entries, 2)
+end
+
+-- A key that is present but out of date is a different diagnosis from a key
+-- that is absent: raising the size fixes the second and does nothing for the
+-- first. Lumping them together would report a cache too small when what is
+-- really happening is that writes are outpacing reads.
+do
+  local state = new_projection_state()
+  local shared = new_shared_dict()
+  local projection
+  local loads, loader_for = counting_loader()
+  local stats
+
+  shared.store.content_public = 1
+  projection = setup_projection_env(state, shared)
+  settings.performance = {projection_cache_stats = true}
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+
+  -- Another worker writes and bumps the shared version.
+  shared.store.content_public = 2
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  stats = projection.cache_stats()
+
+  assert_eq('cache_stats_counts_stale', stats.stale, 1)
+  assert_eq('cache_stats_stale_is_not_a_miss', stats.misses, 1)
+end
+
+-- Evictions are the signal the bound is biting. Without them a bucket that is
+-- churning looks the same as one serving a working set that never fit.
+do
+  local state = new_projection_state()
+  local projection
+  local loads, loader_for = counting_loader()
+  local stats
+
+  state.versions.content_public = 400
+  projection = setup_projection_env(state)
+  settings.performance = {
+    projection_cache_stats = true,
+    projection_payload_cache_size = 2,
+  }
+
+  for _, key in ipairs{'a', 'b', 'c'} do
+    projection.cached_value('content_public', key, loader_for(key))
+  end
+  stats = projection.cache_stats()
+
+  assert_eq('cache_stats_counts_evictions', stats.evictions, 1)
+  assert_eq('cache_stats_names_evictions', stats.projections.content_public.evictions, 1)
+  assert_eq('cache_stats_entries_stay_bounded', stats.entries, 2)
+end
+
+-- A cache turned off still accounts for its lookups, so hits plus misses plus
+-- stale stays the number of lookups and the report reads as the zero hit rate
+-- it is rather than as no traffic.
+do
+  local state = new_projection_state()
+  local projection
+  local loads, loader_for = counting_loader()
+  local stats
+
+  state.versions.content_public = 400
+  projection = setup_projection_env(state)
+  settings.performance = {
+    projection_cache_stats = true,
+    projection_payload_cache_size = 0,
+  }
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  stats = projection.cache_stats()
+
+  assert_eq('cache_stats_disabled_counts_misses', stats.misses, 2)
+  assert_eq('cache_stats_disabled_no_hits', stats.hits, 0)
+end
+
+-- Dropping the payloads is the normal consequence of a write, so it must not
+-- take the measurement with it. Only an explicit reset does that, and the reset
+-- re-reads the setting the way the query classifier's does.
+do
+  local state = new_projection_state()
+  local projection
+  local loads, loader_for = counting_loader()
+
+  state.versions.content_public = 400
+  projection = setup_projection_env(state)
+  settings.performance = {projection_cache_stats = true}
+
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  projection_cache_clear()
+
+  assert_eq('cache_stats_survive_cache_clear', projection.cache_stats().hits, 1)
+  assert_eq('cache_stats_clear_drops_entries', projection.cache_stats().entries, 0)
+
+  projection.cache_stats_reset()
+  assert_eq('cache_stats_reset_zeroes_counts', projection.cache_stats().hits, 0)
+
+  settings.performance = {projection_cache_stats = false}
+  projection.cache_stats_reset()
+  projection.cached_value('content_public', 'a', loader_for('a'))
+  assert_eq('cache_stats_reset_rereads_setting', projection.cache_stats().misses, 0)
+end
+
 -- A projection with no version row must not re-query on every call. Storing a
 -- nil in the L1 table is indistinguishable from storing nothing, so before the
 -- miss cache this put one `projection_version` SELECT on every anonymous page
@@ -1505,10 +1656,9 @@ do
   assert_eq('budget_route_warm_queries', queries_since(state, mark), 0)
 end
 
--- Tag listing: reads are projection-backed, so the budget holds, but the
--- payload cache does not cover them yet. The warm request still issues the
--- count and rows queries against `tag_listing_index`, which is the measurement
--- behind the remaining Phase 4 item rather than a defect in this test.
+-- Tag listing: the tag entity, the listing count, and the listing rows are all
+-- payload-cached now, so this holds the same claim as the front page rather
+-- than the weaker projection-only one it started with.
 do
   local state = new_projection_state()
   local tag_mod

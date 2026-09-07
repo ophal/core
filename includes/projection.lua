@@ -8,6 +8,9 @@ local payload_cache = {}
 local CACHE_NIL = {}
 local DEFAULT_PAYLOAD_CACHE_SIZE = 512
 local DEFAULT_VERSION_MISS_TTL = 5
+local CACHE_EVENTS = {'hits', 'misses', 'stale', 'evictions'}
+local cache_stats_on
+local cache_counts = {}
 
 local function normalize_key(key)
   return tostring(key or '')
@@ -53,6 +56,42 @@ local function payload_cache_limit()
   return floor(limit)
 end
 
+-- Payload cache accounting. The bound is configurable, but nothing reported
+-- whether the size a site chose is the right one for it, and the two ways a
+-- lookup can fail want opposite answers: absent keys alongside evictions mean
+-- the bucket is too small, while stale keys mean writes are moving the version
+-- faster than reads get to use what was cached. Raising the size fixes the
+-- first and does nothing at all for the second, so they are counted apart.
+--
+-- Counting is off unless `settings.performance.projection_cache_stats` is true,
+-- which leaves one boolean test per lookup on a normal request. The setting is
+-- read once per worker, the way the query classifier reads its own.
+local function cache_stats_enabled()
+  if cache_stats_on == nil then
+    cache_stats_on = (((settings or {}).performance or {}).projection_cache_stats == true)
+  end
+
+  return cache_stats_on
+end
+
+local function record_cache(projection_key, event)
+  local key, counts
+
+  if not cache_stats_enabled() then
+    return
+  end
+
+  key = normalize_key(projection_key)
+  counts = cache_counts[key]
+
+  if not counts then
+    counts = {hits = 0, misses = 0, stale = 0, evictions = 0}
+    cache_counts[key] = counts
+  end
+
+  counts[event] = counts[event] + 1
+end
+
 -- A projection with no version row is a miss the L1 table cannot represent:
 -- storing nil is indistinguishable from storing nothing, so `version()` fell
 -- through to SQL on every call for the whole life of the worker. That is the
@@ -84,7 +123,7 @@ local function cache_bucket(projection_key)
     -- `newest` and `oldest` are the ends of an intrusive recency list. Entries
     -- link through `newer` and `older` so promotion and eviction stay O(1)
     -- instead of scanning the bucket on every hit.
-    bucket = {entries = {}, count = 0}
+    bucket = {key = key, entries = {}, count = 0}
     payload_cache[key] = bucket
   end
 
@@ -140,6 +179,7 @@ local function lru_evict(bucket, limit)
     lru_unlink(bucket, oldest)
     bucket.entries[oldest.key] = nil
     bucket.count = bucket.count - 1
+    record_cache(bucket.key, 'evictions')
   end
 end
 
@@ -342,8 +382,11 @@ function M.cached_value(projection_key, cache_key, loader, options)
 
   if limit < 1 then
     -- Caching is off. Drop anything the bucket still holds so turning the cache
-    -- off also releases what it accumulated while it was on.
+    -- off also releases what it accumulated while it was on. The load still
+    -- counts as a miss, so hits plus misses plus stale stays the number of
+    -- lookups and a disabled cache reads as the zero hit rate it is.
     payload_cache[normalize_key(projection_key)] = nil
+    record_cache(projection_key, 'misses')
 
     value, err = loader(projection_version)
     if err ~= nil then
@@ -357,6 +400,7 @@ function M.cached_value(projection_key, cache_key, loader, options)
   entry = bucket.entries[key]
   if entry and entry.version == projection_version then
     lru_promote(bucket, entry)
+    record_cache(projection_key, 'hits')
 
     if entry.value == CACHE_NIL then
       return nil
@@ -364,6 +408,8 @@ function M.cached_value(projection_key, cache_key, loader, options)
 
     return entry.value
   end
+
+  record_cache(projection_key, entry and 'stale' or 'misses')
 
   value, err = loader(projection_version)
   if err ~= nil then
@@ -388,6 +434,60 @@ function M.cached_value(projection_key, cache_key, loader, options)
   lru_evict(bucket, limit)
 
   return value
+end
+
+-- What the counters say about this worker, rolled up and broken out per
+-- projection. Occupancy is reported whether or not counting is on, because
+-- bucket sizes are maintained either way and `entries` against `limit` is the
+-- first thing worth knowing about a bucket.
+function M.cache_stats()
+  local snapshot = {
+    hits = 0,
+    misses = 0,
+    stale = 0,
+    evictions = 0,
+    entries = 0,
+    limit = payload_cache_limit(),
+    projections = {},
+  }
+
+  local function projection_row(key)
+    local row = snapshot.projections[key]
+
+    if not row then
+      row = {hits = 0, misses = 0, stale = 0, evictions = 0, entries = 0}
+      snapshot.projections[key] = row
+    end
+
+    return row
+  end
+
+  for key, counts in pairs(cache_counts) do
+    local row = projection_row(key)
+
+    for _, event in ipairs(CACHE_EVENTS) do
+      row[event] = counts[event]
+      snapshot[event] = snapshot[event] + counts[event]
+    end
+  end
+
+  -- Both sides are walked because neither covers the other: a bucket can hold
+  -- entries with no counts beside them when counting was turned on after it
+  -- filled, and counts outlive their bucket, since a version change or
+  -- `cache_clear_all()` drops the payload and not the evidence for it.
+  for key, bucket in pairs(payload_cache) do
+    projection_row(key).entries = bucket.count
+    snapshot.entries = snapshot.entries + bucket.count
+  end
+
+  return snapshot
+end
+
+-- Deliberately not called by `projection_cache_clear()`: dropping the payloads
+-- is a normal consequence of a write, and it would take the measurement with it.
+function M.cache_stats_reset()
+  cache_stats_on = nil
+  cache_counts = {}
 end
 
 function projection_cache_clear()

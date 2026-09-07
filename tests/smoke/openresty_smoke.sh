@@ -1407,22 +1407,30 @@ assert_status_zero
 assert_contains 'SMOKE_STALE_VERSION=1'
 report_ok db_make_content_stale
 
-# Correct page, bounded cost, and one write to the queue rather than a rebuild.
-# Five: the two connection pragmas, the fallback's count and page of rows
-# straight from `content`, and the enqueue. Bounded is the word
-# that matters -- the two normalized reads are one page of content, not the
-# whole table, which is what the rebuild this replaced would have read.
+# Correct page, bounded cost, and two writes to the queue rather than a rebuild.
+# Six: the two connection pragmas, the fallback's count and page of rows
+# straight from `content`, the enqueue, and the age of the row it landed on.
+# Bounded is the word that matters -- the two normalized reads are one page of
+# content, not the whole table, which is what the rebuild this replaced would
+# have read.
 #
-# The enqueue is counted apart from both other buckets. A normalized read means
-# the request reconstructed source data, and these two did; the queue write is
-# not that, and hiding it in either number would make one of them stop meaning
-# what every other budget in this file uses it to mean.
+# The second queue query is what stops a site whose cron never runs from
+# deferring forever. `enqueue()` cannot tell the caller whether it wrote a row
+# or found one already there, so the age of the live row is what says whether
+# anything is draining the queue. It is paid once per stale window and not once
+# per request: the next reader is short-circuited by the pending marker, which
+# is `db_frontpage_stale_again` below, still at zero infrastructure.
+#
+# Both are counted apart from the other buckets. A normalized read means the
+# request reconstructed source data, and these two did; queue traffic is not
+# that, and hiding it in either number would make one of them stop meaning what
+# every other budget in this file uses it to mean.
 measure_request db_frontpage_stale "$DB_URL/"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_contains "$SEED_SECOND_TITLE"
-assert_query_budget 5 2 1
+assert_query_budget 6 2 2
 report_ok "db_frontpage_stale (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED infrastructure=$MEASURED_INFRASTRUCTURE)"
 
 # The second reader in the same window queues nothing: the unique index on
@@ -1492,6 +1500,52 @@ assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_query_budget 2 0
 report_ok "db_late_alias_reused (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# A queue nobody is draining, end to end. This is the one failure the version
+# algebra cannot see: pages stay correct the entire time, served from the
+# normalized fallback, so nothing short of counting queries notices that the
+# projection is never coming back.
+
+run_request db_stall_make_stale "$DB_URL/__smoke__?scenario=stale_projection&key=content_public"
+assert_status_zero
+assert_contains 'SMOKE_STALE_VERSION=1'
+report_ok db_stall_make_stale
+
+# The ordinary deferral: the rebuild goes on the queue and the marker suppresses
+# every other reader until it lapses.
+run_request db_stall_defers "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+report_ok db_stall_defers
+
+# Now age the queued row and drop the marker, which is where a site with no
+# working cron arrives after `projection_rebuild_pending_ttl` seconds.
+run_request db_stall_lapses "$DB_URL/__smoke__?scenario=stall_queue&key=content_public"
+assert_status_zero
+assert_contains 'SMOKE_STALL_PENDING=nil'
+report_ok db_stall_lapses
+
+# The request that finds the marker gone rebuilds inline instead of deferring
+# again. Unmeasured: this is the request paying for the rebuild, and what it
+# costs is the whole projection, which is exactly the cost deferral exists to
+# move off a request that can afford to wait for cron.
+run_request db_stall_rebuilds "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+assert_contains "$SEED_SECOND_TITLE"
+report_ok db_stall_rebuilds
+
+# And the projection is back, which is the assertion that fails if the recovery
+# is removed: without it this request is still on the normalized fallback and
+# still counting a queue write, forever.
+measure_request db_stall_recovered "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+assert_query_budget 2 0
+report_ok "db_stall_recovered (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 printf 'all openresty smoke scenarios passed
 '

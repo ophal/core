@@ -109,8 +109,9 @@ end
 
   Returns true when the work is queued -- whether this call wrote the row or
   found it already there -- false when there is no queue to write to, and nil
-  plus an error otherwise. Callers do not need to tell "queued" from "already
-  queued": both mean the rebuild will happen.
+  plus an error otherwise. Both mean the rebuild is on the queue; neither means
+  anything is going to take it off. A caller that has to tell a fresh enqueue
+  from one that landed on a row nobody has drained asks `active_age()`.
 
   Dedup is the database's job, not this function's. `active_key` carries the
   identity while the job is live and is nulled when it finishes, and NULLs are
@@ -373,6 +374,50 @@ function M.drain(options)
       failed = result.failed,
     })
   end
+end
+
+--[[ How long a live job with this identity has been waiting, in seconds.
+
+  nil when nothing with that identity is live, which is both "it was never
+  queued" and "it was queued and has since finished" -- `active_key` is nulled
+  when a job leaves the queue, so a finished job is invisible here by the same
+  mechanism that stops it deduplicating new work.
+
+  This exists because a successful `enqueue()` does not mean anything is going
+  to run. It reports success for a deduplicated insert too, so a caller that
+  treats it as "the rebuild is scheduled" has no way to notice that the row it
+  deduplicated onto has been sitting there since before the site's cron stopped
+  working. The age is the evidence: at most one row can be live per identity,
+  so if this one is older than the window the caller was willing to wait, the
+  drain is not running.
+]]
+function M.active_age(active_key)
+  local rs, err, row
+
+  if active_key == nil or active_key == '' then
+    return nil
+  end
+
+  rs, err = query(
+    'SELECT created_at FROM ophal_jobs WHERE active_key = ?',
+    tostring(active_key)
+  )
+
+  if not rs then
+    if missing_table(err) then
+      return nil
+    end
+
+    return nil, err
+  end
+
+  row = rs:fetch()
+
+  if not row or row[1] == nil then
+    return nil
+  end
+
+  return time() - (tonumber(row[1]) or 0)
 end
 
 --[[ How much work is waiting. Used by the CLI and by tests; not on the request

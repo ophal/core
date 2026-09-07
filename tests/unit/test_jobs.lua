@@ -109,8 +109,16 @@ local function install_db(state)
         priority = args[6],
         attempts = 0,
         available_at = args[7],
+        created_at = args[8],
       }
       state.next_id = state.next_id + 1
+      return result_of({})
+    elseif sql:match('^SELECT created_at FROM ophal_jobs WHERE active_key') then
+      for _, row in ipairs(state.rows) do
+        if row.active_key == args[1] then
+          return result_of({{row.created_at}})
+        end
+      end
       return result_of({})
     elseif sql:match("^UPDATE ophal_jobs\nSET status = 'running'") then
       -- The claim. args: claimed_at, claimed_by, updated_at, cutoff, limit.
@@ -219,6 +227,57 @@ do
   assert_eq('enqueue_unmigrated_false', jobs.enqueue('rebuild', 'projection:content_public'), false)
   assert_eq('enqueue_unmigrated_claim_empty', #jobs.claim('worker', 5), 0)
   assert_eq('enqueue_unmigrated_pending_zero', jobs.pending_count(), 0)
+end
+
+io.write '\n-- how long work has been waiting --\n'
+
+do
+  local state = new_state()
+  install_db(state)
+  local jobs = load_jobs()
+
+  -- Nothing queued under that identity, which is also what a finished job looks
+  -- like: `complete()` nulls `active_key`, so a drained queue reports nil here
+  -- by the same mechanism that lets the work be queued again.
+  assert_eq('active_age_absent', jobs.active_age('projection:content_public'), nil)
+
+  jobs.enqueue('rebuild', 'projection:content_public', {key = 'x'})
+
+  -- Just queued, so the age is the time since this second. The assertion is a
+  -- bound rather than an equality because the clock can tick mid-test.
+  assert_eq('active_age_fresh', jobs.active_age('projection:content_public') < 2, true)
+
+  -- The row is what carries the age, so backdating it is what a queue nobody
+  -- has drained looks like from the next request's point of view.
+  state.rows[1].created_at = os.time() - 4000
+  assert_eq('active_age_counts_from_created_at',
+    jobs.active_age('projection:content_public') >= 4000, true)
+
+  -- A finished job releases the identity and stops being visible here, which is
+  -- what keeps a drained queue from reading as a stalled one forever.
+  jobs.complete(state.rows[1].id)
+  assert_eq('active_age_after_complete', jobs.active_age('projection:content_public'), nil)
+
+  assert_eq('active_age_no_key', jobs.active_age(nil), nil)
+  assert_eq('active_age_empty_key', jobs.active_age(''), nil)
+end
+
+do
+  local state = new_state()
+  install_db(state)
+  state.missing_table = true
+  local jobs = load_jobs()
+
+  -- An unmigrated site has no queue, so there is no waiting work to report and
+  -- nothing to raise about. The caller reads nil as "no live job", which sends
+  -- it down the inline path it was already taking there.
+  local age, err = jobs.active_age('projection:content_public')
+
+  assert_eq('active_age_unmigrated', age, nil)
+  -- And not as an error either: a missing table is "no deferral is available",
+  -- which every caller already answers by working inline. Reporting it as a
+  -- failure would put an error where the callers expect an absence.
+  assert_eq('active_age_unmigrated_not_an_error', err, nil)
 end
 
 io.write '\n-- job claim and run --\n'

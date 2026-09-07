@@ -90,6 +90,29 @@ local scenarios = {
       })
     end)
   end,
+  -- What a site whose cron has never run looks like to the next request: the
+  -- rebuild is still on the queue, and the marker that was suppressing further
+  -- deferrals has lapsed. Backdating `created_at` to the epoch is the age; the
+  -- marker is dropped rather than waited out, because the TTL is 900 seconds
+  -- and the boundary itself is pinned in the unit tests.
+  --
+  -- `enqueue()` reports success for landing on that row exactly as it does for
+  -- writing a new one, so without the age check the request that finds the
+  -- marker gone re-marks and waits another full TTL, forever.
+  stall_queue = function()
+    return run_bootstrap(function()
+      local projection = require 'includes.projection'
+      local key = query_arg('key') or 'content_public'
+
+      db_query('UPDATE ophal_jobs SET created_at = 0 WHERE active_key = ?', key)
+      projection.clear_pending(key)
+
+      write(render{
+        'SMOKE_STALL_KEY=' .. key,
+        'SMOKE_STALL_PENDING=' .. tostring(projection.rebuild_pending(key)),
+      })
+    end)
+  end,
   stale_projection = function()
     return run_bootstrap(function()
       local projection = require 'includes.projection'

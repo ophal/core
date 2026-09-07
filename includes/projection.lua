@@ -317,9 +317,11 @@ end
 
   It carries the source version the rebuild was queued for, so a marker left
   behind by a runner that died is worth nothing once the source moves again, and
-  it expires on its own besides: a site with no cron scheduled falls back to
-  rebuilding inline after `projection_rebuild_pending_ttl` seconds rather than
-  never rebuilding at all.
+  it expires on its own besides. The expiry is not by itself what rescues a site
+  whose cron never runs: the request that finds the marker gone re-enqueues, and
+  the queue reports success for landing on the row already there. What ends that
+  loop is `rebuild_queue_stalled()`, which reads the age of that row. The TTL is
+  what makes a worker ask the question again; the age is what answers it.
 ]]
 function M.mark_pending(key, version)
   local normalized = normalize_key(key)
@@ -434,6 +436,44 @@ local function jobs_module()
   return jobs
 end
 
+--[[ Whether the rebuild queued for this projection is one nobody is draining.
+
+  A successful `enqueue()` says the work is on the queue. It does not say
+  anything will take it off, and it cannot: it reports success for a
+  deduplicated insert exactly as it does for a real one, because from the
+  queue's point of view those are the same outcome. So a site whose cron has
+  stopped -- never scheduled, misconfigured, or refused by the token gate --
+  used to sit in this state forever. The marker lapsed, the next request
+  enqueued onto the row already there, got `true`, re-marked, and waited another
+  full TTL. Correct pages, from the normalized fallback, for as long as the site
+  ran, with nothing in the version algebra able to notice.
+
+  The age of the live job is the evidence, and it is the only signal that does
+  not depend on which worker happens to be asking. At most one row can be live
+  per identity, so a row older than the window we were willing to wait means the
+  marker has already lapsed at least once with nothing having run in between.
+  Per-worker memory of "I deferred this" cannot do the job: with several workers
+  the next lapse usually lands on one that has no such memory, and a restart
+  loses it besides.
+
+  A zero TTL is not a lapse. `ngx.shared`'s `set` treats an expiry of 0 as "no
+  expiry", so a marker written under it stands until something clears it, and
+  that is a deliberate choice to defer indefinitely rather than a drain that has
+  stopped.
+]]
+local function rebuild_queue_stalled(jobs, key)
+  local ttl = pending_ttl()
+  local age
+
+  if ttl <= 0 then
+    return false
+  end
+
+  age = jobs.active_age(key)
+
+  return age ~= nil and age > ttl
+end
+
 function M.ensure(key, rebuild, options)
   local current, err = M.version(key)
   local latest_dependency
@@ -479,8 +519,16 @@ function M.ensure(key, rebuild, options)
     local normalized = normalize_key(key)
 
     if jobs and jobs.enqueue('projection_rebuild', normalized, {projection = normalized}) then
-      M.mark_pending(normalized, latest_dependency)
-      return false
+      -- Deferring again is only honest while the queue is moving. When it is
+      -- not, falling through to the inline rebuild is what it always was: slow,
+      -- correct, and self-healing. The job row is left alone rather than
+      -- completed here -- this is not the runner, and a drain that comes back
+      -- later rebuilding once more costs nothing, while the row disappearing
+      -- would hide the fact that the queue ever stopped.
+      if not rebuild_queue_stalled(jobs, normalized) then
+        M.mark_pending(normalized, latest_dependency)
+        return false
+      end
     end
   end
 

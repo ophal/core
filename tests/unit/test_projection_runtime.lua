@@ -146,7 +146,24 @@ local function make_db_query(state)
         kind = args[1],
         dedup_key = args[2],
         active_key = active_key,
+        created_at = args[8],
       }
+      return rows_result({})
+    elseif sql == 'SELECT created_at FROM ophal_jobs WHERE active_key = ?' then
+      -- `active_key` is nulled when a job finishes, so a row answering here is
+      -- a live one by construction, and the unique index means there is at most
+      -- one. A test seeds `state.jobs` with an old `created_at` to stand for a
+      -- queue that nothing has drained.
+      if state.jobs_absent then
+        error('no such table: ophal_jobs')
+      end
+
+      for _, job in ipairs(state.jobs) do
+        if job.active_key == args[1] then
+          return rows_result({{job.created_at}})
+        end
+      end
+
       return rows_result({})
     elseif sql == 'SELECT version FROM projection_version WHERE projection_key = ?' then
       row = state.versions[args[1]]
@@ -1940,8 +1957,8 @@ do
 end
 
 -- A site with no cron scheduled must not be stuck on the fallback forever. The
--- marker expires, and the request that finds it gone rebuilds inline -- slower
--- than a drained queue, and the same thing the code did before this phase.
+-- marker expiring is what makes a worker ask again; it is not by itself what
+-- rescues the site, which is the next section.
 do
   local state = new_projection_state()
   local projection
@@ -1952,6 +1969,229 @@ do
 
   projection.mark_pending('content_public', 100)
   assert_eq('pending_marker_expires', projection.rebuild_pending('content_public'), nil)
+end
+
+io.write '\n-- a queue that stopped draining --\n'
+
+-- The failure this closes. A lapsed marker sends the request back to `ensure()`,
+-- which enqueues -- and `enqueue()` reports success for landing on the row
+-- already there exactly as it does for writing a new one, because to the queue
+-- those are the same outcome. So the request re-marked and waited another full
+-- TTL, forever, on any site whose cron was never scheduled, was misconfigured,
+-- or was refused by the token gate. Correct pages the whole time, from the
+-- normalized fallback, which is why nothing ever surfaced it.
+do
+  local state = new_projection_state()
+  local content, projection, entity
+
+  local pending_ttl = 900
+  state.versions.content_public = 300
+  state.versions.content_source = 400
+  state.content_public[9] = {
+    id = 9,
+    user_id = 1,
+    title = 'Stale projected row',
+    teaser = 'Stale teaser',
+    body = 'Stale body',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+  state.content_rows[9] = {
+    id = 9,
+    user_id = 1,
+    title = 'Fresh legacy row',
+    teaser = 'Fresh teaser',
+    body = 'Fresh body',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+  -- A rebuild queued long enough ago that its marker has lapsed more than once,
+  -- still live because nothing has taken it off the queue.
+  state.jobs[1] = {
+    kind = 'projection_rebuild',
+    dedup_key = 'content_public',
+    active_key = 'content_public',
+    created_at = os.time() - 5000,
+  }
+
+  content = setup_content_env(state)
+  -- After `setup_content_env()`, which installs a fresh `settings` table.
+  settings.performance = {projection_rebuild_pending_ttl = pending_ttl}
+  projection = require 'includes.projection'
+  projection.clear_pending('content_public')
+
+  entity = content.load(9)
+
+  assert_eq('stalled_queue_rebuilds_inline', state.content_public[9].title, 'Fresh legacy row')
+  assert_eq('stalled_queue_serves_fresh', entity.title, 'Fresh legacy row')
+  assert_eq('stalled_queue_moves_version',
+    state.versions.content_public, state.versions.content_source)
+  -- Nothing is marked pending, because there is nothing outstanding: the
+  -- rebuild the marker would have been describing has just run.
+  assert_eq('stalled_queue_marks_nothing', projection.rebuild_pending('content_public'), nil)
+  -- The job row is left where it is. This is not the runner, and a drain that
+  -- comes back later and rebuilds once more costs nothing, while deleting the
+  -- row here would erase the evidence that the queue ever stopped.
+  assert_eq('stalled_queue_leaves_the_job', #state.jobs, 1)
+end
+
+-- The boundary. A job younger than the marker's lifetime is a queue that has
+-- simply not been drained yet, which is the ordinary state during a deferred
+-- window and must keep deferring. Only a job that has outlived the marker is
+-- evidence, because only then is it certain the marker lapsed with nothing
+-- having run in between.
+do
+  local state = new_projection_state()
+  local content, projection
+
+  local pending_ttl = 900
+  state.versions.content_public = 300
+  state.versions.content_source = 400
+  state.content_rows[9] = {
+    id = 9,
+    user_id = 1,
+    title = 'Fresh legacy row',
+    teaser = 'Fresh teaser',
+    body = 'Fresh body',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+  state.jobs[1] = {
+    kind = 'projection_rebuild',
+    dedup_key = 'content_public',
+    active_key = 'content_public',
+    created_at = os.time() - 900,
+  }
+
+  content = setup_content_env(state)
+  -- After `setup_content_env()`, which installs a fresh `settings` table.
+  settings.performance = {projection_rebuild_pending_ttl = pending_ttl}
+  projection = require 'includes.projection'
+  projection.clear_pending('content_public')
+
+  content.load(9)
+
+  assert_eq('queue_at_the_ttl_still_defers', state.versions.content_public, 300)
+  assert_eq('queue_at_the_ttl_marks_pending',
+    projection.rebuild_pending('content_public'), 400)
+
+  projection.clear_pending('content_public')
+end
+
+-- A first deferral is never stalled: the row `enqueue()` just wrote is seconds
+-- old. Without this the age check would turn every deferral into the inline
+-- rebuild the phase exists to avoid, and no budget in the smoke suite would
+-- have moved to say so.
+do
+  local state = new_projection_state()
+  local content, projection
+
+  local pending_ttl = 900
+  state.versions.content_public = 300
+  state.versions.content_source = 400
+  state.content_rows[9] = {
+    id = 9,
+    user_id = 1,
+    title = 'Fresh legacy row',
+    teaser = 'Fresh teaser',
+    body = 'Fresh body',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+
+  content = setup_content_env(state)
+  -- After `setup_content_env()`, which installs a fresh `settings` table.
+  settings.performance = {projection_rebuild_pending_ttl = pending_ttl}
+  projection = require 'includes.projection'
+  projection.clear_pending('content_public')
+
+  content.load(9)
+
+  assert_eq('first_deferral_not_stalled', state.versions.content_public, 300)
+  assert_eq('first_deferral_queued', queued_rebuilds(state), 'content_public')
+  assert_eq('first_deferral_marks_pending',
+    projection.rebuild_pending('content_public'), 400)
+
+  projection.clear_pending('content_public')
+end
+
+-- A TTL of zero is not a lapse. `ngx.shared`'s `set` reads an expiry of 0 as
+-- "no expiry", so a marker written under it stands until something clears it --
+-- a deliberate choice to defer indefinitely, not a drain that has stopped. The
+-- age of the job says nothing about that choice, however old it is.
+do
+  local state = new_projection_state()
+  local content, projection
+
+  local pending_ttl = 0
+  state.versions.content_public = 300
+  state.versions.content_source = 400
+  state.content_rows[9] = {
+    id = 9,
+    user_id = 1,
+    title = 'Fresh legacy row',
+    teaser = 'Fresh teaser',
+    body = 'Fresh body',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+  state.jobs[1] = {
+    kind = 'projection_rebuild',
+    dedup_key = 'content_public',
+    active_key = 'content_public',
+    created_at = os.time() - 100000,
+  }
+
+  content = setup_content_env(state)
+  -- After `setup_content_env()`, which installs a fresh `settings` table.
+  settings.performance = {projection_rebuild_pending_ttl = pending_ttl}
+  projection = require 'includes.projection'
+  projection.clear_pending('content_public')
+
+  content.load(9)
+
+  assert_eq('zero_ttl_never_stalls', state.versions.content_public, 300)
+
+  projection.clear_pending('content_public')
+  settings.performance = {}
+end
+
+-- An unmigrated site has no queue to read an age from, and must not start
+-- raising because of it. `enqueue()` already answers false there and the
+-- inline rebuild happens for that reason; the age check must not be reached in
+-- a way that turns a missing table into an error.
+do
+  local state = new_projection_state()
+  local content
+
+  local pending_ttl = 900
+  state.jobs_absent = true
+  state.versions.content_public = 300
+  state.versions.content_source = 400
+  state.content_rows[9] = {
+    id = 9,
+    user_id = 1,
+    title = 'Fresh legacy row',
+    teaser = 'Fresh teaser',
+    body = 'Fresh body',
+    status = 1,
+    promote = 1,
+    created = 10,
+  }
+
+  content = setup_content_env(state)
+  settings.performance = {projection_rebuild_pending_ttl = pending_ttl}
+  require('includes.projection').clear_pending('content_public')
+
+  content.load(9)
+
+  assert_eq('unmigrated_queue_rebuilds_inline',
+    state.content_public[9].title, 'Fresh legacy row')
 end
 
 -- Deferring records the marker, and the runner clears it. Clearing has to

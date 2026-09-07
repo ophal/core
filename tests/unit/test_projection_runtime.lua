@@ -128,10 +128,10 @@ local function make_db_query(state)
         return rows_result({})
       end
       return rows_result({{row}})
-    elseif sql == 'DELETE FROM projection_version WHERE projection_key = ?' then
-      state.versions[args[1]] = nil
-      return rows_result({})
-    elseif sql == 'INSERT INTO projection_version(projection_key, version, updated_at) VALUES(?, ?, ?)' then
+    elseif sql:match('^INSERT INTO projection_version%\(') then
+      -- One upsert, matched by prefix because the statement spans lines. It
+      -- replaced a DELETE and an INSERT; a touch that starts issuing two
+      -- queries again shows up in the budget assertions below.
       state.versions[args[1]] = args[2]
       return rows_result({})
     elseif sql == "SELECT * FROM route_index WHERE kind = 'alias'" then
@@ -1761,6 +1761,56 @@ io.write '\n-- anonymous SQL budget --\n'
 -- predicted it. The classifier is the one `db_query()` uses in production, so
 -- the budget measured here is the budget a real worker reports.
 local db_stats = require 'includes.database.stats'
+
+-- The classifier is the definition every budget in this file and in the smoke
+-- suite rests on, so its blind spots are budget bugs rather than reporting
+-- ones. `projection.touch()`'s upsert found one: `DO UPDATE SET` put the
+-- keyword after `UPDATE`, the scanner read `set` as a table, and because no
+-- projection is named `set` every touch counted as a normalized write. These
+-- pin the shapes the codebase actually issues.
+io.write('\n-- query classifier --\n')
+
+do
+  local function names_of(sql)
+    return table.concat(db_stats.tables(sql), ',')
+  end
+
+  assert_eq(
+    'stats_tables_upsert',
+    names_of([[
+INSERT INTO projection_version(projection_key, version, updated_at) VALUES(?, ?, ?)
+ON CONFLICT(projection_key) DO UPDATE SET
+  version = excluded.version,
+  updated_at = excluded.updated_at]]),
+    'projection_version'
+  )
+
+  -- The guard above must not cost a real UPDATE its table. `SET` is skipped
+  -- only where it follows `UPDATE`; here the table already did.
+  assert_eq(
+    'stats_tables_update',
+    names_of('UPDATE users SET pass = ? WHERE id = ?'),
+    'users'
+  )
+
+  assert_eq(
+    'stats_tables_join',
+    names_of('SELECT t.* FROM field_tag ft JOIN tag t ON t.id = ft.tag_id'),
+    'field_tag,tag'
+  )
+
+  assert_eq(
+    'stats_tables_derived',
+    names_of('SELECT * FROM (SELECT id FROM content) c'),
+    'content'
+  )
+
+  assert_eq(
+    'stats_tables_insert_values',
+    names_of('INSERT INTO field_tag(entity_type, entity_id, tag_id) VALUES(?, ?, ?)'),
+    'field_tag'
+  )
+end
 
 local function first_normalized_since(state, mark)
   for index = mark + 1, #state.queries do

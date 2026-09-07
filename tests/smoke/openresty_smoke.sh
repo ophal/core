@@ -1137,7 +1137,7 @@ authored_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\
 # write path has to state what it did to the cost, and the breakdown is what
 # makes the number readable:
 #
-#   projection_version   8   four touch() calls, each a DELETE plus an INSERT
+#   projection_version   4   four touch() calls, one upsert each
 #   content_public       3   the projection DELETE and INSERT, and the tag
 #                            rebuild's source read, which joins it
 #   content              2   the INSERT, then load_legacy() in entity_after_save
@@ -1148,9 +1148,17 @@ authored_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\
 #   tag                  1
 #   plus the connection's two pragmas
 #
-# One cost remains that needs no Phase 5 work: `projection.touch()` is a DELETE
-# plus an INSERT where an upsert is one query, which is half of the eight.
-assert_query_budget 22 5
+# Seventeen table hits over sixteen queries, because the tag rebuild's source
+# read names `content_public` and `field_tag` both.
+#
+# This was 26 and 6 when the path was first measured. Three changes took the
+# eight off, none of them structural: `save_service()` stopped calling
+# `load(id)` before it knew the action, which had been looking up id 0 in
+# `content_public` and then in `content` for two certain misses;
+# `entity_after_save()` stopped touching `tag_listing_source` a second time from
+# inside `tag_projection_rebuild()`; and `projection.touch()` became a single
+# upsert instead of a DELETE plus an INSERT.
+assert_query_budget 18 5
 report_ok "db_content_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # What the write left for the next visitor. This is anonymous on purpose: the
@@ -1177,10 +1185,11 @@ measure_request db_content_update -c "$author_cookie" -b "$author_cookie" \
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_regex '"success" *: *true'
-# An update costs about what a create does. It reads one more row from
+# An update now costs exactly what a create does. It reads one more row from
 # `content_public` -- `load(id)`, which an update genuinely needs and a create
-# no longer performs -- and does one less insert-side write.
-assert_query_budget 22 5
+# no longer performs -- and does one less insert-side write. It was 24 before
+# the same pass; six of those were `projection_version` pairs.
+assert_query_budget 18 5
 report_ok "db_content_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_content_page_after_update "$DB_URL/content/$authored_id"

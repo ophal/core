@@ -327,27 +327,21 @@ function M.touch(key, version)
   local normalized = normalize_key(key)
   local current = tonumber(version) or time()
   local shared = shared_versions_dict()
-  local ok, err = M.exec(
-    'DELETE FROM projection_version WHERE projection_key = ?',
-    normalized
-  )
-
-  if not ok then
-    if M.is_missing_table(err, 'projection_version') then
-      version_cache[normalized] = current
-      version_miss[normalized] = nil
-      payload_cache[normalized] = nil
-      if shared then
-        shared:set(normalized, current)
-      end
-      return true
-    end
-
-    return nil, err
-  end
-
-  ok, err = M.exec(
-    'INSERT INTO projection_version(projection_key, version, updated_at) VALUES(?, ?, ?)',
+  -- One statement, not a DELETE followed by an INSERT. `projection_key` is the
+  -- primary key on both drivers and `excluded` is spelled the same way in
+  -- SQLite and PostgreSQL, so this stays one portable query. It halves what
+  -- every touch costs, and a write path runs several per save.
+  --
+  -- It also closes the window the pair left open: between the DELETE and the
+  -- INSERT the key had no row at all, and a peer worker reading it there would
+  -- negative-cache the miss for `projection_version_miss_ttl` seconds. An
+  -- upsert never shows an absent row, and a failed one leaves the old version
+  -- standing instead of deleting it.
+  local ok, err = M.exec([[
+INSERT INTO projection_version(projection_key, version, updated_at) VALUES(?, ?, ?)
+ON CONFLICT(projection_key) DO UPDATE SET
+  version = excluded.version,
+  updated_at = excluded.updated_at]],
     normalized,
     current,
     time()

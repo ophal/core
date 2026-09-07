@@ -25,10 +25,14 @@ local TABLE_KEYWORDS = {
   UPDATE = true,
 }
 
--- Keywords that can also follow one, in a derived table or an INSERT..SELECT.
--- Without this a `FROM (SELECT ...)` would report a table named `select`.
+-- Keywords that can also follow one, in a derived table, an INSERT..SELECT or
+-- an upsert. Without this a `FROM (SELECT ...)` would report a table named
+-- `select`, and the `ON CONFLICT ... DO UPDATE SET` in `projection.touch()` a
+-- table named `set` -- which, being no projection, would count every upsert as
+-- a normalized read.
 local NOT_A_TABLE = {
   SELECT = true,
+  SET = true,
   VALUES = true,
 }
 

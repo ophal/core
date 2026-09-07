@@ -130,9 +130,14 @@ never taken.
 Schedule `/cron`. It is not a background nicety on this line: since `0.2.x` a
 projection that is stale or has never been built is no longer rebuilt inside the
 request that noticed it. The request enqueues the rebuild, serves the page from
-the normalized tables, and returns; `/cron` is what drains that queue. A site
-that never runs cron therefore serves correct pages from the fallback
-indefinitely and never gets the fast path back. It does not recover on its own.
+the normalized tables, and returns; `/cron` is what drains that queue.
+
+A site that never runs cron still serves correct pages, and it is not stuck on
+the fallback forever -- once a queued rebuild has sat there longer than Ophal
+was willing to wait, the next request that notices does the rebuild itself. But
+that is the behaviour cron exists to avoid: the rebuild reads a whole table, and
+whoever is waiting on that page pays for it. Scheduling cron is what keeps that
+cost off your visitors.
 
 Every five minutes is a reasonable starting point. The interval is what bounds
 how long a projection stays stale after a write, so tune it against that rather

@@ -108,4 +108,27 @@ function _M.limit()
   return ' LIMIT ?, ?'
 end
 
+-- The job claim. SQLite has no `SKIP LOCKED`, so concurrent runners serialize
+-- on the write lock that `busy_timeout` and WAL already manage. That is sound
+-- here because SQLite is the single-node dev, CLI, test and low-scale case: a
+-- second runner waits for the first rather than working alongside it, which
+-- costs throughput this deployment shape does not need.
+--
+-- Parameters, in order: claimed_at, claimed_by, updated_at, the available_at
+-- cutoff, and the row limit.
+function _M.claim_jobs_sql()
+  return [[UPDATE ophal_jobs
+SET status = 'running',
+  claimed_at = ?,
+  claimed_by = ?,
+  attempts = attempts + 1,
+  updated_at = ?
+WHERE id IN (
+  SELECT id FROM ophal_jobs
+  WHERE status = 'pending' AND available_at <= ?
+  ORDER BY priority, id
+  LIMIT ?
+)]]
+end
+
 return _M

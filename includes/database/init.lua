@@ -157,6 +157,10 @@ function db_table_schema_sql()
   return drivers[db_id].table_schema_sql()
 end
 
+function db_claim_jobs_sql()
+  return drivers[db_id].claim_jobs_sql()
+end
+
 local schema_cache = {}
 
 function db_schema_cache_clear()

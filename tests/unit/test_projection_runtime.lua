@@ -115,6 +115,13 @@ local function make_db_query(state)
 
     record(sql, args)
 
+    -- `state.fail_query` is a pattern; a matching statement raises the way the
+    -- driver does when its table is gone. The attempt is recorded first, so a
+    -- test can still see that it was made.
+    if state.fail_query and sql:match(state.fail_query) then
+      error(state.fail_error or 'no such table: tag_listing_index')
+    end
+
     if sql == 'SELECT version FROM projection_version WHERE projection_key = ?' then
       row = state.versions[args[1]]
       if row == nil then
@@ -1089,6 +1096,26 @@ do
   assert_eq('tag_menu_warm_queries', #state.queries - mark, 0)
   assert_eq('tag_menu_warm_label', second['tag/1'][1], 'alpha')
   assert_eq('tag_menu_warm_fresh_table', second ~= first, true)
+end
+
+do
+  local state = tag_listing_state()
+  local tag_mod
+
+  -- The count comes from the projection and the rows read then fails, which is
+  -- the only order in which the legacy UNION arms are still unbuilt by the time
+  -- the fallback needs them. The fallback used to concatenate the empty arm
+  -- list and send a bare ' ORDER BY created DESC LIMIT ?, ?'.
+  state.fail_query = '^SELECT entity_type type'
+  tag_mod = setup_tag_env(state)
+  tag_mod.entity_page()
+
+  assert_eq('tag_listing_rows_fallback_no_bare_order',
+    query_count(state, '^ ORDER BY created DESC'), 0)
+  assert_eq('tag_listing_rows_fallback_builds_arms',
+    query_count(state, '^SELECT entity_type FROM field_tag'), 1)
+  assert_eq('tag_listing_rows_fallback_union_query',
+    query_count(state, '^SELECT e%.%*'), 1)
 end
 
 io.write '\n-- projection version cache --\n'

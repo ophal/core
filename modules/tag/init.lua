@@ -727,9 +727,29 @@ local function tag_listing_load(entity_id, cacheable)
   end
 end
 
+-- The pre-projection listing renders from one UNION arm per tagged entity type.
+-- Either the count step or the rows step can be the one that finds the
+-- projection unusable, so building the arms has to be callable from both rather
+-- than living inline in the count branch.
+local function tag_legacy_source_queries(tag_id)
+  local rs, err = db_query('SELECT entity_type FROM field_tag WHERE tag_id = ? GROUP BY entity_type', tag_id)
+  local count_query, query = {}, {}
+
+  if err then
+    error(err)
+  end
+
+  for v in rs:rows(true) do
+    tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
+    tinsert(query, 'SELECT e.*, ' .. "'" .. v.entity_type .. "'" .. ' "type" FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
+  end
+
+  return count_query, query
+end
+
 function _M.entity_page()
   local rs, err, tag, current_page, ipp, num_pages, entity, attr, pagination, sql
-  local count, tables, count_query, query, tags, output = 0, {}, {}, {}, {}, {}
+  local count, count_query, query, tags, output = 0, {}, {}, {}, {}
   local entities
   local use_projection = tag_projection_ready()
 
@@ -769,17 +789,7 @@ function _M.entity_page()
     end
 
     if not use_projection then
-      -- Get tables to join with
-      rs, err = db_query('SELECT entity_type FROM field_tag WHERE tag_id = ? GROUP BY entity_type', tag.id)
-      if err then
-        error(err)
-      else
-        for v in rs:rows(true) do
-          tinsert(tables, v.entity_type)
-          tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
-          tinsert(query, 'SELECT e.*, ' .. "'" .. v.entity_type .. "'" .. ' "type" FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
-        end
-      end
+      count_query, query = tag_legacy_source_queries(tag.id)
 
       -- Count rows
       if not empty(count_query) then
@@ -828,17 +838,28 @@ function _M.entity_page()
       end
 
       if not use_projection then
-        -- Render list
-        sql = tconcat(query, ' UNION ') .. ' ORDER BY created DESC' .. db_limit()
-        rs, err = db_query(sql, tag.id, (current_page -1)*ipp, ipp)
-        if err then
-          error(err)
+        -- Render list. Arriving here with no arms means the rows step is what
+        -- found the projection unusable, so the count above came from the
+        -- projection and nothing has built them yet. Without this the concat
+        -- below yields a bare ' ORDER BY ...' and the query is a syntax error.
+        if empty(query) then
+          count_query, query = tag_legacy_source_queries(tag.id)
+        end
+
+        if empty(query) then
+          rs = nil
+        else
+          sql = tconcat(query, ' UNION ') .. ' ORDER BY created DESC' .. db_limit()
+          rs, err = db_query(sql, tag.id, (current_page -1)*ipp, ipp)
+          if err then
+            error(err)
+          end
         end
       end
 
       if use_projection then
         output = copy_rows(entities or {})
-      else
+      elseif rs then
         for entity in rs:rows(true) do
           tinsert(output, entity)
         end

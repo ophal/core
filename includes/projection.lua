@@ -315,6 +315,14 @@ function M.ensure(key, rebuild, options)
   return rebuild()
 end
 
+-- Dropping `payload_cache[normalized]` here is not redundant with the version
+-- comparison in `cached_value()`, and removing it as dead weight serves stale
+-- pages. Versions have one-second granularity, so a write landing in the same
+-- second a reader cached its entry leaves `entry.version` equal to the version
+-- it is compared against, and the entry reads as fresh. Clearing the bucket is
+-- what makes a write visible to a reader inside its own second; the comparison
+-- is what covers every later one. `db_content_page_after_update` in the smoke
+-- suite fails on a stale title if this line goes away.
 function M.touch(key, version)
   local normalized = normalize_key(key)
   local current = tonumber(version) or time()

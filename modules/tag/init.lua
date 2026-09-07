@@ -14,6 +14,7 @@ local add_js, route_arg, trim, header = add_js, route_arg, seawolf.text.trim, he
 local page_set_title, json, time = page_set_title, require 'dkjson', os.time
 local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
 local _SESSION, tonumber, _GET, ceil = _SESSION, tonumber, _GET, math.ceil
+local floor, ipairs = math.floor, ipairs
 local pager, print_t, request_get_body = pager, print_t, request_get_body
 local pager_current_page = pager_current_page
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
@@ -22,12 +23,36 @@ local projection_query = projection.query
 local projection_exec = projection.exec
 local projection_touch = projection.touch
 local projection_ensure = projection.ensure
+local projection_cached_value = projection.cached_value
 local projection_version = projection.version
 local projection_is_missing_table = projection.is_missing_table
 
 local db_query, db_limit, db_last_insert_id, user_mod
 local TAG_LISTING_KEY = 'tag_listing_index'
 local TAG_LISTING_SOURCE_KEY = 'tag_listing_source'
+
+-- Payload cache entries are shared by every request this worker serves, so
+-- anything handed to a caller that may write to it is copied first. The listing
+-- page does exactly that: it hangs `links` off the tag entity it renders.
+local function copy_row(row)
+  local copied = {}
+
+  for key, value in pairs(row or {}) do
+    copied[key] = value
+  end
+
+  return copied
+end
+
+local function copy_rows(rows)
+  local copied = {}
+
+  for i = 1, #(rows or {}) do
+    copied[i] = copy_row(rows[i])
+  end
+
+  return copied
+end
 
 local function tag_projection_mark_source(version)
   local ok, err = projection_touch(TAG_LISTING_SOURCE_KEY, version)
@@ -442,16 +467,28 @@ function _M.menus_alter(menus)
   end
 
   menus.tags_menu = function()
-    local rs, err
+    local rs, err, rows
     local c, items = 0, {}
 
     if tag_projection_ready() then
-      rs, err = projection_query [[SELECT tag_id id, tag_name name
+      -- This menu renders on every page, not only on a listing, so it is the
+      -- most frequent read of the whole projection. What is cached is the row
+      -- set; `items` is rebuilt from it on each call because the menu system
+      -- takes ownership of the table it is handed.
+      rows, err = projection_cached_value(TAG_LISTING_KEY, 'menu:tags', function()
+        local menu_rs, query_err = projection_query [[SELECT tag_id id, tag_name name
 FROM tag_listing_index
 GROUP BY tag_id, tag_name
 ORDER BY tag_name]]
-      if rs then
-        for row in rs:rows(true) do
+        if not menu_rs then
+          return nil, query_err
+        end
+
+        return menu_rs:all(true)
+      end)
+
+      if rows then
+        for _, row in ipairs(rows) do
           c = c + 1
           items['tag/' .. row.id] = {weight = c*10, ('%s'):format(row.name)}
         end
@@ -651,12 +688,52 @@ function _M.save_service()
   return output
 end
   
+-- The listing page reads its tag entity on every request, and that read was the
+-- last normalized SQL left on a warm anonymous page. It is cached against the
+-- listing projection version rather than against a projection of its own,
+-- because every write that can change a tag row already moves that version:
+-- create and update reach entity_after_save() and delete reaches
+-- entity_after_delete(), and both touch TAG_LISTING_KEY.
+--
+-- `entity_id` is route input on its way into a cache key, so it is normalized
+-- first, and only a non-negative integer is cached. The normalization rejects
+-- rather than truncates for two reasons. Truncating would make `tag/1.5` an
+-- alias for `tag/1` instead of the 404 it is today, and the key has to be
+-- derived from the same value the loader is given -- key from the truncated id
+-- and load from the raw one, and a visitor caches a miss under a real tag's
+-- key. Anything not an integer is not a tag id either, so it takes the uncached
+-- load and 404s exactly as before.
+local function tag_listing_load(entity_id, cacheable)
+  local id, tag, err
+
+  if cacheable then
+    id = tonumber(entity_id)
+  end
+
+  if id == nil or id < 0 or id ~= floor(id) then
+    return _M.load(entity_id)
+  end
+
+  tag, err = projection_cached_value(TAG_LISTING_KEY, ('tag:%s'):format(id), function()
+    return _M.load(id)
+  end)
+
+  if err ~= nil then
+    return nil, err
+  end
+
+  if tag ~= nil then
+    return copy_row(tag)
+  end
+end
+
 function _M.entity_page()
   local rs, err, tag, current_page, ipp, num_pages, entity, attr, pagination, sql
   local count, tables, count_query, query, tags, output = 0, {}, {}, {}, {}, {}
+  local entities
   local use_projection = tag_projection_ready()
 
-  tag, err = _M.load(route_arg(1))
+  tag, err = tag_listing_load(route_arg(1), use_projection)
 
   if err then
     error(err)
@@ -667,13 +744,27 @@ function _M.entity_page()
     ipp = config.items_per_page or 10
 
     if use_projection then
-      rs, err = projection_query('SELECT COUNT(*) FROM tag_listing_index WHERE tag_id = ?', tag.id)
-      if rs then
-        count = (rs:fetch() or {})[1]
-      elseif projection_is_missing_table(err, 'tag_listing_index') then
-        use_projection = false
-      else
-        error(err)
+      -- `tag.id` comes from the loaded entity rather than from the route, so it
+      -- is already the canonical id by the time it reaches a cache key.
+      count, err = projection_cached_value(
+        TAG_LISTING_KEY,
+        ('listing:count:%s'):format(tag.id),
+        function()
+          local count_rs, query_err = projection_query(
+            'SELECT COUNT(*) FROM tag_listing_index WHERE tag_id = ?', tag.id)
+          if not count_rs then
+            return nil, query_err
+          end
+
+          return (count_rs:fetch() or {})[1]
+        end
+      )
+      if err then
+        if projection_is_missing_table(err, 'tag_listing_index') then
+          use_projection = false
+        else
+          error(err)
+        end
       end
     end
 
@@ -704,20 +795,30 @@ function _M.entity_page()
 
     num_pages = ceil(count/ipp)
 
-    -- Calculate current page. Tag listings do not use the payload cache yet,
-    -- but they share the frontpage's unclamped-offset shape, so clamp here too
-    -- rather than leave the hazard behind for the Phase 4 tag work.
+    -- Calculate current page. Clamping happens here, after the count, because
+    -- `current_page` becomes part of the payload cache key below.
     current_page = pager_current_page(_GET.page, num_pages)
 
     if count > 0 then
       if use_projection then
-        rs, err = projection_query(
-          'SELECT entity_type type, entity_id id, user_id, language, title, teaser, body, created, changed, status, promote, route FROM tag_listing_index WHERE tag_id = ? ORDER BY created DESC' .. db_limit(),
-          tag.id,
-          (current_page -1)*ipp,
-          ipp
+        entities, err = projection_cached_value(
+          TAG_LISTING_KEY,
+          ('listing:rows:%s:%s:%s'):format(tag.id, current_page, ipp),
+          function()
+            local rows_rs, query_err = projection_query(
+              'SELECT entity_type type, entity_id id, user_id, language, title, teaser, body, created, changed, status, promote, route FROM tag_listing_index WHERE tag_id = ? ORDER BY created DESC' .. db_limit(),
+              tag.id,
+              (current_page -1)*ipp,
+              ipp
+            )
+            if not rows_rs then
+              return nil, query_err
+            end
+
+            return rows_rs:all(true)
+          end
         )
-        if not rs then
+        if err then
           if projection_is_missing_table(err, 'tag_listing_index') then
             use_projection = false
           else
@@ -735,8 +836,12 @@ function _M.entity_page()
         end
       end
 
-      for entity in rs:rows(true) do
-        tinsert(output, entity)
+      if use_projection then
+        output = copy_rows(entities or {})
+      else
+        for entity in rs:rows(true) do
+          tinsert(output, entity)
+        end
       end
     end
 

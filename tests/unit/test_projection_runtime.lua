@@ -435,7 +435,11 @@ local function setup_tag_env(state)
   }
   db_query = env.db_query
   _GET = {}
-  header = function() end
+  header = function(name, value)
+    if name == 'status' then
+      state.status = value
+    end
+  end
   pager = function() return {} end
   l = function(text) return text end
   page_set_title = function() end
@@ -444,11 +448,19 @@ local function setup_tag_env(state)
   request_get_body = function() return '' end
   csrf_validate_request = function() return true end
   csrf_denied = function() end
-  print_t = function() end
+  print_t = function(variables)
+    if variables and variables[1] == 'tag_page' then
+      state.rendered_tag_page = variables
+    end
+  end
   format_date = function(value) return tostring(value) end
+  page_not_found = function() return '' end
+  -- The tag module localizes `route_arg` at load time, so a test that needs a
+  -- different tag id between renders changes `state.route_tag_id` rather than
+  -- reassigning the global.
   route_arg = function(index)
     if index == 1 then
-      return '1'
+      return state.route_tag_id or '1'
     end
   end
   module_invoke_all = function() end
@@ -928,6 +940,157 @@ do
   assert_eq('tag_projection_stale_rebuild_source_query', query_count(state, "^SELECT t%.id tag_id, t%.name tag_name, 'content' entity_type, cp%.id entity_id,"), 1)
 end
 
+io.write '\n-- tag listing payload cache --\n'
+
+-- Shared fixture for the payload cache tests below: one tag with one projected
+-- listing row, and every version already in place so a render starts warm.
+local function tag_listing_state()
+  local state = new_projection_state()
+
+  state.versions.tag_listing_index = 400
+  state.versions.tag_listing_source = 400
+  state.versions.content_public = 400
+  state.tag_rows[1] = {id = 1, name = 'alpha', description = 'Alpha', user_id = 1}
+  state.content_public[5] = {
+    id = 5,
+    user_id = 1,
+    title = 'Projected tagged content',
+    teaser = 'Projected teaser',
+    body = 'Projected body',
+    status = 1,
+    promote = 1,
+    created = 20,
+  }
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 5, tag_id = 1},
+  }
+  state.tag_listing_index = {
+    {
+      tag_id = 1,
+      tag_name = 'alpha',
+      entity_type = 'content',
+      entity_id = 5,
+      user_id = 1,
+      title = 'Projected tagged content',
+      teaser = 'Projected teaser',
+      body = 'Projected body',
+      status = 1,
+      promote = 1,
+      created = 20,
+      route = 'content/5',
+    },
+  }
+
+  return state
+end
+
+local function render_tag_page(state, tag_mod)
+  state.rendered_tag_page = nil
+  tag_mod.entity_page()()
+  return state.rendered_tag_page
+end
+
+do
+  local state = tag_listing_state()
+  local tag_mod = setup_tag_env(state)
+  local first, second
+
+  first = render_tag_page(state, tag_mod)
+  assert_eq('tag_listing_cache_first_title', first.rows[1].title, 'Projected tagged content')
+  assert_eq('tag_listing_cache_first_links', #first.tag.links, 2)
+
+  -- The warm render must serve the same data, not an empty shell, and it must
+  -- serve a copy. The writes below are what a caller does to what it was
+  -- handed, and the assertions after them fail if either write reached a cached
+  -- entry. The tag entity is the live case: entity_page() builds `links` on it
+  -- and the theme closure renders it after the handler returns, so a shared
+  -- table lets one request's links reach another request's page.
+  first.rows[1].title = 'Mutated by the caller'
+  first.tag.name = 'Mutated by the caller'
+  second = render_tag_page(state, tag_mod)
+
+  assert_eq('tag_listing_cache_warm_title', second.rows[1].title, 'Projected tagged content')
+  assert_eq('tag_listing_cache_warm_name', second.tag.name, 'alpha')
+  assert_eq('tag_listing_cache_warm_links', #second.tag.links, 2)
+end
+
+do
+  local state = tag_listing_state()
+  local tag_mod = setup_tag_env(state)
+  local renamed
+
+  render_tag_page(state, tag_mod)
+
+  -- A rename is the write the cached tag entity has to survive. It moves the
+  -- listing projection version through entity_after_save(), which is the only
+  -- reason caching the entity against that version is sound.
+  state.tag_rows[1].name = 'renamed'
+  tag_mod.entity_after_save({type = 'tag', id = 1})
+
+  renamed = render_tag_page(state, tag_mod)
+  assert_eq('tag_listing_cache_rename_visible', renamed.tag.name, 'renamed')
+  assert_eq('tag_listing_cache_rename_keeps_rows', #renamed.rows, 1)
+end
+
+do
+  local state = tag_listing_state()
+  local tag_mod = setup_tag_env(state)
+  local mark, warm
+
+  render_tag_page(state, tag_mod)
+
+  -- `tag/1.5` is the reason the id is rejected rather than truncated: it stays
+  -- the 404 it is today rather than becoming a second URL for tag 1. Both of
+  -- these take the uncached load, which is the one query each asserts.
+  state.route_tag_id = '1.5'
+  state.status = nil
+  mark = #state.queries
+  tag_mod.entity_page()
+  assert_eq('tag_listing_float_id_not_found', state.status, 404)
+  assert_eq('tag_listing_float_id_queries', #state.queries - mark, 1)
+
+  state.route_tag_id = 'junk'
+  state.status = nil
+  mark = #state.queries
+  tag_mod.entity_page()
+  assert_eq('tag_listing_junk_id_not_found', state.status, 404)
+  assert_eq('tag_listing_junk_id_queries', #state.queries - mark, 1)
+
+  -- Neither one may leave anything behind: the real tag still renders, and it
+  -- still renders from cache.
+  state.route_tag_id = '1'
+  mark = #state.queries
+  warm = render_tag_page(state, tag_mod)
+  assert_eq('tag_listing_real_id_unpoisoned', warm.tag.name, 'alpha')
+  assert_eq('tag_listing_real_id_still_cached', #state.queries - mark, 0)
+end
+
+do
+  local state = tag_listing_state()
+  local tag_mod = setup_tag_env(state)
+  local menus = {primary_links = {}}
+  local first, second, mark
+
+  tag_mod.menus_alter(menus)
+
+  first = menus.tags_menu()
+  -- Counted by shape rather than by total: the first call is also the one that
+  -- warms the version caches through tag_projection_ready().
+  assert_eq('tag_menu_first_queries', query_count(state, '^SELECT tag_id id, tag_name name'), 1)
+  assert_eq('tag_menu_first_label', first['tag/1'][1], 'alpha')
+
+  -- The menu renders on every page, so it is the projection's most frequent
+  -- read. What is cached is the row set: each call still gets its own `items`
+  -- table, because the menu system writes to what it is handed.
+  first['tag/1'][1] = 'Mutated by the caller'
+  mark = #state.queries
+  second = menus.tags_menu()
+
+  assert_eq('tag_menu_warm_queries', #state.queries - mark, 0)
+  assert_eq('tag_menu_warm_label', second['tag/1'][1], 'alpha')
+  assert_eq('tag_menu_warm_fresh_table', second ~= first, true)
+end
+
 io.write '\n-- projection version cache --\n'
 
 local function new_shared_dict()
@@ -1348,14 +1511,11 @@ do
   mark = #state.queries
   tag_mod.entity_page()
 
-  -- Two gaps the probe found and Phase 4 has not closed yet: the tag entity is
-  -- still loaded from the normalized `tag` table on every request, and the
-  -- listing itself is read past the payload cache. These assertions record the
-  -- measurement so the numbers cannot drift while the work is pending.
-  assert_eq('budget_tag_listing_normalized_read', first_normalized_since(state, mark),
-    'tag in "SELECT * FROM tag WHERE id = ?"')
-  -- The three are the tag entity load plus the listing count and rows.
-  assert_eq('budget_tag_listing_warm_queries', queries_since(state, mark), 3)
+  -- The tag entity, the listing count, and the listing rows all come from the
+  -- payload cache now, so a warm listing is the same shape as a warm front
+  -- page: no normalized read, and no query at all.
+  assert_eq('budget_tag_listing_no_normalized', first_normalized_since(state, mark), 'none')
+  assert_eq('budget_tag_listing_warm_queries', queries_since(state, mark), 0)
 end
 
 ngx = nil

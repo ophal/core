@@ -178,6 +178,17 @@ local function make_db_query(state)
         end
       end
       return rows_result(rows)
+    elseif sql == 'SELECT t.* FROM field_tag ft JOIN tag t ON t.id = ft.tag_id WHERE ft.entity_type = ? AND ft.entity_id = ?' then
+      local rows = {}
+      for _, item in ipairs(state.field_tag_rows) do
+        if item.entity_type == args[1] and tonumber(item.entity_id) == tonumber(args[2]) then
+          local tag = state.tag_rows[tonumber(item.tag_id)]
+          if tag then
+            rows[#rows + 1] = {id = tag.id, name = tag.name}
+          end
+        end
+      end
+      return rows_result(rows)
     elseif sql == 'SELECT tag_id id FROM field_tag WHERE entity_type = ? AND entity_id = ?' then
       local rows = {}
       for _, item in ipairs(state.field_tag_rows) do
@@ -413,7 +424,10 @@ local function make_db_query(state)
   end
 end
 
-local function setup_tag_env(state)
+-- `entities` overrides the tag module's configured entity types. The default is
+-- the one shape `tag_projection_supported()` accepts; a test that needs the
+-- unsupported shape passes its own.
+local function setup_tag_env(state, entities)
   local user_module = {
     current = function() return {id = 1} end,
     is_logged_in = function() return true end,
@@ -423,7 +437,7 @@ local function setup_tag_env(state)
 
   settings = {
     tag = {
-      entities = {
+      entities = entities or {
         content = true,
       },
       items_per_page = 10,
@@ -955,6 +969,185 @@ do
 
   assert_eq('tag_projection_stale_rebuilt_title', state.tag_listing_index[1].title, 'Fresh projected tagged content')
   assert_eq('tag_projection_stale_rebuild_source_query', query_count(state, "^SELECT t%.id tag_id, t%.name tag_name, 'content' entity_type, cp%.id entity_id,"), 1)
+end
+
+io.write '\n-- tag entity load cache --\n'
+
+-- `entity_load()` runs on every entity load, so before this cache a content
+-- page paid one `field_tag` join per request. That was the last normalized
+-- query the end-to-end smoke budget measured in an anonymous render.
+do
+  local state = new_projection_state()
+  local tag_mod
+  local first, second
+
+  state.versions.tag_listing_source = 100
+  state.tag_rows[1] = {id = 1, name = 'alpha'}
+  state.tag_rows[2] = {id = 2, name = 'beta'}
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 7, tag_id = 1},
+    {entity_type = 'content', entity_id = 7, tag_id = 2},
+  }
+
+  tag_mod = setup_tag_env(state)
+
+  first = {type = 'content', id = 7}
+  tag_mod.entity_load(first)
+  second = {type = 'content', id = 7}
+  tag_mod.entity_load(second)
+
+  assert_eq('tag_entity_load_first_name', first.tags[1], 'alpha')
+  assert_eq('tag_entity_load_second_name', first.tags[2], 'beta')
+  assert_eq('tag_entity_load_warm_name', second.tags[1], 'alpha')
+  assert_eq('tag_entity_load_query_count',
+    query_count(state, '^SELECT t%.%* FROM field_tag'), 1)
+end
+
+-- The entity is part of the cache key, so two entities must not be served each
+-- other's tags. A key that dropped the id would pass every test above.
+do
+  local state = new_projection_state()
+  local tag_mod
+  local alpha_entity, beta_entity
+
+  state.versions.tag_listing_source = 100
+  state.tag_rows[1] = {id = 1, name = 'alpha'}
+  state.tag_rows[2] = {id = 2, name = 'beta'}
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 7, tag_id = 1},
+    {entity_type = 'content', entity_id = 8, tag_id = 2},
+  }
+
+  tag_mod = setup_tag_env(state)
+
+  alpha_entity = {type = 'content', id = 7}
+  beta_entity = {type = 'content', id = 8}
+  tag_mod.entity_load(alpha_entity)
+  tag_mod.entity_load(beta_entity)
+
+  assert_eq('tag_entity_load_keyed_by_entity', beta_entity.tags[2], 'beta')
+  assert_eq('tag_entity_load_no_bleed', beta_entity.tags[1], nil)
+end
+
+-- The cached table outlives the request, and the entity it lands on is
+-- editable: the tag form element hands `form.entity.tags` straight to a caller.
+-- Handing out the cached table itself would let one request's edit become every
+-- later request's tag set.
+do
+  local state = new_projection_state()
+  local tag_mod
+  local first, second
+
+  state.versions.tag_listing_source = 100
+  state.tag_rows[1] = {id = 1, name = 'alpha'}
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 7, tag_id = 1},
+  }
+
+  tag_mod = setup_tag_env(state)
+
+  first = {type = 'content', id = 7}
+  tag_mod.entity_load(first)
+  first.tags[1] = 'edited'
+  first.tags[99] = 'invented'
+
+  second = {type = 'content', id = 7}
+  tag_mod.entity_load(second)
+
+  assert_eq('tag_entity_load_copy_unedited', second.tags[1], 'alpha')
+  assert_eq('tag_entity_load_copy_no_leak', second.tags[99], nil)
+end
+
+-- The load-bearing test for the version key. `tag_projection_refresh_ids()`
+-- returns without touching `tag_listing_index` when the configured entity types
+-- are not the shape the listing projection supports, but the `field_tag` rows
+-- were rewritten all the same. A cache keyed on the index version would serve
+-- the pre-write tag set until something else moved it; `tag_listing_source` is
+-- touched on every write, which is why the cache keys on that instead.
+do
+  local state = new_projection_state()
+  local tag_mod
+  local after
+
+  state.tag_rows[1] = {id = 1, name = 'alpha'}
+  state.tag_rows[2] = {id = 2, name = 'beta'}
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 7, tag_id = 1},
+  }
+
+  tag_mod = setup_tag_env(state, {content = true, comment = true})
+
+  tag_mod.entity_load({type = 'content', id = 7})
+  tag_mod.entity_after_save({type = 'content', id = 7, tags = {2}})
+
+  after = {type = 'content', id = 7}
+  tag_mod.entity_load(after)
+
+  assert_eq('tag_entity_load_unsupported_index_untouched',
+    state.versions.tag_listing_index, nil)
+  assert_eq('tag_entity_load_unsupported_source_moved',
+    state.versions.tag_listing_source ~= nil, true)
+  assert_eq('tag_entity_load_write_drops_alpha', after.tags[1], nil)
+  assert_eq('tag_entity_load_write_adds_beta', after.tags[2], 'beta')
+end
+
+-- The same invalidation on the supported shape, where the write also rebuilds
+-- the listing. This is the arm that goes red if `entity_after_save()` stops
+-- marking the source.
+do
+  local state = new_projection_state()
+  local tag_mod
+  local after
+
+  state.tag_rows[1] = {id = 1, name = 'alpha'}
+  state.tag_rows[2] = {id = 2, name = 'beta'}
+  state.content_public[7] = {
+    id = 7,
+    user_id = 1,
+    title = 'Tagged content',
+    teaser = 'Tagged teaser',
+    body = 'Tagged body',
+    status = 1,
+    promote = 1,
+    created = 30,
+  }
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 7, tag_id = 1},
+  }
+
+  tag_mod = setup_tag_env(state)
+
+  tag_mod.entity_load({type = 'content', id = 7})
+  tag_mod.entity_after_save({type = 'content', id = 7, tags = {2}})
+
+  after = {type = 'content', id = 7}
+  tag_mod.entity_load(after)
+
+  assert_eq('tag_entity_load_supported_drops_alpha', after.tags[1], nil)
+  assert_eq('tag_entity_load_supported_adds_beta', after.tags[2], 'beta')
+end
+
+-- An entity type the site has not configured for tagging is left alone, cache
+-- or no cache: the hook must not invent a `tags` field on it.
+do
+  local state = new_projection_state()
+  local tag_mod
+  local entity
+
+  state.versions.tag_listing_source = 100
+  state.tag_rows[1] = {id = 1, name = 'alpha'}
+  state.field_tag_rows = {
+    {entity_type = 'comment', entity_id = 7, tag_id = 1},
+  }
+
+  tag_mod = setup_tag_env(state)
+
+  entity = {type = 'comment', id = 7}
+  tag_mod.entity_load(entity)
+
+  assert_eq('tag_entity_load_skips_unconfigured', entity.tags, nil)
+  assert_eq('tag_entity_load_skips_unconfigured_query',
+    query_count(state, '^SELECT t%.%* FROM field_tag'), 0)
 end
 
 io.write '\n-- tag listing payload cache --\n'

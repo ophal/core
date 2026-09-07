@@ -360,25 +360,53 @@ function _M.entity_access(entity, action)
   return false
 end
 
+-- The tags an entity carries, served from the payload cache. Every entity load
+-- runs this, so on a content page it was the last normalized query an anonymous
+-- render still paid.
+--
+-- The version is `tag_listing_source`, not `tag_listing_index`. Only the source
+-- key moves on every `field_tag` write: `tag_projection_refresh_ids()` leaves
+-- the index version alone when the projection is unsupported or its table is
+-- missing, and those are exactly the cases where a cache keyed on the index
+-- would keep serving a tag set the write had already changed. A stale tag set
+-- is a wrong page, so the key has to be the one the writers cannot skip.
+local function tag_entity_tags(entity_type, entity_id)
+  local tags, err = projection_cached_value(
+    TAG_LISTING_SOURCE_KEY,
+    ('entity:%s:%s'):format(entity_type, entity_id),
+    function()
+      local loaded = {}
+      local rs, query_err = db_query('SELECT t.* FROM field_tag ft JOIN tag t ON t.id = ft.tag_id WHERE ft.entity_type = ? AND ft.entity_id = ?', entity_type, entity_id)
+
+      if query_err then
+        return nil, query_err
+      end
+
+      -- Load current tags
+      for row in rs:rows(true) do
+        loaded[row.id] = row.name
+      end
+
+      return loaded
+    end
+  )
+
+  if err then
+    error(err)
+  end
+
+  -- The cached table is shared with every later request this worker serves, and
+  -- the entity it lands on is editable: the tag form element hands
+  -- `form.entity.tags` straight to the caller.
+  return copy_row(tags)
+end
+
 --[[ Implements hook entity_load().
 ]]
 function _M.entity_load(entity)
-  local rs, err, tags
-
   if not (config.entities or {})[entity.type] then return end
 
-  rs, err = db_query('SELECT t.* FROM field_tag ft JOIN tag t ON t.id = ft.tag_id WHERE ft.entity_type = ? AND ft.entity_id = ?', entity.type, entity.id)
-  if err then
-    error(err)
-  else
-    tags = {}
-    -- Load current tags
-    for row in rs:rows(true) do
-      tags[row.id] = row.name
-    end
-  end
-
-  entity.tags = tags
+  entity.tags = tag_entity_tags(entity.type, entity.id)
 end
 
 --[[ Implements hook entity_post_save().

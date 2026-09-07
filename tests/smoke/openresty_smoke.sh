@@ -1034,12 +1034,10 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_contains "$SEED_CONTENT_BODY"
-# The one normalized query is the tag module's `entity_load` hook, which joins
-# `field_tag` to `tag` for every entity loaded and is not cached or projected.
-# It is pinned at 1 rather than waved through: this is the measurement saying
-# the anonymous zero-query claim does not hold for a content page, and the
-# assertion is what makes fixing it show up here as a failure to update.
-assert_query_budget 4 1
+# A content page reads no normalized table. The last one was the tag module's
+# `entity_load` join, now served from the payload cache under the
+# `tag_listing_source` version.
+assert_query_budget 3 0
 report_ok "db_content_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_tag_warm "$DB_URL/tag/1"
@@ -1053,9 +1051,10 @@ measure_request db_alias_warm "$DB_URL/$SEED_ALIAS"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
-# Same page as db_content_warm, reached through the route alias, so it carries
-# the same `entity_load` query. The alias itself costs nothing extra.
-assert_query_budget 4 1
+# Same page as db_content_warm, reached through the route alias. The alias
+# itself costs nothing extra, which is what this budget matching the direct
+# route's is saying.
+assert_query_budget 3 0
 report_ok "db_alias_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 printf 'all openresty smoke scenarios passed

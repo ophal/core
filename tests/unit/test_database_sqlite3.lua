@@ -158,6 +158,22 @@ do
   log_error = nil
 end
 
+io.write '\n-- sqlite3 schema introspection --\n'
+
+-- `db_field()` needs a statement that lists a table's columns as `field_name`,
+-- and the driver had none, so loading a user or a file by field raised
+-- "attempt to call field 'table_schema_sql'" on every SQLite site.
+do
+  local sql = driver.table_schema_sql()
+
+  assert_eq('sqlite_schema_sql_is_string', type(sql), 'string')
+  assert_eq('sqlite_schema_sql_aliases_field_name', sql:match('field_name') ~= nil, true)
+  -- The table name arrives as a bind parameter; `PRAGMA table_info` takes none,
+  -- which is why the table-valued form is used.
+  assert_eq('sqlite_schema_sql_binds_table', sql:match('%?') ~= nil, true)
+  assert_eq('sqlite_schema_sql_uses_pragma_function', sql:match('pragma_table_info') ~= nil, true)
+end
+
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then
   os.exit(1)

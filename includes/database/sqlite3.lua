@@ -95,6 +95,15 @@ function _M.last_insert_id(tbl_name)
   end
 end
 
+-- `db_field()` uses this to learn a table's columns. SQLite has no
+-- information_schema; `pragma_table_info` is the table-valued form of
+-- `PRAGMA table_info`, and unlike the bare pragma it accepts a bind parameter,
+-- so the table name does not have to be interpolated into the statement.
+function _M.table_schema_sql()
+  return [[SELECT name field_name
+FROM pragma_table_info(?)]]
+end
+
 function _M.limit()
   return ' LIMIT ?, ?'
 end

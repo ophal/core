@@ -9,6 +9,7 @@ local request_get_body, ophal, pcall = request_get_body, ophal, pcall
 local route_execute_callback, _GET = route_execute_callback, _GET
 local _SERVER = _SERVER
 local xtable = seawolf.contrib.seawolf_table
+local settings, floor = settings, math.floor
 
 module 'ophal.modules.user'
 
@@ -294,17 +295,99 @@ function is_anonymous()
   return not is_logged_in()
 end
 
+-- The user object, role, and permission caches are all keyed by user id, and a
+-- user id arrives with the session rather than from code. The number of
+-- distinct keys a long-lived worker sees is therefore the number of accounts
+-- that visit it, not a constant, which is the same unbounded-key-space problem
+-- the projection payload cache has -- and these caches had no bound at all.
+local DEFAULT_USER_CACHE_SIZE = 512
+
+local function user_cache_limit()
+  local performance = (settings or {}).performance or {}
+  local size = tonumber(performance.user_cache_size)
+
+  -- `size ~= size` is the NaN test.
+  if size == nil or size ~= size or size < 0 then
+    return DEFAULT_USER_CACHE_SIZE
+  end
+
+  return floor(size)
+end
+
+-- Two generations rather than a strict LRU. `set` fills `current`; when
+-- `current` reaches the limit it becomes `previous` and a fresh one starts. A
+-- key that is still being read is promoted back on its way through, so the
+-- working set survives a rotation and only what nobody asked for is dropped.
+-- Memory is bounded at twice the limit and the bookkeeping is one counter,
+-- which is the right trade for entries this cheap to rebuild.
+local function bounded_cache()
+  local cache = {current = {}, previous = {}, count = 0}
+
+  function cache:clear()
+    self.current, self.previous, self.count = {}, {}, 0
+  end
+
+  function cache:set(key, value)
+    local limit = user_cache_limit()
+
+    -- A nil is not an entry: storing one would leave the key absent while the
+    -- counter behaved as though it were present, and rotate early.
+    if value == nil then
+      self.current[key], self.previous[key] = nil, nil
+      return nil
+    end
+
+    if limit < 1 then
+      self:clear()
+      return value
+    end
+
+    if self.current[key] == nil then
+      self.count = self.count + 1
+    end
+
+    self.current[key] = value
+
+    if self.count >= limit then
+      self.previous, self.current, self.count = self.current, {}, 0
+    end
+
+    return value
+  end
+
+  function cache:get(key)
+    local value = self.current[key]
+
+    if value ~= nil then
+      return value
+    end
+
+    value = self.previous[key]
+    if value ~= nil then
+      self:set(key, value)
+    end
+
+    return value
+  end
+
+  return cache
+end
+
 do
-  local users = {}
+  local users = bounded_cache()
 
   --[[ Build user object for given user ID.
   ]]
   function load(user_id, reset)
-    if user_id and empty(users[user_id]) or reset then
-      users[user_id] = load_by_field('id', user_id)
+    if user_id and empty(users:get(user_id)) or reset then
+      users:set(user_id, load_by_field('id', user_id))
     end
 
-    return users[user_id]
+    return users:get(user_id)
+  end
+
+  function users_cache_clear()
+    users:clear()
   end
 end
 
@@ -368,14 +451,14 @@ do
 end
 
 do
-  local users_roles = {
-    [0] = {anonymous = 'anonymous'},
-  }
+  local users_roles = bounded_cache()
+
+  users_roles:set(0, {anonymous = 'anonymous'})
 
   --[[ Return the list of roles assigned for given user ID.
   ]]
   function get_user_roles(user_id, reset)
-    if nil == users_roles[user_id] or reset then
+    if nil == users_roles:get(user_id) or reset then
       if empty(config.user_role) then config.user_role = {} end
 
       local user_roles = {}
@@ -414,24 +497,25 @@ WHERE user_id = ?]], user_id)
         end
       end
 
-      users_roles[user_id] = user_roles
+      users_roles:set(user_id, user_roles)
     end
 
-    return users_roles[user_id]
+    return users_roles:get(user_id)
   end
 
   function user_roles_cache_clear()
-    users_roles = {[0] = {anonymous = 'anonymous'}}
+    users_roles:clear()
+    users_roles:set(0, {anonymous = 'anonymous'})
   end
 end
 
 do
-  local users_permissions = {}
+  local users_permissions = bounded_cache()
 
   --[[ Load user permissions from roles in provided account object.
   ]]
   function get_user_permissions(user_id, reset)
-    if nil == users_permissions[user_id] or reset then
+    if nil == users_permissions:get(user_id) or reset then
       local permissions = {}
       local user_roles = get_user_roles(user_id)
       if nil == config.permissions then config.permissions = {} end
@@ -461,14 +545,14 @@ ORDER BY permission
         end
       end
 
-      users_permissions[user_id] = permissions
+      users_permissions:set(user_id, permissions)
     end
 
-    return users_permissions[user_id]
+    return users_permissions:get(user_id)
   end
 
   function user_permissions_cache_clear()
-    users_permissions = {}
+    users_permissions:clear()
   end
 end
 
@@ -478,6 +562,7 @@ function cache_clear()
   roles_cache_clear()
   user_roles_cache_clear()
   user_permissions_cache_clear()
+  users_cache_clear()
 end
 
 function access(perm, user_id)

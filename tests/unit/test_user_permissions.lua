@@ -113,6 +113,20 @@ local function make_db_query(state)
   end
 end
 
+local function query_count(state, pattern)
+  local count = 0
+
+  for _, query in ipairs(state.queries) do
+    if query.sql:match(pattern) then
+      count = count + 1
+    end
+  end
+
+  return count
+end
+
+local USER_LOAD_SQL = '^SELECT %* FROM users WHERE'
+
 local function setup_user_env(state, session_user_id)
   _SESSION = {user_id = session_user_id}
   settings = {
@@ -218,6 +232,91 @@ do
   -- Request two: user 5's own session, same worker.
   _SESSION.user_id = 5
   assert_eq('roles_survive_foreign_session', user_mod.access('access content', 5), true)
+end
+
+io.write '\n-- user cache bound --\n'
+
+local function state_with_users(count)
+  local state = new_user_state()
+
+  for id = 1, count do
+    state.users[id] = {id = id, name = ('user%s'):format(id), status = 1}
+  end
+
+  return state
+end
+
+do
+  local state = state_with_users(12)
+  local user_mod = setup_user_env(state, 2)
+  local mark
+
+  settings.performance = {user_cache_size = 4}
+
+  -- Fills the first generation and rotates it.
+  for id = 2, 5 do
+    user_mod.load(id)
+  end
+
+  -- Reading 2 promotes it into the live generation; 3 is left behind in the one
+  -- about to be dropped.
+  user_mod.load(2)
+  for id = 6, 8 do
+    user_mod.load(id)
+  end
+
+  -- One more rotation. With promotion 2 rode into the live generation and
+  -- survives it; without, 2 and 3 are both gone and each assertion below names
+  -- which property broke.
+  user_mod.load(9)
+
+  mark = query_count(state, USER_LOAD_SQL)
+  user_mod.load(2)
+  assert_eq('user_cache_promoted_survives', query_count(state, USER_LOAD_SQL) - mark, 0)
+
+  mark = query_count(state, USER_LOAD_SQL)
+  user_mod.load(3)
+  assert_eq('user_cache_evicted_requeried', query_count(state, USER_LOAD_SQL) - mark, 1)
+end
+
+do
+  local state = state_with_users(2)
+  local user_mod = setup_user_env(state, 2)
+
+  settings.performance = {user_cache_size = 0}
+
+  user_mod.load(2)
+  user_mod.load(2)
+  assert_eq('user_cache_disabled_always_loads', query_count(state, USER_LOAD_SQL), 2)
+end
+
+do
+  local state = state_with_users(2)
+  local user_mod = setup_user_env(state, 2)
+
+  settings.performance = {user_cache_size = 'plenty'}
+
+  user_mod.load(2)
+  user_mod.load(2)
+  assert_eq('user_cache_size_invalid_defaults', query_count(state, USER_LOAD_SQL), 1)
+end
+
+do
+  local state = state_with_users(2)
+  local user_mod = setup_user_env(state, 2)
+  local mark
+
+  user_mod.load(2)
+  mark = query_count(state, USER_LOAD_SQL)
+  user_mod.load(2)
+  assert_eq('user_cache_warm_load', query_count(state, USER_LOAD_SQL) - mark, 0)
+
+  -- cache_clear() reached the role and permission caches but not the user
+  -- object cache, so a cleared worker went on serving the stale account row.
+  user_mod.cache_clear()
+  mark = query_count(state, USER_LOAD_SQL)
+  user_mod.load(2)
+  assert_eq('user_cache_cleared_requeries', query_count(state, USER_LOAD_SQL) - mark, 1)
 end
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

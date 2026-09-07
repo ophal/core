@@ -616,8 +616,11 @@ seed_database() {
   SEED_UNPROMOTED_TITLE=$(extract_marker 'SEED_UNPROMOTED_TITLE')
   SEED_TAG_NAME=$(extract_marker 'SEED_TAG_NAME')
   SEED_ALIAS=$(extract_marker 'SEED_ALIAS')
+  SEED_AUTHOR_NAME=$(extract_marker 'SEED_AUTHOR_NAME')
+  SEED_AUTHOR_PASS=$(extract_marker 'SEED_AUTHOR_PASS')
 
-  [[ -n "$SEED_CONTENT_TITLE" && -n "$SEED_TAG_NAME" && -n "$SEED_ALIAS" ]] ||
+  [[ -n "$SEED_CONTENT_TITLE" && -n "$SEED_TAG_NAME" && -n "$SEED_ALIAS" &&
+     -n "$SEED_AUTHOR_NAME" && -n "$SEED_AUTHOR_PASS" ]] ||
     fail 'database seed did not report its fixtures'
 
   LAST_SCENARIO='database_migrate'
@@ -1056,6 +1059,160 @@ assert_contains "$SEED_CONTENT_TITLE"
 # route's is saying.
 assert_query_budget 3 0
 report_ok "db_alias_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# ================================================================
+# Authoring profile (same instance, signed in)
+# Every budget above is a read. These measure a write, and then measure the
+# read that follows it, because a projection design can always make writes look
+# cheap by leaving the work for the next visitor to pay. Both halves have to be
+# on the record for Phase 5 to have a baseline to move work off.
+# ================================================================
+
+# Authored, not seeded: these strings are created through the save service, so
+# they are spelled here rather than in seed_database.lua. A page that shows one
+# of them proves the write reached the projection the reader is served from.
+AUTHORED_TITLE='Smoke Authored Article'
+AUTHORED_BODY='SMOKE_AUTHORED_BODY_MARKER'
+AUTHORED_UPDATED_TITLE='Smoke Authored Article Revised'
+AUTHORED_UPDATED_BODY='SMOKE_AUTHORED_REVISED_MARKER'
+
+author_cookie="$SMOKE_ROOT/db-author-cookie.txt"
+
+# Signing in is deliberately not measured. It is the cold pass for this
+# account's role, permission and user caches, and it also rewrites the seeded
+# legacy password hash in the current format, so what it costs describes a
+# first login rather than authoring.
+run_request db_author_login -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  --data-binary "{\"user\":\"$SEED_AUTHOR_NAME\",\"pass\":\"$SEED_AUTHOR_PASS\"}" \
+  "$DB_URL/user/auth"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"authenticated" *: *true'
+report_ok db_author_login
+
+# The save service validates a CSRF token, and the token belongs to the session
+# the cookie jar now carries. Reading it through the runner rather than parsing
+# it out of a form keeps this independent of how the form renders.
+run_request db_author_csrf -c "$author_cookie" -b "$author_cookie" "$DB_URL/__smoke__?scenario=csrf_token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+author_csrf=$(extract_marker 'SMOKE_CSRF_TOKEN')
+[[ -n "$author_csrf" ]] || fail 'signed-in session reported no CSRF token'
+report_ok db_author_csrf
+
+# Warms this account's caches. An authenticated request pays four permission
+# queries the first time a worker sees the user id; that cost belongs to the
+# session, not to the page, so it is spent here rather than inside a budget.
+run_request db_author_frontpage_cold -c "$author_cookie" -b "$author_cookie" "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_author_frontpage_cold
+
+measure_request db_author_frontpage_warm -c "$author_cookie" -b "$author_cookie" "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+# The same budget as the anonymous front page. Signing in adds nothing to a
+# warm read: the account, its roles and its permissions are all per-worker
+# cached by then, which is the end-to-end version of what
+# test_user_permissions.lua pins at the handler level.
+assert_query_budget 3 0
+report_ok "db_author_frontpage_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# The create. Tags are included because `entity_after_save()` is where the tag
+# module does its writing, and a create without them would measure only half of
+# what saving a real article costs.
+measure_request db_content_create -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  -H "X-CSRF-Token: $author_csrf" \
+  --data-binary "{\"title\":\"$AUTHORED_TITLE\",\"teaser\":\"$AUTHORED_BODY\",\"body\":\"$AUTHORED_BODY\",\"status\":true,\"promote\":true,\"tags\":[1]}" \
+  "$DB_URL/content/save"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"success" *: *true'
+authored_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\).*/\1/p' | tail -n 1)
+[[ -n "$authored_id" ]] || fail 'content save reported no id'
+# A characterization budget, not a target. It is here so that a change to the
+# write path has to state what it did to the cost, and the breakdown is what
+# makes the number readable:
+#
+#   projection_version  10   five touch() calls, each a DELETE plus an INSERT
+#   content_public       4   the id-0 lookup below, then a DELETE and INSERT
+#   content              3   the INSERT, the last-insert-id read, load_legacy()
+#   field_tag            3   the existing-tags read, the INSERT, the rebuild
+#   tag_listing_index    3   one DELETE plus a row per tagged entity
+#   route_index          1   the route lookup every request pays
+#   tag                  1
+#   plus the connection's two pragmas
+#
+# Three of those costs are avoidable and none of the three needs Phase 5.
+# `projection.touch()` is a DELETE plus an INSERT where an upsert is one query,
+# which alone is five of the ten. `save_service()` calls `load(id)` before it
+# knows the action, so a create looks up id 0 in `content_public` and then in
+# `content`, and both misses are certain. And `tag_listing_source` is touched
+# twice in one request -- once by `entity_after_save()` and again inside
+# `tag_projection_rebuild()` -- at the same version.
+assert_query_budget 26 6
+report_ok "db_content_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# What the write left for the next visitor. This is anonymous on purpose: the
+# author's own caches were warmed by the write, so measuring the author here
+# would hide whatever the write invalidated for everybody else.
+measure_request db_frontpage_after_create "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$AUTHORED_TITLE"
+# Two more queries than a warm read, both against `content_public`: the front
+# page's cached count and row list, reloaded because the write moved the version
+# they were stamped with. `cached_value()` invalidates by comparing versions
+# rather than by the bucket `projection_touch()` also drops. Still no normalized
+# read. This is the number Phase 5 would be moving, so it is pinned apart from
+# the write's own cost.
+assert_query_budget 5 0
+report_ok "db_frontpage_after_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+measure_request db_content_update -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  -H "X-CSRF-Token: $author_csrf" \
+  --data-binary "{\"title\":\"$AUTHORED_UPDATED_TITLE\",\"teaser\":\"$AUTHORED_UPDATED_BODY\",\"body\":\"$AUTHORED_UPDATED_BODY\",\"status\":true,\"promote\":true,\"tags\":[1]}" \
+  "$DB_URL/content/save/$authored_id"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"success" *: *true'
+# An update costs about what a create does, less the insert-side work: two
+# `content` queries rather than three, and one fewer normalized read.
+assert_query_budget 24 5
+report_ok "db_content_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+measure_request db_content_page_after_update "$DB_URL/content/$authored_id"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$AUTHORED_UPDATED_TITLE"
+assert_contains "$AUTHORED_UPDATED_BODY"
+# The one normalized read is the tag `entity_load` join, and it is here by
+# design rather than by oversight. That cache is keyed on `tag_listing_source`
+# -- the only version every `field_tag` write is guaranteed to move -- so any
+# tag write anywhere invalidates every entity's cached tag set, not just the
+# entity that changed. The safe key is the coarse one; a finer key would need a
+# per-entity source version. Until then this is what the first reader after a
+# tag write pays.
+assert_query_budget 5 1
+report_ok "db_content_page_after_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# The tag listing has to show the authored article too, or the tag rows the
+# save wrote never reached the listing projection. This is the only assertion
+# that covers the tag half of `entity_after_save()` end to end.
+measure_request db_tag_after_update "$DB_URL/tag/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_TAG_NAME"
+assert_contains "$AUTHORED_UPDATED_TITLE"
+# The listing's own tag entity is keyed on `tag_listing_index`, which the write
+# moved, so it comes back from the normalized `tag` table once. The listing
+# rows themselves are still projection reads.
+assert_query_budget 6 1
+report_ok "db_tag_after_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 printf 'all openresty smoke scenarios passed
 '

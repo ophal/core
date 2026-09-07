@@ -9,6 +9,11 @@
 -- Usage: lua5.1 tests/smoke/seed_database.lua <database-path>
 
 local DBI = require 'DBI'
+-- The digest `modules/user` resolves for `sha256` under this vendor runtime,
+-- where neither `lsha2` nor `sha2` is installed and `seawolf.other` does not
+-- build. Requiring it here is what lets the seed store a password the real
+-- `password_verify()` accepts without this file restating a hashing scheme.
+local sha256 = require 'includes.sha256'
 
 local path = ...
 
@@ -111,13 +116,31 @@ local fixtures = {
   unpromoted_title = 'Smoke Unpromoted Article',
   tag_name = 'SmokeTag',
   alias = 'smoke-article',
+  author_name = 'smokeauthor',
+  author_pass = 'smoke-author-pass',
 }
 
 local rows = {
-  -- One user to own the content. The password hash is inert: nothing in the
-  -- smoke suite logs in, and the anonymous budget is what is being measured.
+  -- Owns the seeded content and never signs in, so its password hash stays
+  -- inert.
   {[[INSERT INTO users(id, name, mail, pass, active, created)
 VALUES(1, 'root', 'root@example.com', 'x', 1, ?)]], now},
+
+  -- The account the authoring measurements sign in as. It is deliberately not
+  -- user 1: `user.access()` returns true for id 1 before it consults a single
+  -- permission, so authoring measured as root would measure the superuser
+  -- shortcut and leave the seeded `role_permission` rows carrying no weight.
+  --
+  -- The stored hash is the legacy format, a bare digest of the password, since
+  -- that is the only shape this file can produce without restating
+  -- `password_hash()`'s salt and iteration scheme -- a copy that would then be
+  -- free to drift from the module. `password_verify()` accepts it and reports
+  -- that it needs rehashing, so the first sign-in rewrites it in the current
+  -- format. That is the documented upgrade path, and running it here is the
+  -- only exercise `password_rehash_account()` gets against a real database.
+  {[[INSERT INTO users(id, name, mail, pass, active, created)
+VALUES(2, ?, 'author@example.com', ?, 1, ?)]],
+    fixtures.author_name, sha256.hash256(fixtures.author_pass), now},
 
   {[[INSERT INTO role(id, name, active, weight) VALUES('anonymous', 'Anonymous user', 1, 1)]]},
   {[[INSERT INTO role(id, name, active, weight) VALUES('authenticated', 'Authenticated user', 1, 2)]]},
@@ -133,7 +156,16 @@ VALUES('authenticated', 'access content', 'user')]]},
   {[[INSERT INTO role_permission(role_id, permission, module)
 VALUES('authenticated', 'access tags', 'tag')]]},
 
+  -- What `content.entity_access()` asks for on the authoring path. Without
+  -- them the save service answers 401 and the authoring budget would be
+  -- measuring a rejection rather than a write.
+  {[[INSERT INTO role_permission(role_id, permission, module)
+VALUES('authenticated', 'create content', 'content')]]},
+  {[[INSERT INTO role_permission(role_id, permission, module)
+VALUES('authenticated', 'edit own content', 'content')]]},
+
   {[[INSERT INTO user_role(user_id, role_id) VALUES(1, 'authenticated')]]},
+  {[[INSERT INTO user_role(user_id, role_id) VALUES(2, 'authenticated')]]},
 
   -- Promoted and published: this is the row the front page must show.
   {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)

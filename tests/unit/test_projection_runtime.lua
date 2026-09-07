@@ -580,11 +580,12 @@ io.write '\n-- core migrations registry --\n'
 do
   local migrations = dofile('includes/migrations.lua')
 
-  assert_eq('core_migration_count', #migrations, 4)
+  assert_eq('core_migration_count', #migrations, 5)
   assert_eq('core_migration_route_index', migrations[1].id, '001_route_index')
   assert_eq('core_migration_content_public', migrations[2].id, '002_content_public')
   assert_eq('core_migration_projection_version', migrations[3].id, '003_projection_version')
   assert_eq('core_migration_tag_listing_index', migrations[4].id, '004_tag_listing_index')
+  assert_eq('core_migration_jobs', migrations[5].id, '005_jobs')
 end
 
 io.write '\n-- route projections --\n'

@@ -165,6 +165,72 @@ ON tag_listing_index(route)]],
     }
 end
 
+-- The deferred-work queue. `projection.ensure()` enqueues a rebuild here
+-- instead of running it inline, so a stale projection stops being a latency
+-- event on the request path.
+--
+-- `active_key` is what makes dedup a database guarantee rather than a hopeful
+-- read-then-write. It holds the job's identity while the job is pending or
+-- running and is set to NULL once it reaches a terminal state; NULLs are
+-- distinct in a unique index on both drivers, so a single-column UNIQUE gives
+-- exactly "at most one live job per identity" with no partial-index syntax and
+-- no per-driver conflict target. Enqueue is then one portable
+-- `INSERT ... ON CONFLICT(active_key) DO NOTHING`, and `projection.touch()`
+-- already established that SQLite floor.
+--
+-- `priority` is dependency depth, ascending: a projection that depends on
+-- another rebuilds after it, so `tag_listing_index` (which depends_on
+-- `content_public`) sorts behind it in one drain.
+local function jobs_sql(driver)
+  if driver == 'postgresql' then
+    return {
+      [[CREATE TABLE IF NOT EXISTS ophal_jobs(
+  id bigserial PRIMARY KEY,
+  kind character varying(64) NOT NULL,
+  dedup_key character varying(255),
+  active_key character varying(255),
+  payload text,
+  status character varying(16) NOT NULL,
+  priority integer,
+  attempts integer,
+  available_at bigint,
+  claimed_at bigint,
+  claimed_by character varying(64),
+  created_at bigint,
+  updated_at bigint,
+  last_error text
+)]],
+      [[CREATE UNIQUE INDEX IF NOT EXISTS unq_idx_ophal_jobs_active_key
+ON ophal_jobs(active_key)]],
+      [[CREATE INDEX IF NOT EXISTS idx_ophal_jobs_claim
+ON ophal_jobs(status, priority, id)]],
+    }
+  end
+
+  return {
+    [[CREATE TABLE IF NOT EXISTS ophal_jobs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind VARCHAR(64) NOT NULL,
+  dedup_key VARCHAR(255),
+  active_key VARCHAR(255),
+  payload TEXT,
+  status VARCHAR(16) NOT NULL,
+  priority INTEGER,
+  attempts INTEGER,
+  available_at UNSIGNED BIG INT,
+  claimed_at UNSIGNED BIG INT,
+  claimed_by VARCHAR(64),
+  created_at UNSIGNED BIG INT,
+  updated_at UNSIGNED BIG INT,
+  last_error TEXT
+)]],
+    [[CREATE UNIQUE INDEX IF NOT EXISTS unq_idx_ophal_jobs_active_key
+ON ophal_jobs(active_key)]],
+    [[CREATE INDEX IF NOT EXISTS idx_ophal_jobs_claim
+ON ophal_jobs(status, priority, id)]],
+  }
+end
+
 return {
   {
     id = '001_route_index',
@@ -192,6 +258,13 @@ return {
     name = 'Create tag listing projection',
     up = function(ctx)
       return run_all(ctx, tag_listing_index_sql(ctx.driver))
+    end,
+  },
+  {
+    id = '005_jobs',
+    name = 'Create the deferred work queue',
+    up = function(ctx)
+      return run_all(ctx, jobs_sql(ctx.driver))
     end,
   },
 }

@@ -316,7 +316,7 @@ io.write '\n-- core migration registry --\n'
 do
   local registry = dofile('includes/migrations.lua')
 
-  assert_eq('core_registry_count', #registry, 4)
+  assert_eq('core_registry_count', #registry, 5)
 
   for _, driver in ipairs({'sqlite3', 'postgresql'}) do
     for _, migration in ipairs(registry) do

@@ -106,6 +106,82 @@ Review the generated configuration, make any desired changes, and set
 appropriate filesystem permissions before starting OpenResty.
 
 
+### Apply the schema migrations
+
+```sh
+$ ./ophal migrate status
+$ ./ophal migrate apply
+```
+
+This creates two kinds of table. `route_index`, `content_public`,
+`tag_listing_index` and `projection_version` are the read path: they hold no
+data of their own, since every row in them is derived from the normalized
+tables below and can be rebuilt from them at any time. `ophal_jobs` is the
+queue that schedules those rebuilds, described in the next section.
+
+A site that skips this step still serves correct pages. Every read that prefers
+a projection falls back to the normalized tables when the projection is missing,
+so the effect of not migrating is cost, not breakage: the fast path is simply
+never taken.
+
+
+### Deferred work and the cron schedule
+
+Schedule `/cron`. It is not a background nicety on this line: since `0.2.x` a
+projection that is stale or has never been built is no longer rebuilt inside the
+request that noticed it. The request enqueues the rebuild, serves the page from
+the normalized tables, and returns; `/cron` is what drains that queue. A site
+that never runs cron therefore serves correct pages from the fallback
+indefinitely and never gets the fast path back. It does not recover on its own.
+
+Every five minutes is a reasonable starting point. The interval is what bounds
+how long a projection stays stale after a write, so tune it against that rather
+than against load:
+
+```
+*/5 * * * * curl -fsS -o /dev/null http://127.0.0.1/cron
+```
+
+Add `?token=...` to that URL if you configure a token below.
+
+`./ophal jobs status` reports how much work is waiting, which is the number to
+watch if pages seem to be serving from the fallback for longer than expected.
+
+The endpoint drains work that is unbounded in the size of the tables it
+rebuilds, so an anonymous caller able to ask for it on demand is an amplifier.
+Two layers guard it, and they cover different failures:
+
+- `nginx.ophal.conf` ships `allow 127.0.0.1; deny all;` in the `/cron`
+  location. This holds even if Lua never runs, and it is what protects a
+  deployment that has not configured a token.
+- `settings.cron.token` is compared, in constant time, against a `token=` query
+  argument or an `X-Ophal-Cron-Token` request header.
+
+Configure the token if cron runs from anywhere other than localhost -- through
+a proxy, from another host, or from a scheduler that reaches nginx as a remote
+client. In `vault.lua`:
+
+```Lua
+  cron = {
+    token = 'a long random string',
+  },
+```
+
+And in `settings.lua`:
+
+```Lua
+  settings.cron = {
+    token = (vault.cron or {}).token,
+  }
+```
+
+When no token is configured, Ophal logs a `cron_token_missing` warning and
+allows the request. That is deliberate: refusing would silently stop the
+scheduled work of every deployment that upgrades without editing its vault, and
+the nginx `allow`/`deny` above already covers the default. The warning is what
+makes the gap visible.
+
+
 ### (Optional) Configure the Content module
 Run the following SQL queries in strict order:
 

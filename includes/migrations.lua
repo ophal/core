@@ -99,6 +99,15 @@ local function projection_version_sql(driver)
   version bigint,
   updated_at bigint
 )]],
+    }
+  end
+
+  return {
+    [[CREATE TABLE IF NOT EXISTS projection_version(
+  projection_key VARCHAR(255) PRIMARY KEY,
+  version UNSIGNED BIG INT,
+  updated_at UNSIGNED BIG INT
+)]],
   }
 end
 
@@ -153,15 +162,6 @@ ON tag_listing_index(route)]],
 ON tag_listing_index(tag_id, created DESC)]],
       [[CREATE INDEX IF NOT EXISTS idx_tag_listing_index_route
 ON tag_listing_index(route)]],
-    }
-end
-
-return {
-    [[CREATE TABLE IF NOT EXISTS projection_version(
-  projection_key VARCHAR(255) PRIMARY KEY,
-  version UNSIGNED BIG INT,
-  updated_at UNSIGNED BIG INT
-)]],
     }
 end
 

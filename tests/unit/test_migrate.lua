@@ -306,6 +306,42 @@ do
   dbh = saved_dbh
 end
 
+io.write '\n-- core migration registry --\n'
+
+-- Every registered migration has to be runnable on both drivers. This is not a
+-- formality: `tag_listing_index_sql` was once declared inside another function
+-- and so was nil at the point the registry referenced it, which made
+-- `004_tag_listing_index` fail for every site that ever ran it while the three
+-- migrations beside it kept passing.
+do
+  local registry = dofile('includes/migrations.lua')
+
+  assert_eq('core_registry_count', #registry, 4)
+
+  for _, driver in ipairs({'sqlite3', 'postgresql'}) do
+    for _, migration in ipairs(registry) do
+      local statements = {}
+      local ok, err = pcall(migration.up, {
+        driver = driver,
+        db_query = function(statement)
+          statements[#statements + 1] = statement
+          return true
+        end,
+      })
+
+      assert_eq(('core_migration_runs_%s_%s'):format(driver, migration.id), ok, true)
+      if not ok then
+        io.write(('    %s\n'):format(tostring(err)))
+      end
+      assert_eq(
+        ('core_migration_emits_sql_%s_%s'):format(driver, migration.id),
+        #statements > 0,
+        true
+      )
+    end
+  end
+end
+
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then
   os.exit(1)

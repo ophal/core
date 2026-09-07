@@ -3,7 +3,7 @@ local _M = {
 }
 ophal.modules[_M.entity_type] = _M
 
-local config = settings.content
+local config = settings.content or {}
 local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
 local ipairs = ipairs

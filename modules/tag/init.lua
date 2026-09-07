@@ -7,7 +7,7 @@ if type(html_escape) ~= 'function' then
   pcall(require, 'includes.escape')
 end
 
-local modules, config = ophal.modules, settings.tag
+local modules, config = ophal.modules, settings.tag or {}
 local theme, env, add_css, slash, l = theme, env, add_css, settings.slash, l
 local tinsert, tconcat, pairs, ophal = table.insert, table.concat, pairs, ophal
 local add_js, route_arg, trim, header = add_js, route_arg, seawolf.text.trim, header
@@ -352,7 +352,7 @@ end
 function _M.entity_load(entity)
   local rs, err, tags
 
-  if not config.entities[entity.type] then return end
+  if not (config.entities or {})[entity.type] then return end
 
   rs, err = db_query('SELECT t.* FROM field_tag ft JOIN tag t ON t.id = ft.tag_id WHERE ft.entity_type = ? AND ft.entity_id = ?', entity.type, entity.id)
   if err then
@@ -380,7 +380,7 @@ function _M.entity_after_save(entity)
       tag_projection_rebuild(entity.id, updated_at)
     end
     return
-  elseif not config.entities[entity.type] then
+  elseif not (config.entities or {})[entity.type] then
     return
   end
 
@@ -436,7 +436,7 @@ function _M.entity_after_delete(entity)
     tag_projection_delete_rows(entity.id)
     projection_touch(TAG_LISTING_KEY, updated_at)
     return
-  elseif not config.entities[entity.type] then
+  elseif not (config.entities or {})[entity.type] then
     return
   end
 

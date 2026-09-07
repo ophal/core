@@ -73,6 +73,23 @@ local scenarios = {
   -- rather than a future value on purpose: a rebuild stamps both keys with
   -- `time()`, so a version ahead of the clock would leave the projection stale
   -- forever and the queue spinning.
+  -- Creates a route alias the way the authoring path does, so the suite can ask
+  -- the only question the worker-held alias table really raises: does a worker
+  -- that has stopped reading `route_index` still notice a write to it. A 404
+  -- for a URL that exists is what that guard is holding back.
+  create_alias = function()
+    return run_bootstrap(function()
+      local source = query_arg('source') or 'content/1'
+      local alias = query_arg('alias') or 'late-alias'
+
+      route_create_alias{source = source, alias = alias, language = 'all'}
+
+      write(render{
+        'SMOKE_ALIAS_CREATED=' .. alias,
+        'SMOKE_ALIAS_SOURCE=' .. source,
+      })
+    end)
+  end,
   stale_projection = function()
     return run_bootstrap(function()
       local projection = require 'includes.projection'

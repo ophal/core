@@ -880,6 +880,183 @@ do
   assert_eq('route_deferred_redirect_writes_no_rows', #state.route_index.redirect, 0)
 end
 
+io.write '\n-- reusing a loaded route table --\n'
+
+local ALIAS_INDEX_READ = "^SELECT %* FROM route_index WHERE kind = 'alias'$"
+local ALIAS_SOURCE_READ = '^SELECT %* FROM route_alias$'
+
+-- Bootstrap loads the alias table before routing on every request, and nothing
+-- between requests clears it, so re-reading it is repetition unless a version
+-- moved. This was the one query a warm anonymous request paid that was not a
+-- connection pragma, and it carried a row per alias on the site with it.
+do
+  local state = new_projection_state()
+  local projection
+  local before
+
+  state.versions.route_alias_index = 100
+  state.versions.route_alias_source = 90
+  state.route_index.alias = {
+    {source = 'content/1', target = 'hello-world', language = 'all'},
+  }
+
+  setup_route_env(state)
+  projection = require 'includes.projection'
+  route_aliases_load()
+
+  before = query_count(state, ALIAS_INDEX_READ)
+  assert_eq('route_reload_first_load_reads_index', before, 1)
+
+  route_aliases_load()
+
+  assert_eq('route_reload_skipped_when_unchanged', query_count(state, ALIAS_INDEX_READ), before)
+  assert_eq('route_reload_keeps_aliases', ophal.aliases.source['content/1'], 'hello-world')
+
+  -- The index version moving is a rebuild or a single-row projection write.
+  projection.touch('route_alias_index', 300)
+  state.route_index.alias = {
+    {source = 'content/1', target = 'renamed', language = 'all'},
+  }
+  route_aliases_load()
+
+  assert_eq('route_reload_on_index_version_move', ophal.aliases.source['content/1'], 'renamed')
+
+  -- The source version moving on its own is the deferred window: incremental
+  -- index maintenance is suspended there, so the index version is the half that
+  -- stays put. It is still behind the index here, so the projection reads as
+  -- fresh and this reload is the source comparison alone.
+  projection.touch('route_alias_source', 250)
+  state.route_index.alias = {
+    {source = 'content/1', target = 'renamed-again', language = 'all'},
+  }
+  route_aliases_load()
+
+  assert_eq('route_reload_on_source_version_move', ophal.aliases.source['content/1'], 'renamed-again')
+end
+
+-- A version stamped during the second the load is running cannot be told apart
+-- from one stamped just before it, so that load is never reused. The clock is
+-- frozen here because that is the whole assertion: a real one ticks past the
+-- ambiguity and hides it.
+do
+  local state = new_projection_state()
+  local real_time = os.time
+  local frozen = real_time()
+  local before
+
+  os.time = function() return frozen end
+
+  state.versions.route_alias_index = frozen
+  state.versions.route_alias_source = frozen - 10
+  state.route_index.alias = {
+    {source = 'content/1', target = 'same-second', language = 'all'},
+  }
+
+  setup_route_env(state)
+  route_aliases_load()
+
+  before = query_count(state, ALIAS_INDEX_READ)
+  route_aliases_load()
+
+  assert_eq(
+    'route_same_second_load_not_reused',
+    query_count(state, ALIAS_INDEX_READ),
+    before + 1
+  )
+
+  os.time = real_time
+end
+
+-- A table built from the normalized fallback is reusable too, and that is what
+-- makes a deferred window bounded: one source read per write rather than one
+-- per request. What bounds the reuse is the marker.
+do
+  local state = new_projection_state()
+  local projection
+  local before
+
+  state.versions.route_alias_source = 200
+  state.route_alias = {
+    {source = 'content/2', alias = 'deferred-alias', language = 'all'},
+  }
+
+  setup_route_env(state)
+  projection = require 'includes.projection'
+  route_aliases_load()
+
+  assert_eq('route_pending_serves_from_source', ophal.aliases.source['content/2'], 'deferred-alias')
+  assert_eq('route_pending_queued', queued_rebuilds(state), 'route_alias_index')
+
+  before = query_count(state, ALIAS_SOURCE_READ)
+  route_aliases_load()
+
+  assert_eq('route_pending_fallback_reused', query_count(state, ALIAS_SOURCE_READ), before)
+
+  -- With the marker gone and the index version unmoved, a worker that kept
+  -- trusting its fallback load would never ask about this projection again. So
+  -- the reuse ends with the marker: the next request goes back to `ensure()`,
+  -- which is what decides whether to queue, rebuild, or defer again.
+  projection.clear_pending('route_alias_index')
+  route_aliases_load()
+
+  assert_eq('route_pending_lapsed_reloads', query_count(state, ALIAS_SOURCE_READ), before + 1)
+  assert_eq(
+    'route_pending_lapsed_asks_again',
+    projection.rebuild_pending('route_alias_index') ~= nil,
+    true
+  )
+end
+
+-- With no versions and no marker there is nothing to compare, and the guard
+-- says so: such a site reloads on every request, exactly as it did before the
+-- guard existed.
+do
+  local state = new_projection_state()
+  local before
+
+  state.route_alias = {
+    {source = 'content/9', alias = 'unversioned-alias', language = 'all'},
+  }
+
+  setup_route_env(state, {ensure = function() return false end})
+  route_aliases_load()
+
+  before = query_count(state, ALIAS_SOURCE_READ)
+  route_aliases_load()
+
+  assert_eq(
+    'route_unversioned_reloads_every_request',
+    query_count(state, ALIAS_SOURCE_READ),
+    before + 1
+  )
+  assert_eq('route_unversioned_alias_loaded', ophal.aliases.source['content/9'], 'unversioned-alias')
+end
+
+-- Redirects are loaded beside the aliases on the same request path and answer
+-- to the same guard, on their own pair of versions.
+do
+  local state = new_projection_state()
+  local read = "^SELECT %* FROM route_index WHERE kind = 'redirect'$"
+  local before
+
+  state.versions.route_redirect_index = 100
+  state.versions.route_redirect_source = 90
+  state.route_index.redirect = {
+    {source = 'old-path', target = 'new-path', language = 'all', type = 301},
+  }
+
+  setup_route_env(state)
+  route_redirects_load()
+
+  before = query_count(state, read)
+  assert_eq('route_redirect_first_load_reads_index', before, 1)
+
+  route_redirects_load()
+
+  assert_eq('route_redirect_reload_skipped_when_unchanged', query_count(state, read), before)
+  assert_eq('route_redirect_reload_keeps_target', ophal.redirects.source['old-path'][1], 'new-path')
+end
+
 io.write '\n-- content projections --\n'
 
 do

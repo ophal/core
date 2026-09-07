@@ -23,8 +23,21 @@ local ROUTE_ALIAS_INDEX_KEY = 'route_alias_index'
 local ROUTE_ALIAS_SOURCE_KEY = 'route_alias_source'
 local ROUTE_REDIRECT_INDEX_KEY = 'route_redirect_index'
 local ROUTE_REDIRECT_SOURCE_KEY = 'route_redirect_source'
-local loaded_route_alias_version
-local loaded_route_redirect_version
+local ROUTE_PROJECTION_KEYS = {
+  alias = {index = ROUTE_ALIAS_INDEX_KEY, source = ROUTE_ALIAS_SOURCE_KEY},
+  redirect = {index = ROUTE_REDIRECT_INDEX_KEY, source = ROUTE_REDIRECT_SOURCE_KEY},
+}
+
+--[[ What each in-memory route table was last built from.
+
+  `ophal.aliases` and `ophal.redirects` are worker state, not request state:
+  nothing between requests clears them. What is recorded here is what lets the
+  next request decide it has nothing to do. See `route_tables_current()`.
+]]
+local loaded_routes = {
+  alias = {},
+  redirect = {},
+}
 
 local function route_projection_mark_source(key, version)
   local ok, err = projection_touch(key, version)
@@ -43,31 +56,112 @@ local function route_projection_read_version(key)
   return version
 end
 
-local function route_projection_record_loaded(kind)
-  local version = route_projection_read_version(
-    kind == 'alias' and ROUTE_ALIAS_INDEX_KEY or ROUTE_REDIRECT_INDEX_KEY
-  )
+--[[ The versions a load is about to build from.
 
-  if kind == 'alias' then
-    loaded_route_alias_version = version
-  else
-    loaded_route_redirect_version = version
-  end
+  Read before the rows, so that a write racing the load either lands in the
+  rows it returns or moves a version past the one recorded for them. The clock
+  is read first for the same reason; `version_settled()` is what uses it.
+]]
+local function route_projection_observe(kind)
+  local keys = ROUTE_PROJECTION_KEYS[kind]
+
+  return {
+    at = time(),
+    version = route_projection_read_version(keys.index),
+    source = route_projection_read_version(keys.source),
+  }
 end
 
+-- A version is a unix second, so one written during the second a load is
+-- running is indistinguishable from the one that load already saw. A load in
+-- that position is never reused; a second later the next one settles.
+local function version_settled(version, at)
+  version = tonumber(version)
+
+  return version == nil or version < at
+end
+
+--[[ Whether the in-memory route table still answers for the database.
+
+  Three things move it, and all three are read without touching SQL.
+
+  The index version covers a rebuild and any single-row projection write. The
+  source version covers a write during a deferred window, when incremental
+  index maintenance is suspended and the index version deliberately stays put:
+  the source key is touched on every route write whether the index is
+  maintained or not, which is what makes it the dependable half of the pair.
+
+  The marker is the third. A table built from the normalized fallback is only
+  reusable while the rebuild meant to replace it is still queued. Once the
+  marker lapses with the index version unmoved, no job is coming, and a worker
+  that kept trusting its fallback load would never ask for one again -- so a
+  fallback load stops being current exactly when the marker does, and the next
+  request runs `ensure()` and queues it afresh.
+
+  A site with no projections has no versions and no marker, so it never matches
+  here and reloads every request, which is what it did before any of this.
+]]
+local function route_tables_current(kind, observed)
+  local loaded = loaded_routes[kind]
+
+  -- Nothing has been loaded into this worker's table yet.
+  if loaded.at == nil then
+    return false
+  end
+
+  if not loaded.settled then
+    return false
+  end
+
+  if loaded.fallback
+    and projection_rebuild_pending(ROUTE_PROJECTION_KEYS[kind].index) == nil
+  then
+    return false
+  end
+
+  return observed.version == loaded.version and observed.source == loaded.source
+end
+
+--[[ Record what the load just built from.
+
+  `observed` is deliberately the reading taken before the load rather than a
+  fresh one: a version read after the rows could have moved between the two,
+  and recording it would pin stale rows to a current version. The cost is that
+  a load which rebuilt the projection inline records the version from before
+  its own rebuild and is reloaded once more.
+]]
+local function route_projection_record_loaded(kind, observed, fallback)
+  local loaded = loaded_routes[kind]
+
+  loaded.at = observed.at
+  loaded.version = observed.version
+  loaded.source = observed.source
+  loaded.fallback = fallback == true
+  loaded.settled = version_settled(observed.version, observed.at)
+    and version_settled(observed.source, observed.at)
+end
+
+--[[ Reload a route table if a write since the last load moved its index.
+
+  The loaders guard themselves, so this reads as redundant. It is not: on a site
+  with no versions and no pending marker -- an unmigrated one -- their guard can
+  never match, and a bare call here would read the whole normalized source a
+  second time in a request that phase 12 already loaded. Calling a loader only
+  when the index version actually moved is what keeps that site at one load.
+]]
 local function route_projection_sync()
   local version
 
   if settings.route_aliases_storage then
     version = route_projection_read_version(ROUTE_ALIAS_INDEX_KEY)
-    if version ~= loaded_route_alias_version then
+    if version ~= loaded_routes.alias.version then
       route_aliases_load()
     end
   end
 
   if settings.route_redirects_storage then
     version = route_projection_read_version(ROUTE_REDIRECT_INDEX_KEY)
-    if version ~= loaded_route_redirect_version then
+    if version ~= loaded_routes.redirect.version then
       route_redirects_load()
     end
   end
@@ -99,9 +193,7 @@ end
   not have.
 ]]
 local function route_projection_deferred(kind)
-  local key = kind == 'alias' and ROUTE_ALIAS_INDEX_KEY or ROUTE_REDIRECT_INDEX_KEY
-
-  return projection_rebuild_pending(key) ~= nil
+  return projection_rebuild_pending(ROUTE_PROJECTION_KEYS[kind].index) ~= nil
 end
 
 local function route_projection_save(kind, source, target, language, http_code, updated_at)
@@ -266,6 +358,15 @@ function route_aliases_load()
   local alias
   local rs, err
   local ok
+  local observed = route_projection_observe('alias')
+
+  -- Bootstrap calls this before routing on every request, and `ophal.aliases`
+  -- is not cleared between them. Re-reading every alias on the site to arrive
+  -- at the table already in memory is the cost this guard removes; it is one
+  -- query and `O(aliases)` rows, which is why it read as cheap.
+  if route_tables_current('alias', observed) then
+    return
+  end
 
   ophal.aliases.source = {}
   ophal.aliases.alias = {}
@@ -283,14 +384,14 @@ function route_aliases_load()
     -- the rebuild here is what would have made deferral a no-op on routes, and
     -- routes are the one projection loaded before routing on every request.
     route_aliases_read()
-    return route_projection_record_loaded('alias')
+    return route_projection_record_loaded('alias', observed, true)
   end
 
   rs, err = projection_query("SELECT * FROM route_index WHERE kind = 'alias'")
   if not rs then
     if projection_is_missing_table(err, 'route_index') then
       route_aliases_read()
-      return route_projection_record_loaded('alias')
+      return route_projection_record_loaded('alias', observed, true)
     end
     error(err)
   end
@@ -303,7 +404,7 @@ function route_aliases_load()
     route_register_alias(row.source, alias)
   end
 
-  route_projection_record_loaded('alias')
+  route_projection_record_loaded('alias', observed, false)
 end
 
 function route_read_alias(id)
@@ -438,6 +539,13 @@ function route_redirects_load()
   local target
   local rs, err
   local ok
+  local observed = route_projection_observe('redirect')
+
+  -- See `route_aliases_load()`; redirects are loaded beside the aliases on the
+  -- same request path and answer to the same guard.
+  if route_tables_current('redirect', observed) then
+    return
+  end
 
   ophal.redirects.source = {}
   ophal.redirects.target = {}
@@ -450,14 +558,14 @@ function route_redirects_load()
     error(err)
   elseif ok ~= true then
     route_redirects_read()
-    return route_projection_record_loaded('redirect')
+    return route_projection_record_loaded('redirect', observed, true)
   end
 
   rs, err = projection_query("SELECT * FROM route_index WHERE kind = 'redirect'")
   if not rs then
     if projection_is_missing_table(err, 'route_index') then
       route_redirects_read()
-      return route_projection_record_loaded('redirect')
+      return route_projection_record_loaded('redirect', observed, true)
     end
     error(err)
   end
@@ -470,7 +578,7 @@ function route_redirects_load()
     route_register_redirect(row.source, target, row.type)
   end
 
-  route_projection_record_loaded('redirect')
+  route_projection_record_loaded('redirect', observed, false)
 end
 
 function route_create_redirect(entity)

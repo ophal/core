@@ -1017,9 +1017,13 @@ assert_query_budget() {
   local expected_total=$1 expected_normalized=$2 expected_infrastructure=${3:-0}
 
   [[ "$MEASURED_NORMALIZED" -eq "$expected_normalized" ]] ||
-    fail "expected $expected_normalized normalized queries, measured $MEASURED_NORMALIZED (tables so far: $MEASURED_TABLES)"
+    fail "expected $expected_normalized normalized queries, measured $MEASURED_NORMALIZED
+  before: $MEASURED_TABLES_BEFORE
+  after:  $MEASURED_TABLES"
   [[ "$MEASURED_INFRASTRUCTURE" -eq "$expected_infrastructure" ]] ||
-    fail "expected $expected_infrastructure infrastructure queries, measured $MEASURED_INFRASTRUCTURE (tables so far: $MEASURED_TABLES)"
+    fail "expected $expected_infrastructure infrastructure queries, measured $MEASURED_INFRASTRUCTURE
+  before: $MEASURED_TABLES_BEFORE
+  after:  $MEASURED_TABLES"
   [[ "$MEASURED_TOTAL" -eq "$expected_total" ]] ||
     fail "expected $expected_total queries, measured $MEASURED_TOTAL
   before: $MEASURED_TABLES_BEFORE
@@ -1072,10 +1076,19 @@ assert_status_zero
 assert_contains 'SMOKE_JOBS_PENDING=0'
 report_ok db_jobs_after_build
 
+# The drain stamped every projection version with the second it ran in, and a
+# load running in that same second is deliberately not reusable: a version is a
+# unix second, so one written during a load cannot be told apart from one the
+# load already saw. Stepping past that second is what makes the numbers below
+# the steady state rather than the boundary. The boundary itself is pinned in
+# `test_projection_runtime.lua`, where the clock can be frozen.
+sleep 1
+
 # One unmeasured pass over the freshly built projections. It is the first read
 # of each of them, so it is what fills the per-worker payload caches -- the cold
-# pass above could not, because it never touched a projection. Measuring here
-# would measure the cache fill; the pass after it is the delivery.
+# pass above could not, because it never touched a projection. It also loads the
+# route table into the worker, which is what the requests below then reuse.
+# Measuring here would measure the fill; the pass after it is the delivery.
 for prime_path in "/" "/content/1" "/tag/1" "/$SEED_ALIAS"; do
   run_request db_prime "$DB_URL$prime_path"
   assert_status_zero
@@ -1099,10 +1112,12 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_contains "$SEED_SECOND_TITLE"
-# Two of the three are `PRAGMA busy_timeout` and the `PRAGMA journal_mode`
-# read, which every connection runs -- and bootstrap opens one per request. The
-# third is the route alias index, a projection table. No normalized read at all.
-assert_query_budget 3 0
+# Both are `PRAGMA busy_timeout` and the `PRAGMA journal_mode` read, which every
+# connection runs -- and bootstrap opens one per request. No table is read at
+# all: the route alias index was the third query here until the worker started
+# keeping the table it built, and nothing else on an anonymous render reaches
+# SQL. Two connections' worth of setup is the whole cost of the page.
+assert_query_budget 2 0
 report_ok "db_frontpage_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_content_warm "$DB_URL/content/1"
@@ -1113,14 +1128,14 @@ assert_contains "$SEED_CONTENT_BODY"
 # A content page reads no normalized table. The last one was the tag module's
 # `entity_load` join, now served from the payload cache under the
 # `tag_listing_source` version.
-assert_query_budget 3 0
+assert_query_budget 2 0
 report_ok "db_content_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_tag_warm "$DB_URL/tag/1"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_TAG_NAME"
-assert_query_budget 3 0
+assert_query_budget 2 0
 report_ok "db_tag_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_alias_warm "$DB_URL/$SEED_ALIAS"
@@ -1130,7 +1145,7 @@ assert_contains "$SEED_CONTENT_TITLE"
 # Same page as db_content_warm, reached through the route alias. The alias
 # itself costs nothing extra, which is what this budget matching the direct
 # route's is saying.
-assert_query_budget 3 0
+assert_query_budget 2 0
 report_ok "db_alias_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # ================================================================
@@ -1190,7 +1205,7 @@ assert_contains "$SEED_CONTENT_TITLE"
 # warm read: the account, its roles and its permissions are all per-worker
 # cached by then, which is the end-to-end version of what
 # test_user_permissions.lua pins at the handler level.
-assert_query_budget 3 0
+assert_query_budget 2 0
 report_ok "db_author_frontpage_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # The create. Tags are included because `entity_after_save()` is where the tag
@@ -1231,7 +1246,7 @@ authored_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\
 # `entity_after_save()` stopped touching `tag_listing_source` a second time from
 # inside `tag_projection_rebuild()`; and `projection.touch()` became a single
 # upsert instead of a DELETE plus an INSERT.
-assert_query_budget 18 5
+assert_query_budget 17 5
 report_ok "db_content_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # What the write left for the next visitor. This is anonymous on purpose: the
@@ -1247,7 +1262,7 @@ assert_contains "$AUTHORED_TITLE"
 # rather than by the bucket `projection_touch()` also drops. Still no normalized
 # read. This is the number Phase 5 would be moving, so it is pinned apart from
 # the write's own cost.
-assert_query_budget 5 0
+assert_query_budget 4 0
 report_ok "db_frontpage_after_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_content_update -c "$author_cookie" -b "$author_cookie" \
@@ -1262,7 +1277,7 @@ assert_regex '"success" *: *true'
 # `content_public` -- `load(id)`, which an update genuinely needs and a create
 # no longer performs -- and does one less insert-side write. It was 24 before
 # the same pass; six of those were `projection_version` pairs.
-assert_query_budget 18 5
+assert_query_budget 17 5
 report_ok "db_content_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_content_page_after_update "$DB_URL/content/$authored_id"
@@ -1277,7 +1292,7 @@ assert_contains "$AUTHORED_UPDATED_BODY"
 # entity that changed. The safe key is the coarse one; a finer key would need a
 # per-entity source version. Until then this is what the first reader after a
 # tag write pays.
-assert_query_budget 5 1
+assert_query_budget 4 1
 report_ok "db_content_page_after_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # The tag listing has to show the authored article too, or the tag rows the
@@ -1291,7 +1306,7 @@ assert_contains "$AUTHORED_UPDATED_TITLE"
 # The listing's own tag entity is keyed on `tag_listing_index`, which the write
 # moved, so it comes back from the normalized `tag` table once. The listing
 # rows themselves are still projection reads.
-assert_query_budget 6 1
+assert_query_budget 5 1
 report_ok "db_tag_after_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # ---------------------------------------------------------------------------
@@ -1375,8 +1390,8 @@ assert_contains 'SMOKE_STALE_VERSION=1'
 report_ok db_make_content_stale
 
 # Correct page, bounded cost, and one write to the queue rather than a rebuild.
-# Six: the two connection pragmas, the route alias index, the fallback's count
-# and page of rows straight from `content`, and the enqueue. Bounded is the word
+# Five: the two connection pragmas, the fallback's count and page of rows
+# straight from `content`, and the enqueue. Bounded is the word
 # that matters -- the two normalized reads are one page of content, not the
 # whole table, which is what the rebuild this replaced would have read.
 #
@@ -1389,7 +1404,7 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_contains "$SEED_SECOND_TITLE"
-assert_query_budget 6 2 1
+assert_query_budget 5 2 1
 report_ok "db_frontpage_stale (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED infrastructure=$MEASURED_INFRASTRUCTURE)"
 
 # The second reader in the same window queues nothing: the unique index on
@@ -1399,7 +1414,7 @@ measure_request db_frontpage_stale_again "$DB_URL/"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
-assert_query_budget 5 2 0
+assert_query_budget 4 2 0
 report_ok "db_frontpage_stale_again (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 run_request db_cron_rebuilds_stale "$DB_URL/cron?token=smoke-cron-token"
@@ -1419,8 +1434,46 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_contains "$SEED_SECOND_TITLE"
-assert_query_budget 3 0
+assert_query_budget 2 0
 report_ok "db_frontpage_after_rebuild (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# The alias table is worker state now, so the last thing to prove is that a
+# worker which has stopped reading it still sees a write. It has to: a route
+# write moves both versions, and the guard reads them before it reuses
+# anything.
+SEED_LATE_ALIAS='late-smoke-alias'
+
+run_request db_alias_created \
+  "$DB_URL/__smoke__?scenario=create_alias&source=content/1&alias=$SEED_LATE_ALIAS"
+assert_status_zero
+assert_contains "SMOKE_ALIAS_CREATED=$SEED_LATE_ALIAS"
+report_ok db_alias_created
+
+# The write and the load that notices it have to fall in different seconds, or
+# the load is correct but not reusable and the measurement below is of the load
+# after it instead. One second is the whole granularity of a version.
+sleep 1
+
+# The 404 question, and the answer has to be a page. This request is not
+# measured: it is the first content page rendered since `db_cron_rebuilds_stale`
+# moved `content_public` and `tag_listing_index`, so its budget is those payload
+# caches refilling rather than anything about routes. The reload the write
+# forces is pinned per-term in `test_projection_runtime.lua`.
+run_request db_late_alias_resolves "$DB_URL/$SEED_LATE_ALIAS"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+report_ok db_late_alias_resolves
+
+# Back to two, on a URL that did not exist when this worker last read
+# `route_index`. That is the whole claim: the write was noticed, and the table
+# it produced is being reused.
+measure_request db_late_alias_reused "$DB_URL/$SEED_LATE_ALIAS"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+assert_query_budget 2 0
+report_ok "db_late_alias_reused (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 printf 'all openresty smoke scenarios passed
 '

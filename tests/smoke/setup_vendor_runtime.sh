@@ -7,7 +7,7 @@ VENDOR_DEBS="$VENDOR_ROOT/debs"
 VENDOR_UNPACK="$VENDOR_ROOT/unpack"
 VENDOR_SEAWOLF="$VENDOR_ROOT/seawolf"
 SEAWOLF_REF="${SEAWOLF_REF:-master}"
-PACKAGES=(lua-filesystem lua-lpeg lua-socket lua-dkjson)
+PACKAGES=(lua-filesystem lua-lpeg lua-socket lua-dkjson lua-dbi-common lua-dbi-sqlite3)
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {

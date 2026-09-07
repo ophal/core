@@ -20,6 +20,17 @@ SMOKE_ROOT=$(mktemp -d)
 SMOKE_DOCROOT="$SMOKE_ROOT/docroot"
 SMOKE_PREFIX="$SMOKE_ROOT/prefix"
 SMOKE_CONF="$SMOKE_ROOT/nginx.conf"
+# The database profile runs as a second OpenResty instance rather than another
+# server block in the first. Routes are cached per worker after the first
+# request, so a worker that has served the module-less profile would answer a
+# content request from a route table built without the content module. A
+# separate instance is also what makes the warm measurement meaningful: its
+# worker only ever serves this profile, so its caches fill the way a real
+# site's do.
+SMOKE_DB_DOCROOT="$SMOKE_ROOT/db-docroot"
+SMOKE_DB_PREFIX="$SMOKE_ROOT/db-prefix"
+SMOKE_DB_CONF="$SMOKE_ROOT/nginx-db.conf"
+SMOKE_DB_FILE="$SMOKE_ROOT/ophal-smoke.sqlite3"
 LAST_OUTPUT=''
 LAST_STATUS=0
 LAST_SCENARIO=''
@@ -36,12 +47,23 @@ PY2
 
 SMOKE_PORT=$(pick_port)
 PERSISTENT_PORT=$(pick_port)
+SMOKE_DB_PORT=$(pick_port)
 BASE_URL="http://127.0.0.1:${SMOKE_PORT}"
 PERSISTENT_URL="http://127.0.0.1:${PERSISTENT_PORT}"
+DB_URL="http://127.0.0.1:${SMOKE_DB_PORT}"
 
+# `OPHAL_SMOKE_KEEP=1` leaves the tree behind. A failure otherwise takes the
+# database, the generated configuration and both error logs with it, which is
+# most of the evidence for anything that goes wrong in the database profile.
 cleanup() {
   openresty -p "$SMOKE_PREFIX" -c "$SMOKE_CONF" -s stop >/dev/null 2>&1 || true
-  rm -rf "$SMOKE_ROOT"
+  openresty -p "$SMOKE_DB_PREFIX" -c "$SMOKE_DB_CONF" -s stop >/dev/null 2>&1 || true
+
+  if [[ -n "${OPHAL_SMOKE_KEEP:-}" ]]; then
+    printf 'kept: %s\n' "$SMOKE_ROOT" >&2
+  else
+    rm -rf "$SMOKE_ROOT"
+  fi
 }
 trap cleanup EXIT
 
@@ -62,7 +84,7 @@ check_dependencies() {
   set +e
   env -i "${dep_env[@]}" lua5.1 - <<'LUA' >"$output_file" 2>&1
 local missing = {}
-for _, name in ipairs({'lfs', 'lpeg', 'uuid', 'seawolf', 'dkjson'}) do
+for _, name in ipairs({'lfs', 'lpeg', 'uuid', 'seawolf', 'dkjson', 'DBI', 'dbd.sqlite3'}) do
   local ok = pcall(require, name)
   if not ok then
     missing[#missing + 1] = name
@@ -134,14 +156,22 @@ extract_marker() {
   printf '%s\n' "$LAST_OUTPUT" | sed -n "s/^${marker}=//p" | tail -n 1
 }
 
+# Everything a docroot shares with the checkout. Themes are left out because
+# the database profile builds its own; see prepare_db_tree.
+link_docroot() {
+  local docroot=$1
+
+  ln -s "$ROOT/includes" "$docroot/includes"
+  ln -s "$ROOT/modules" "$docroot/modules"
+  ln -s "$ROOT/libraries" "$docroot/libraries"
+  ln -s "$ROOT/index.lua" "$docroot/index.lua"
+  ln -s "$ROOT/cron.lua" "$docroot/cron.lua"
+}
+
 prepare_tree() {
   mkdir -p "$SMOKE_DOCROOT" "$SMOKE_PREFIX/logs" "$SMOKE_PREFIX/client_body_temp"     "$SMOKE_PREFIX/proxy_temp" "$SMOKE_PREFIX/fastcgi_temp" "$SMOKE_PREFIX/uwsgi_temp"     "$SMOKE_PREFIX/scgi_temp" "$SMOKE_ROOT/files" "$SMOKE_ROOT/sessions"
-  ln -s "$ROOT/includes" "$SMOKE_DOCROOT/includes"
-  ln -s "$ROOT/modules" "$SMOKE_DOCROOT/modules"
+  link_docroot "$SMOKE_DOCROOT"
   ln -s "$ROOT/themes" "$SMOKE_DOCROOT/themes"
-  ln -s "$ROOT/libraries" "$SMOKE_DOCROOT/libraries"
-  ln -s "$ROOT/index.lua" "$SMOKE_DOCROOT/index.lua"
-  ln -s "$ROOT/cron.lua" "$SMOKE_DOCROOT/cron.lua"
 
   cat > "$SMOKE_DOCROOT/settings.lua" <<'LUA'
 return function(settings, vault)
@@ -368,6 +398,262 @@ http {
   }
 }
 EOF
+}
+
+prepare_db_tree() {
+  mkdir -p "$SMOKE_DB_DOCROOT" "$SMOKE_DB_PREFIX/logs" "$SMOKE_DB_PREFIX/client_body_temp" \
+    "$SMOKE_DB_PREFIX/proxy_temp" "$SMOKE_DB_PREFIX/fastcgi_temp" "$SMOKE_DB_PREFIX/uwsgi_temp" \
+    "$SMOKE_DB_PREFIX/scgi_temp" "$SMOKE_ROOT/db-files" "$SMOKE_ROOT/db-sessions"
+  link_docroot "$SMOKE_DB_DOCROOT"
+
+  # `theme_render()` resolves templates under themes/<name>/ only, and neither
+  # shipped theme carries the content module's templates. A content site has to
+  # copy them into its theme, so the profile does exactly that rather than
+  # pretending the stock theme can render content.
+  mkdir -p "$SMOKE_DB_DOCROOT/themes"
+  cp -R "$ROOT/themes/basic" "$SMOKE_DB_DOCROOT/themes/basic"
+  cp "$ROOT/modules/content/content_teaser.tpl.html" "$SMOKE_DB_DOCROOT/themes/basic/"
+  cp "$ROOT/modules/content/content_page.tpl.html" "$SMOKE_DB_DOCROOT/themes/basic/"
+
+  # This profile has no scenario switch. It is one configuration -- database on,
+  # content, user and tag enabled, front page served by the content module --
+  # because the whole point of a second instance is that its worker warms up
+  # against a single, realistic site rather than a mixture.
+  cat > "$SMOKE_DB_DOCROOT/settings.lua" <<'LUA'
+return function(settings, vault)
+  local getenv = os.getenv
+  local tmp_root = getenv('OPHAL_SMOKE_TMP') or '.'
+  local db_path = getenv('OPHAL_SMOKE_DB')
+
+  settings.version = {
+    core = true,
+    number = true,
+    revision = false,
+  }
+  settings.language = 'en'
+  settings.language_dir = 'ltr'
+  settings.site = {
+    frontpage = 'content',
+    name = 'Ophal Smoke DB',
+    hash = (vault.site or {}).hash or 'ophal-smoke-hash',
+    logo_title = 'The Ophal Project',
+    logo_path = 'images/ophalproject.png',
+    files_path = tmp_root .. '/db-files',
+  }
+  settings.micro_cache = false
+  settings.debugapi = false
+  settings.maintenance_mode = false
+  settings.output_buffering = false
+  settings.sessionapi = {
+    enabled = true,
+    ttl = 86400,
+    lock_ttl = 120,
+    path = tmp_root .. '/db-sessions',
+  }
+  settings.formapi = true
+  settings.date_format = '!%Y-%m-%d %H:%M UTC'
+
+  -- Aliases come from storage here, so the route projection is on the measured
+  -- path instead of being a code path only the unit tests ever reach.
+  settings.route_aliases_storage = true
+  settings.route_aliases_prepend_language = false
+  settings.route_redirects_storage = false
+  settings.route_redirects_prepend_language = false
+
+  settings.modules = {
+    content = true,
+    user = true,
+    tag = true,
+  }
+
+  -- Which entity types carry tags is site configuration with no sensible
+  -- default, so it is spelled out. `settings.content` is left unset on
+  -- purpose: the documented install enables a module without a settings table
+  -- beside it, and this profile is where that has to keep working.
+  settings.tag = {
+    entities = {
+      content = true,
+    },
+  }
+
+  -- Roles and permissions come from the tables INSTALL.md creates. Without
+  -- this the module reads its roles from settings only, every permission
+  -- check fails, and the anonymous permission query -- the one warm query the
+  -- budget is stated in terms of -- never happens.
+  settings.user = {
+    permissions_storage = true,
+  }
+
+  -- Counting is what this instance exists for, so it is on for every request
+  -- rather than gated by a scenario. `db_query_stats()` reads the setting once
+  -- per worker, so it has to be true from the worker's first request.
+  settings.performance = {
+    query_stats = true,
+  }
+
+  if db_path and db_path ~= '' then
+    settings.db = {
+      default = {
+        driver = 'SQLite3',
+        database = db_path,
+      },
+    }
+  end
+
+  settings.theme = {
+    name = 'basic',
+  }
+end
+LUA
+
+  cat > "$SMOKE_DB_DOCROOT/vault.lua" <<'LUA'
+return {
+  site = {
+    hash = 'ophal-smoke-hash',
+  },
+}
+LUA
+
+  cat > "$SMOKE_DB_CONF" <<EOF
+env OPHAL_SMOKE_TMP;
+env OPHAL_SMOKE_DB;
+worker_processes 1;
+pid logs/nginx.pid;
+error_log logs/error.log info;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  lua_package_path '$VENDOR_LUA_PATH';
+  lua_package_cpath '$VENDOR_LUA_CPATH';
+
+  lua_shared_dict ophal_projection_versions 1m;
+
+  access_log logs/access.log;
+  client_body_temp_path client_body_temp;
+  proxy_temp_path proxy_temp;
+  fastcgi_temp_path fastcgi_temp;
+  uwsgi_temp_path uwsgi_temp;
+  scgi_temp_path scgi_temp;
+
+  server {
+    listen 127.0.0.1:$SMOKE_DB_PORT;
+    server_name example.com;
+    root $SMOKE_DB_DOCROOT;
+
+    location = /__smoke__ {
+      lua_code_cache on;
+      default_type text/html;
+      set \$ophal_script_name /index.lua;
+      rewrite_by_lua_block {
+        require('lfs').chdir(ngx.var.document_root)
+      }
+      content_by_lua_file $ROOT/tests/smoke/openresty_runner.lua;
+    }
+
+    location = /__ophal_index__ {
+      internal;
+      lua_code_cache on;
+      default_type text/html;
+      set \$ophal_script_name /index.lua;
+      rewrite_by_lua_block {
+        require('lfs').chdir(ngx.var.document_root)
+      }
+      content_by_lua_file \$document_root/index.lua;
+    }
+
+    location = /index.lua { return 404; }
+    location = /settings.lua { return 404; }
+    location = /vault.lua { return 404; }
+    location ^~ /includes/ { return 404; }
+    location ^~ /modules/ { return 404; }
+
+    location ~ \.lua\$ {
+      return 404;
+    }
+
+    location / {
+      try_files \$uri /__ophal_index__;
+    }
+  }
+}
+EOF
+}
+
+# Creates the database the measured instance reads. The normalized schema and
+# rows come from the seed script; the projection tables come from the real
+# migration CLI, so the harness installs the site the way the documentation
+# says to rather than carrying a second copy of the schema.
+seed_database() {
+  local output status
+  local -a seed_env
+
+  seed_env=(
+    "LUA_PATH=$VENDOR_LUA_PATH"
+    "LUA_CPATH=$VENDOR_LUA_CPATH"
+    "OPHAL_SMOKE_TMP=$SMOKE_ROOT"
+    "OPHAL_SMOKE_DB=$SMOKE_DB_FILE"
+  )
+  if [[ -n "$VENDOR_LD_LIB_DIR" ]]; then
+    seed_env=("LD_LIBRARY_PATH=$VENDOR_LD_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "${seed_env[@]}")
+  fi
+
+  LAST_SCENARIO='database_seed'
+  set +e
+  output=$(cd "$SMOKE_DB_DOCROOT" && env -i "${seed_env[@]}" \
+    lua5.1 "$ROOT/tests/smoke/seed_database.lua" "$SMOKE_DB_FILE" 2>&1)
+  status=$?
+  set -e
+  LAST_OUTPUT=$output
+  LAST_STATUS=$status
+  [[ $status -eq 0 ]] || fail 'database seed failed'
+
+  SEED_CONTENT_TITLE=$(extract_marker 'SEED_CONTENT_TITLE')
+  SEED_CONTENT_BODY=$(extract_marker 'SEED_CONTENT_BODY')
+  SEED_SECOND_TITLE=$(extract_marker 'SEED_SECOND_TITLE')
+  SEED_UNPROMOTED_TITLE=$(extract_marker 'SEED_UNPROMOTED_TITLE')
+  SEED_TAG_NAME=$(extract_marker 'SEED_TAG_NAME')
+  SEED_ALIAS=$(extract_marker 'SEED_ALIAS')
+
+  [[ -n "$SEED_CONTENT_TITLE" && -n "$SEED_TAG_NAME" && -n "$SEED_ALIAS" ]] ||
+    fail 'database seed did not report its fixtures'
+
+  LAST_SCENARIO='database_migrate'
+  set +e
+  output=$(cd "$SMOKE_DB_DOCROOT" && env -i "${seed_env[@]}" \
+    lua5.1 "$ROOT/ophal" migrate apply 2>&1)
+  status=$?
+  set -e
+  LAST_OUTPUT=$output
+  LAST_STATUS=$status
+  [[ $status -eq 0 ]] || fail 'ophal migrate apply failed'
+  report_ok database_seed
+}
+
+start_db_openresty() {
+  local output
+
+  set +e
+  output=$(OPHAL_SMOKE_TMP="$SMOKE_ROOT" OPHAL_SMOKE_DB="$SMOKE_DB_FILE" \
+    openresty -t -p "$SMOKE_DB_PREFIX" -c "$SMOKE_DB_CONF" 2>&1)
+  LAST_STATUS=$?
+  set -e
+  LAST_OUTPUT=$output
+  [[ "$LAST_STATUS" -eq 0 ]] || fail 'openresty database config test failed'
+
+  OPHAL_SMOKE_TMP="$SMOKE_ROOT" OPHAL_SMOKE_DB="$SMOKE_DB_FILE" \
+    openresty -p "$SMOKE_DB_PREFIX" -c "$SMOKE_DB_CONF"
+
+  for _ in $(seq 1 50); do
+    if port_ready "$SMOKE_DB_PORT"; then
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  fail 'database openresty did not become ready'
 }
 
 port_ready() {
@@ -634,6 +920,135 @@ token_b=$(extract_marker 'SMOKE_CSRF_TOKEN')
 [[ -n "$token_b" ]] || fail 'missing CSRF token for persistent request 2'
 [[ "$token_a" != "$token_b" ]] || fail 'persistent request 2 reused request 1 CSRF token'
 report_ok persistent_csrf_req2
+
+# ================================================================
+# Database profile (second instance, lua_code_cache on, real SQLite)
+# The unit budget tests measure handlers with the database stubbed. These
+# measure whole requests: nginx, bootstrap, routing, theme and SQLite.
+# ================================================================
+
+prepare_db_tree
+seed_database
+start_db_openresty
+
+# Reads the worker's cumulative counters. The probe does not bootstrap, so it
+# does not disturb what it measures.
+read_db_stats() {
+  local saved_scenario=$LAST_SCENARIO
+
+  run_request db_stats_probe "$DB_URL/__smoke__?scenario=db_stats"
+  assert_status_zero
+  assert_regex '^HTTP/1\.[01] 200'
+  DB_STATS_TOTAL=$(extract_marker 'SMOKE_DB_TOTAL')
+  DB_STATS_NORMALIZED=$(extract_marker 'SMOKE_DB_NORMALIZED')
+  DB_STATS_TABLES=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/^SMOKE_DB_TABLE_//p' | tr '\r' ' ' | tr '\n' ' ')
+  [[ -n "$DB_STATS_TOTAL" && -n "$DB_STATS_NORMALIZED" ]] ||
+    fail 'query stats probe reported nothing'
+  LAST_SCENARIO=$saved_scenario
+}
+
+# Runs one request between two probes and leaves the request's own response in
+# LAST_OUTPUT, so the assert_* helpers still describe the page rather than the
+# probe that followed it.
+measure_request() {
+  local name=$1
+  shift
+  local before_total before_normalized measured_output measured_status
+
+  read_db_stats
+  before_total=$DB_STATS_TOTAL
+  before_normalized=$DB_STATS_NORMALIZED
+  MEASURED_TABLES_BEFORE=$DB_STATS_TABLES
+
+  run_request "$name" "$@"
+  measured_output=$LAST_OUTPUT
+  measured_status=$LAST_STATUS
+
+  read_db_stats
+  MEASURED_TOTAL=$((DB_STATS_TOTAL - before_total))
+  MEASURED_NORMALIZED=$((DB_STATS_NORMALIZED - before_normalized))
+  MEASURED_TABLES=$DB_STATS_TABLES
+
+  LAST_OUTPUT=$measured_output
+  LAST_STATUS=$measured_status
+  LAST_SCENARIO=$name
+}
+
+assert_query_budget() {
+  local expected_total=$1 expected_normalized=$2
+
+  [[ "$MEASURED_NORMALIZED" -eq "$expected_normalized" ]] ||
+    fail "expected $expected_normalized normalized queries, measured $MEASURED_NORMALIZED (tables so far: $MEASURED_TABLES)"
+  [[ "$MEASURED_TOTAL" -eq "$expected_total" ]] ||
+    fail "expected $expected_total queries, measured $MEASURED_TOTAL (tables so far: $MEASURED_TABLES)"
+}
+
+# Cold pass. This is the request that builds every projection from the seeded
+# normalized tables, which is why it is not measured: it is the rebuild, not
+# the delivery.
+run_request db_frontpage_cold "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+report_ok db_frontpage_cold
+
+run_request db_content_cold "$DB_URL/content/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_content_cold
+
+run_request db_tag_cold "$DB_URL/tag/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_tag_cold
+
+run_request db_alias_cold "$DB_URL/$SEED_ALIAS"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_alias_cold
+
+# Warm pass. Every assertion below is on a whole request, so a page that
+# renders nothing would also report zero queries -- the content assertions are
+# what stop the budget from being satisfied by an empty response.
+measure_request db_frontpage_warm "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+assert_contains "$SEED_SECOND_TITLE"
+# Two of the three are `PRAGMA busy_timeout` and the `PRAGMA journal_mode`
+# read, which every connection runs -- and bootstrap opens one per request. The
+# third is the route alias index, a projection table. No normalized read at all.
+assert_query_budget 3 0
+report_ok "db_frontpage_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+measure_request db_content_warm "$DB_URL/content/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+assert_contains "$SEED_CONTENT_BODY"
+# The one normalized query is the tag module's `entity_load` hook, which joins
+# `field_tag` to `tag` for every entity loaded and is not cached or projected.
+# It is pinned at 1 rather than waved through: this is the measurement saying
+# the anonymous zero-query claim does not hold for a content page, and the
+# assertion is what makes fixing it show up here as a failure to update.
+assert_query_budget 4 1
+report_ok "db_content_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+measure_request db_tag_warm "$DB_URL/tag/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_TAG_NAME"
+assert_query_budget 3 0
+report_ok "db_tag_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+measure_request db_alias_warm "$DB_URL/$SEED_ALIAS"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+# Same page as db_content_warm, reached through the route alias, so it carries
+# the same `entity_load` query. The alias itself costs nothing extra.
+assert_query_budget 4 1
+report_ok "db_alias_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 printf 'all openresty smoke scenarios passed
 '

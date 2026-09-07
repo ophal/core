@@ -52,6 +52,32 @@ local scenarios = {
       })
     end)
   end,
+  -- Reports the worker's cumulative query counters. It deliberately does not
+  -- bootstrap: a probe that connected to the database would add queries to the
+  -- number it exists to report. With `lua_code_cache on` and one worker this
+  -- reads the very table `db_query()` counts into, so the difference between
+  -- two probes is exactly what the requests between them cost.
+  db_stats = function()
+    local stats = require 'includes.database.stats'
+    local snapshot = stats.snapshot()
+    local lines = {
+      'SMOKE_DB_TOTAL=' .. tostring(snapshot.total),
+      'SMOKE_DB_NORMALIZED=' .. tostring(snapshot.normalized),
+      'SMOKE_DB_PROJECTION=' .. tostring(snapshot.projection),
+    }
+    local names = {}
+
+    for name in pairs(snapshot.tables) do
+      names[#names + 1] = name
+    end
+    table.sort(names)
+
+    for _, name in ipairs(names) do
+      lines[#lines + 1] = ('SMOKE_DB_TABLE_%s=%s'):format(name, snapshot.tables[name])
+    end
+
+    ngx.print(render(lines))
+  end,
   request_metadata = function()
     return run_bootstrap(function()
       write(render{

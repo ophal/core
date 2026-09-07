@@ -342,6 +342,73 @@ do
   end
 end
 
+io.write '\n-- migration driver resolution --\n'
+
+-- `settings.db.default` holds the connection table in the documented
+-- configuration, and that is the shape `db_connect()` reads. Resolving the
+-- driver from it used to index `settings.db` with that table and fail, so
+-- migrations could not run against a settings file written the documented way.
+do
+  local state = new_db_state()
+  local seen_driver
+
+  -- pcall rather than assert: resolving this shape used to raise inside the
+  -- error path itself, and a crash here would take the rest of the file with it
+  -- instead of naming what broke.
+  local ok, result = pcall(migrate.apply, {
+    db_query = db_query_stub(state),
+    settings = {
+      db = {
+        default = {
+          driver = 'SQLite3',
+          database = 'ophal.sqlite3',
+        },
+      },
+    },
+    module_names = {},
+    core_migrations = {
+      {
+        id = '001_driver',
+        up = function(ctx)
+          seen_driver = ctx.driver
+        end,
+      },
+    },
+  })
+
+  assert_eq('apply_documented_db_shape_ok', ok, true)
+  assert_eq('apply_documented_db_shape', ok and type(result) == 'table' and result.applied_count, 1)
+  assert_eq('apply_documented_db_driver', seen_driver, 'sqlite3')
+end
+
+-- The indirect shape, where `default` names another key, still resolves.
+do
+  local state = new_db_state()
+  local seen_driver
+
+  local ok = pcall(migrate.apply, {
+    db_query = db_query_stub(state),
+    settings = {
+      db = {
+        default = 'primary',
+        primary = {driver = 'PostgreSQL'},
+      },
+    },
+    module_names = {},
+    core_migrations = {
+      {
+        id = '001_driver',
+        up = function(ctx)
+          seen_driver = ctx.driver
+        end,
+      },
+    },
+  })
+
+  assert_eq('apply_indirect_db_shape_ok', ok, true)
+  assert_eq('apply_indirect_db_driver', seen_driver, 'postgresql')
+end
+
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then
   os.exit(1)

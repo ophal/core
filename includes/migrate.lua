@@ -56,14 +56,24 @@ local function driver_name(options)
     return nil, 'database settings are required for migrations'
   end
 
-  db_key = settings.db.default or 'default'
+  -- `settings.db.default` is the connection table itself in the documented
+  -- configuration, and that is the shape `db_connect()` reads. Accepting a
+  -- string there too keeps the indirection some settings files use, where
+  -- `default` names another key rather than holding the connection.
+  db_key = 'default'
   connection = settings.db[db_key]
+
+  if type(connection) == 'string' then
+    db_key = connection
+    connection = settings.db[db_key]
+  end
+
   if type(connection) ~= 'table' then
-    return nil, ('database connection settings missing for key: %s'):format(db_key)
+    return nil, ('database connection settings missing for key: %s'):format(tostring(db_key))
   end
 
   if type(connection.driver) ~= 'string' or connection.driver == '' then
-    return nil, ('database driver missing for key: %s'):format(db_key)
+    return nil, ('database driver missing for key: %s'):format(tostring(db_key))
   end
 
   return connection.driver:lower()

@@ -197,6 +197,112 @@ do
   package.loaded['includes.database.sqlite3'] = saved_sqlite_driver
 end
 
+io.write '\n-- connection lifecycle --\n'
+
+-- Bootstrap connects once per request, so a handle that is replaced rather than
+-- closed stays open until the collector runs. On SQLite that is not just a leak:
+-- a dropped connection whose last statement was never finalized keeps a read
+-- transaction open, which blocks writers and stops WAL from checkpointing.
+do
+  local saved_settings = settings
+  local saved_log_error = log_error
+  local saved_seawolf = seawolf
+  local saved_dbh = dbh
+  local saved_db_set_db_id = db_set_db_id
+  local saved_db_connect = db_connect
+  local saved_db_query = db_query
+  local saved_db_connection = db_connection
+  local saved_db_last_insert_id = db_last_insert_id
+  local saved_db_limit = db_limit
+  local saved_db_table_schema_sql = db_table_schema_sql
+  local saved_db_schema_cache_clear = db_schema_cache_clear
+  local saved_db_field = db_field
+  local saved_dbi = package.loaded.DBI
+  local saved_sqlite_driver = package.loaded['includes.database.sqlite3']
+  local connects, closes = 0, 0
+  local calls = {}
+
+  package.loaded.DBI = {
+    Connect = function()
+      connects = connects + 1
+      return {
+        id = connects,
+        autocommit = function()
+          calls[#calls + 1] = 'autocommit'
+        end,
+        ping = function() return true end,
+        close = function()
+          closes = closes + 1
+          return true
+        end,
+        prepare = function()
+          return {execute = function() return true end}
+        end,
+      }
+    end,
+  }
+
+  package.loaded['includes.database.sqlite3'] = {
+    last_insert_id = function() return 1 end,
+    limit = function() return ' LIMIT ?, ?' end,
+    table_schema_sql = function() return 'SELECT field_name FROM mock' end,
+    on_connect = function()
+      calls[#calls + 1] = 'on_connect'
+    end,
+  }
+
+  seawolf = {
+    contrib = {
+      seawolf_table = function()
+        return {}
+      end,
+    },
+  }
+  settings = {
+    db = {
+      default = {
+        driver = 'SQLite3',
+        database = ':memory:',
+        autocommit = true,
+      },
+    },
+  }
+  log_error = function() end
+
+  dofile('includes/database/init.lua')
+  db_set_db_id('default')
+
+  db_connect()
+  assert_eq('db_connect_first_opens_nothing_to_close', closes, 0)
+  assert_eq('db_connect_first_handle', db_connection('default').id, 1)
+
+  -- LuaDBI opens a transaction on connect, and SQLite refuses to change the
+  -- journal mode from inside one. Running the driver hook before autocommit is
+  -- set therefore lost the WAL pragma to a logged, non-fatal failure.
+  assert_eq('db_connect_autocommit_first', calls[1], 'autocommit')
+  assert_eq('db_connect_pragmas_second', calls[2], 'on_connect')
+
+  db_connect()
+  assert_eq('db_connect_closes_previous', closes, 1)
+  assert_eq('db_connect_replaces_handle', db_connection('default').id, 2)
+
+  settings = saved_settings
+  log_error = saved_log_error
+  seawolf = saved_seawolf
+  dbh = saved_dbh
+  db_set_db_id = saved_db_set_db_id
+  db_connect = saved_db_connect
+  db_query = saved_db_query
+  db_connection = saved_db_connection
+  db_last_insert_id = saved_db_last_insert_id
+  db_limit = saved_db_limit
+  db_table_schema_sql = saved_db_table_schema_sql
+  db_schema_cache_clear = saved_db_schema_cache_clear
+  db_field = saved_db_field
+  package.loaded.DBI = saved_dbi
+  package.loaded['includes.database.sqlite3'] = saved_sqlite_driver
+end
+
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 
 os.exit(fail_count == 0 and 0 or 1)

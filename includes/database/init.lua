@@ -32,6 +32,19 @@ function db_connect()
 
   if not connection.autocommit then connection.autocommit = true end
 
+  -- Bootstrap connects once per request, so without this the previous
+  -- request's handle is dropped rather than closed and stays open until the
+  -- collector happens to run. On SQLite that is not merely untidy: a dropped
+  -- connection whose last statement was never finalized still holds a read
+  -- transaction, and it blocks every later writer -- including the projection
+  -- rebuilds that Phase 3 made reachable from a GET.
+  if dbh[db_id] ~= nil then
+    pcall(function()
+      dbh[db_id]:close()
+    end)
+    dbh[db_id] = nil
+  end
+
   dbh[db_id], err = DBI.Connect(
     connection.driver,
     connection.database,
@@ -55,15 +68,22 @@ function db_connect()
 
   drivers[db_id] = require('includes.database.' .. connection.driver:lower())
 
+  -- commit the transaction
+  dbh[db_id]:autocommit(connection.autocommit)
+
   -- Per-driver connection setup. SQLite uses this to widen its locking
   -- defaults, which multi-worker OpenResty needs and the driver defaults do
   -- not give; drivers without connection state simply omit the hook.
+  --
+  -- This runs after autocommit is set, not before. LuaDBI opens a transaction
+  -- on connect, and SQLite refuses `PRAGMA journal_mode = WAL` from inside one
+  -- with "cannot change into wal mode from within a transaction". The pragma
+  -- helper logs that failure and continues, so running the hook first left the
+  -- database in rollback mode while reporting success -- the one mode the
+  -- Phase 3 rebuild-inside-a-GET path needs it not to be in.
   if type(drivers[db_id].on_connect) == 'function' then
     drivers[db_id].on_connect(connection)
   end
-
-  -- commit the transaction
-  dbh[db_id]:autocommit(connection.autocommit)
 
   -- check status of the connection
   return dbh[db_id]:ping()

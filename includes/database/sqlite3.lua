@@ -30,6 +30,23 @@ local function pragma(statement)
   return ok
 end
 
+-- The mode the file is already in, or nil if it cannot be read. Journal mode is
+-- a property of the database file rather than of the connection, so a database
+-- that has been switched to WAL once comes back as WAL for every later
+-- connection.
+local function current_journal_mode()
+  local ok, rs = pcall(db_query, 'PRAGMA journal_mode')
+  local row
+
+  if not ok or rs == nil then
+    return nil
+  end
+
+  row = rs:fetch()
+
+  return row and type(row[1]) == 'string' and row[1]:lower() or nil
+end
+
 -- Called once per connection, after the handle exists. Pragmas take no bind
 -- parameters, so both values are interpolated; both are validated here rather
 -- than passed through from settings as written.
@@ -53,7 +70,16 @@ function _M.on_connect(connection)
       journal_mode = 'WAL'
     end
 
-    pragma(('PRAGMA journal_mode = %s'):format(journal_mode))
+    -- Setting the journal mode takes an exclusive lock on the file, and takes
+    -- it even when the requested mode is the mode the file is already in. With
+    -- a connection opened per request that turned every reader into a writer
+    -- for the length of one pragma: the second connection to run it while any
+    -- other held an open cursor failed with "database is locked", and so did
+    -- the statement prepared after it. Reading the mode first makes the common
+    -- case -- already WAL -- a shared-lock read that cannot collide.
+    if current_journal_mode() ~= journal_mode:lower() then
+      pragma(('PRAGMA journal_mode = %s'):format(journal_mode))
+    end
   end
 end
 

@@ -37,6 +37,7 @@ local function usage()
     '  install check            Verify install dependencies and local config state',
     '  install init [DIR]       Generate settings.lua and vault.lua in DIR',
     '  migrate [status|apply]   Apply or inspect registered database migrations',
+    '  jobs status              Report how much deferred work is waiting',
     '  module enable NAME       Enable a module via settings/modules.lua',
     '  module disable NAME      Disable a module via settings/modules.lua',
     '  help                     Show this help',
@@ -435,6 +436,41 @@ local function run_migrate_apply(options)
   })
 end
 
+--[[ How many jobs are waiting.
+
+  Read-only on purpose: the runner has to be in-worker. `bootstrap()` hard-errors
+  without `ngx`, and more to the point `projection.version()` answers from the
+  shared zone before it consults SQL, so a process with no zone to publish into
+  would rebuild invisibly and leave every worker still serving the old version.
+
+  What this answers is the question the deferred queue creates for an operator:
+  is cron running? A number that only grows means it is not.
+
+  It reuses `prepare_migrate_runtime()` because that is where connecting to the
+  configured database from outside a request already lives, migrations being
+  what needed it first.
+]]
+local function run_jobs_status(options)
+  local jobs
+
+  if type(options.jobs_status) == 'function' then
+    return options.jobs_status()
+  end
+
+  local runtime, err = prepare_migrate_runtime(options)
+  if not runtime then
+    return nil, err
+  end
+
+  local ok, result = pcall(require, 'includes.jobs')
+  if not ok then
+    return nil, result
+  end
+  jobs = result
+
+  return jobs.pending_count()
+end
+
 local function module_exists(name, options)
   if type(options.module_exists) == 'function' then
     return options.module_exists(name)
@@ -689,6 +725,23 @@ function M.run(argv, options)
 
     output(stderr, 'Usage: ophal migrate [status|apply]\n')
     return EXIT_ERROR
+  end
+
+  if command == 'jobs' then
+    if args[2] ~= 'status' then
+      output(stderr, 'Usage: ophal jobs status\n')
+      return EXIT_ERROR
+    end
+
+    local pending, err = run_jobs_status(options)
+
+    if pending == nil then
+      output(stderr, ('jobs status failed: %s\n'):format(tostring(err)))
+      return EXIT_ERROR
+    end
+
+    output(stdout, ('Jobs waiting: %s\n'):format(tostring(pending)))
+    return EXIT_OK
   end
 
   if command == 'module' then

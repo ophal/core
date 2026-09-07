@@ -89,6 +89,7 @@ do
 
   assert_eq('help_exit_code', code, 0)
   assert_match('help_usage', stdout, 'Usage: ophal COMMAND')
+  assert_match('help_lists_jobs', stdout, 'jobs status')
   assert_eq('help_stderr_empty', stderr, '')
 end
 
@@ -229,6 +230,50 @@ do
   assert_eq('install_init_failure_exit_code', code, 1)
   assert_eq('install_init_failure_stdout_empty', stdout, '')
   assert_match('install_init_failure_stderr', stderr, 'install init failed: settings file already exists')
+end
+
+io.write '\n-- jobs status --\n'
+
+-- The command an operator runs to answer the question the deferred queue
+-- creates: is cron running? A number that only grows means it is not.
+do
+  local code, stdout, stderr = run({'jobs', 'status'}, {
+    jobs_status = function() return 3 end,
+  })
+
+  assert_eq('jobs_status_exit_code', code, 0)
+  assert_match('jobs_status_stdout', stdout, 'Jobs waiting: 3')
+  assert_eq('jobs_status_stderr_empty', stderr, '')
+end
+
+-- An empty queue is a number, not an absence. `pending_count()` returns 0 on a
+-- site with no `ophal_jobs` table too, which is the same answer for the same
+-- reason: nothing is waiting.
+do
+  local code, stdout = run({'jobs', 'status'}, {
+    jobs_status = function() return 0 end,
+  })
+
+  assert_eq('jobs_status_empty_exit_code', code, 0)
+  assert_match('jobs_status_empty_stdout', stdout, 'Jobs waiting: 0')
+end
+
+do
+  local code, stdout, stderr = run({'jobs', 'status'}, {
+    jobs_status = function() return nil, 'database settings are required for migrations' end,
+  })
+
+  assert_eq('jobs_status_failure_exit_code', code, 1)
+  assert_eq('jobs_status_failure_stdout_empty', stdout, '')
+  assert_match('jobs_status_failure_stderr', stderr, 'jobs status failed: database settings are required')
+end
+
+do
+  local code, stdout, stderr = run({'jobs'}, {})
+
+  assert_eq('jobs_usage_exit_code', code, 1)
+  assert_eq('jobs_usage_stdout_empty', stdout, '')
+  assert_match('jobs_usage_stderr', stderr, 'Usage: ophal jobs status')
 end
 
 do

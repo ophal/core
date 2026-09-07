@@ -170,6 +170,10 @@ local function content_projection_rebuild_all()
   local rs, err = db_query('SELECT * FROM content')
   local row
   local ok
+  -- One version for the whole rebuild. Letting each write fall back to its own
+  -- `time()` can stamp the source a second ahead of the projection, which reads
+  -- as stale and rebuilds again on the next request.
+  local updated_at = time()
 
   ok, err = projection_exec('DELETE FROM content_public')
   if not ok then
@@ -181,13 +185,20 @@ local function content_projection_rebuild_all()
   end
 
   for row in rs:rows(true) do
-    ok, err = content_projection_write(row)
+    ok, err = content_projection_write(row, updated_at)
     if not ok then
       error(err)
     end
   end
 
-  projection_touch(CONTENT_PUBLIC_KEY)
+  -- The rebuild has just read `content`, so it records a source version too, the
+  -- way `route_load_aliases_legacy()` does. A site installed from a dump or by
+  -- the installer never writes `content_source` through the entity hooks, and an
+  -- absent version row is re-queried every time the miss cache lapses: once
+  -- every `projection_version_miss_ttl` seconds, per worker, on every anonymous
+  -- page.
+  content_projection_mark_source(updated_at)
+  projection_touch(CONTENT_PUBLIC_KEY, updated_at)
   return true
 end
 

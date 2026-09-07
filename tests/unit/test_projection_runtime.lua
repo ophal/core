@@ -809,6 +809,11 @@ do
 
   assert_eq('content_projection_stale_rebuilt_title', entity.title, 'Fresh legacy row')
   assert_eq('content_projection_stale_rebuilt_from_source', query_count(state, '^SELECT %* FROM content$'), 1)
+  -- The rebuild records the source version it just read, and stamps it with the
+  -- same value as the projection. An absent or trailing `content_source` row is
+  -- re-read every time the miss cache lapses, on every anonymous page.
+  assert_eq('content_projection_rebuild_marks_source',
+    state.versions.content_source, state.versions.content_public)
 end
 
 io.write '\n-- tag projections --\n'
@@ -869,6 +874,11 @@ do
   assert_eq('tag_projection_fallback_rebuild_rows', #state.tag_listing_index, 1)
   assert_eq('tag_projection_fallback_touched', state.versions.tag_listing_index ~= nil, true)
   assert_eq('tag_projection_fallback_title', state.tag_listing_index[1].title, 'Projected tagged content')
+  -- A rebuild records the source version it just read. An absent version row is
+  -- re-queried every time the miss cache lapses, so a site whose tags never went
+  -- through the entity hooks would pay a `projection_version` SELECT forever.
+  assert_eq('tag_projection_fallback_marks_source',
+    state.versions.tag_listing_source, state.versions.tag_listing_index)
 end
 
 do

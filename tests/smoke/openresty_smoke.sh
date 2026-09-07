@@ -1010,6 +1010,14 @@ report_ok db_alias_cold
 # Warm pass. Every assertion below is on a whole request, so a page that
 # renders nothing would also report zero queries -- the content assertions are
 # what stop the budget from being satisfied by an empty response.
+#
+# These numbers do not depend on how long the warm pass takes to reach. They
+# once did: a source key with no `projection_version` row was re-read every time
+# the negative cache lapsed, so a gap longer than
+# `projection_version_miss_ttl` between the cold and warm passes bought an extra
+# query. The rebuilds now record the source version they read, so there is no
+# absent key left to re-read. Setting that TTL to 0 in the profile settings
+# above is the way to check that claim again after changing a projection.
 measure_request db_frontpage_warm "$DB_URL/"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'

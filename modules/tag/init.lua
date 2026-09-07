@@ -182,6 +182,11 @@ end
 
 local function tag_projection_rebuild(tag_id, version)
   local rs
+  -- Resolved once so the source and the index are stamped with the same
+  -- version. Letting each fall back to its own `time()` can leave the source
+  -- one second ahead of the index, which reads as a stale projection and
+  -- rebuilds again on the next request.
+  local updated_at = tonumber(version) or time()
 
   if not tag_projection_supported() then
     return false
@@ -193,12 +198,20 @@ local function tag_projection_rebuild(tag_id, version)
 
   rs = tag_projection_source_rows(tag_id)
   for row in rs:rows(true) do
-    if not tag_projection_insert(row, version) then
+    if not tag_projection_insert(row, updated_at) then
       return false
     end
   end
 
-  projection_touch(TAG_LISTING_KEY, version)
+  -- The rebuild has just read the source, so it records a source version too,
+  -- the way `route_load_aliases_legacy()` does. Without it a site whose tags
+  -- arrived from an installer or a dump rather than through the entity hooks
+  -- never gets a `tag_listing_source` row at all, and an absent version row is
+  -- re-queried every time the miss cache lapses -- once every
+  -- `projection_version_miss_ttl` seconds, per worker, on every page that loads
+  -- a taggable entity.
+  tag_projection_mark_source(updated_at)
+  projection_touch(TAG_LISTING_KEY, updated_at)
   return true
 end
 

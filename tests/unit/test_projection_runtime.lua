@@ -1813,12 +1813,81 @@ ON CONFLICT(projection_key) DO UPDATE SET
   )
 end
 
+-- The queue is neither a read model nor site data. Deferral puts an enqueue on
+-- the read path on purpose, so that write has to be countable without moving
+-- the number Phase 4 holds at zero -- and without disappearing into the number
+-- that is allowed to be non-zero on a warm page.
+do
+  local function bucket_of(sql)
+    local snapshot
+
+    db_stats.reset()
+    settings = {performance = {query_stats = true}}
+    db_stats.record(sql)
+    snapshot = db_stats.snapshot()
+
+    if snapshot.normalized > 0 then
+      return 'normalized'
+    elseif snapshot.infrastructure > 0 then
+      return 'infrastructure'
+    elseif snapshot.projection > 0 then
+      return 'projection'
+    end
+
+    return 'none'
+  end
+
+  assert_eq(
+    'stats_bucket_jobs_enqueue',
+    bucket_of([[
+INSERT INTO ophal_jobs(kind, dedup_key, active_key) VALUES(?, ?, ?)
+ON CONFLICT(active_key) DO NOTHING]]),
+    'infrastructure'
+  )
+
+  assert_eq(
+    'stats_bucket_jobs_claim',
+    bucket_of('UPDATE ophal_jobs SET status = ? WHERE id IN (SELECT id FROM ophal_jobs)'),
+    'infrastructure'
+  )
+
+  assert_eq(
+    'stats_bucket_migrations',
+    bucket_of('SELECT id FROM ophal_migrations'),
+    'infrastructure'
+  )
+
+  assert_eq(
+    'stats_bucket_projection_still_projection',
+    bucket_of('SELECT * FROM content_public WHERE id = ?'),
+    'projection'
+  )
+
+  assert_eq(
+    'stats_bucket_normalized_still_normalized',
+    bucket_of('SELECT * FROM content WHERE id = ?'),
+    'normalized'
+  )
+
+  -- Ordering, not addition. A rebuild reads source data and writes the queue in
+  -- one statement nowhere today, but if it ever does, the read is what the
+  -- budget is about.
+  assert_eq(
+    'stats_bucket_mixed_prefers_normalized',
+    bucket_of('INSERT INTO ophal_jobs(kind) SELECT title FROM content'),
+    'normalized'
+  )
+
+  db_stats.reset()
+  settings = {}
+end
+
 local function first_normalized_since(state, mark)
   for index = mark + 1, #state.queries do
     local sql = state.queries[index].sql
 
     for _, name in ipairs(db_stats.tables(sql)) do
-      if not db_stats.is_projection_table(name) then
+      if not db_stats.is_projection_table(name) and not db_stats.is_infrastructure_table(name) then
         return ('%s in %q'):format(name, sql)
       end
     end

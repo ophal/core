@@ -64,6 +64,7 @@ local scenarios = {
       'SMOKE_DB_TOTAL=' .. tostring(snapshot.total),
       'SMOKE_DB_NORMALIZED=' .. tostring(snapshot.normalized),
       'SMOKE_DB_PROJECTION=' .. tostring(snapshot.projection),
+      'SMOKE_DB_INFRASTRUCTURE=' .. tostring(snapshot.infrastructure),
     }
     local names = {}
 

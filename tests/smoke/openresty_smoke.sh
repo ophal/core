@@ -944,8 +944,9 @@ read_db_stats() {
   assert_regex '^HTTP/1\.[01] 200'
   DB_STATS_TOTAL=$(extract_marker 'SMOKE_DB_TOTAL')
   DB_STATS_NORMALIZED=$(extract_marker 'SMOKE_DB_NORMALIZED')
+  DB_STATS_INFRASTRUCTURE=$(extract_marker 'SMOKE_DB_INFRASTRUCTURE')
   DB_STATS_TABLES=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/^SMOKE_DB_TABLE_//p' | tr '\r' ' ' | tr '\n' ' ')
-  [[ -n "$DB_STATS_TOTAL" && -n "$DB_STATS_NORMALIZED" ]] ||
+  [[ -n "$DB_STATS_TOTAL" && -n "$DB_STATS_NORMALIZED" && -n "$DB_STATS_INFRASTRUCTURE" ]] ||
     fail 'query stats probe reported nothing'
   LAST_SCENARIO=$saved_scenario
 }
@@ -956,11 +957,13 @@ read_db_stats() {
 measure_request() {
   local name=$1
   shift
-  local before_total before_normalized measured_output measured_status
+  local before_total before_normalized before_infrastructure
+  local measured_output measured_status
 
   read_db_stats
   before_total=$DB_STATS_TOTAL
   before_normalized=$DB_STATS_NORMALIZED
+  before_infrastructure=$DB_STATS_INFRASTRUCTURE
   MEASURED_TABLES_BEFORE=$DB_STATS_TABLES
 
   run_request "$name" "$@"
@@ -970,6 +973,7 @@ measure_request() {
   read_db_stats
   MEASURED_TOTAL=$((DB_STATS_TOTAL - before_total))
   MEASURED_NORMALIZED=$((DB_STATS_NORMALIZED - before_normalized))
+  MEASURED_INFRASTRUCTURE=$((DB_STATS_INFRASTRUCTURE - before_infrastructure))
   MEASURED_TABLES=$DB_STATS_TABLES
 
   LAST_OUTPUT=$measured_output
@@ -977,11 +981,17 @@ measure_request() {
   LAST_SCENARIO=$name
 }
 
+# The third argument is optional and defaults to zero, because no measured path
+# should touch the queue or the migration ledger unless it says so. A scenario
+# that expects an enqueue names the number; every other scenario asserts the
+# absence of one by saying nothing.
 assert_query_budget() {
-  local expected_total=$1 expected_normalized=$2
+  local expected_total=$1 expected_normalized=$2 expected_infrastructure=${3:-0}
 
   [[ "$MEASURED_NORMALIZED" -eq "$expected_normalized" ]] ||
     fail "expected $expected_normalized normalized queries, measured $MEASURED_NORMALIZED (tables so far: $MEASURED_TABLES)"
+  [[ "$MEASURED_INFRASTRUCTURE" -eq "$expected_infrastructure" ]] ||
+    fail "expected $expected_infrastructure infrastructure queries, measured $MEASURED_INFRASTRUCTURE (tables so far: $MEASURED_TABLES)"
   [[ "$MEASURED_TOTAL" -eq "$expected_total" ]] ||
     fail "expected $expected_total queries, measured $MEASURED_TOTAL (tables so far: $MEASURED_TABLES)"
 }

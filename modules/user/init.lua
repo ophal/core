@@ -1,12 +1,12 @@
 local seawolf = require 'seawolf'.__build('other', 'variable', 'contrib')
 local json, require, tonumber = require 'dkjson', require, tonumber
-local print, exit, _SESSION, config = print, exit, env._SESSION, settings.user or {}
+local print, exit, config = print, exit, settings.user or {}
 local error, empty, header, l = error, seawolf.variable.empty, header, l
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
 local type, env, uuid, time, go_to, pairs, tostring = type, env, uuid, os.time, go_to, pairs, tostring
 local session_destroy, module_invoke_all = session_destroy, module_invoke_all
 local request_get_body, ophal, pcall = request_get_body, ophal, pcall
-local route_execute_callback, _GET = route_execute_callback, _GET
+local route_execute_callback = route_execute_callback
 local _SERVER = _SERVER
 local xtable = seawolf.contrib.seawolf_table
 local settings, floor = settings, math.floor
@@ -15,6 +15,34 @@ local settings, floor = settings, math.floor
 -- below replaces this file's environment with the module table, so a bare
 -- global call would not resolve once the module is open.
 local secure_equals = secure_equals
+
+--[[ This request's session and query arguments.
+
+  Read through `env` on every call rather than captured as locals at load time.
+  `ophal_request_reset()` assigns a *new* table to each of them for every
+  request -- `_GET` directly, `_SESSION` by way of `session_start()` -- so a
+  capture taken when this file loaded keeps pointing at whatever the worker's
+  first request carried.
+
+  For `_SESSION` that was an authentication defect, not a stale-data one. This
+  module is where a sign-in is recorded (`auth_service`) and where every later
+  request is judged (`is_logged_in`, `current`, `access`), so a frozen table
+  made all of them agree with each other and with nobody's actual session: one
+  visitor signing in was read back as signed in by every later visitor the same
+  worker served, `logout_page()` cleared a different table than the one being
+  consulted, and the account never reached the session file at all. Invisible
+  under `lua_code_cache off`, which reloads this file every request, and
+  permanent under the `lua_code_cache on` that `nginx.ophal.conf` ships.
+
+  `db_anonymous_whoami` in the smoke suite is the assertion that says so.
+]]
+local function session()
+  return env._SESSION or {}
+end
+
+local function query_args()
+  return env._GET or {}
+end
 
 module 'ophal.modules.user'
 
@@ -268,13 +296,15 @@ function init()
   db_last_insert_id = env.db_last_insert_id
 
   -- Set anonymous user ID
-  if nil == _SESSION.user_id then
-    _SESSION.user_id = 0
+  local current_session = session()
+
+  if nil == current_session.user_id then
+    current_session.user_id = 0
   end
 end
 
 function is_logged_in()
-  return not empty(_SESSION.user_id)
+  return not empty(session().user_id)
 end
 
 function is_anonymous()
@@ -552,7 +582,7 @@ function cache_clear()
 end
 
 function access(perm, user_id)
-  if nil == user_id then user_id = _SESSION.user_id end
+  if nil == user_id then user_id = session().user_id end
   local account = load(user_id)
 
   local permissions = get_user_permissions(user_id)
@@ -675,10 +705,12 @@ function auth_service()
         end
 
         module_invoke_all('user_login', account, output)
-        _SESSION.user_id = account.id
+        session().user_id = account.id
 
-        if _GET.redirect and redirect_is_same_host(_GET.redirect) then
-          output.redirect = _GET.redirect
+        local redirect_to = query_args().redirect
+
+        if redirect_to and redirect_is_same_host(redirect_to) then
+          output.redirect = redirect_to
         end
       end
     end
@@ -690,7 +722,7 @@ end
 --[[ Return the current user from _SESSION.
 ]]
 function current()
-  return load(_SESSION.user_id)
+  return load(session().user_id)
 end
 
 --[[ Render author.

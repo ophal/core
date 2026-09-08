@@ -72,14 +72,20 @@ local function load_user_module()
     },
   }
 
+  -- `env` is the authority for both, the way bootstrap builds it: the module
+  -- reads `env._SESSION` and `env._GET` at call time rather than capturing
+  -- them, because the runtime rebinds both per request. The bare globals are
+  -- kept pointing at the same tables so the assertions below can still read
+  -- what the service wrote.
   env = {
     _SESSION = {},
+    _GET = {},
     db_query = mock_db_query,
     db_field = function(_, field) return field end,
     db_last_insert_id = function() return 1 end,
   }
   _SESSION = env._SESSION
-  _GET = {}
+  _GET = env._GET
   _SERVER = function(key)
     if key == 'HTTP_HOST' then
       return request_host

@@ -13,7 +13,7 @@ local tinsert, tconcat, pairs, ophal = table.insert, table.concat, pairs, ophal
 local add_js, route_arg, trim, header = add_js, route_arg, seawolf.text.trim, header
 local page_set_title, json, time = page_set_title, require 'dkjson', os.time
 local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
-local _SESSION, tonumber, _GET, ceil = _SESSION, tonumber, _GET, math.ceil
+local tonumber, ceil = tonumber, math.ceil
 local floor, ipairs = math.floor, ipairs
 local pager, print_t, request_get_body = pager, print_t, request_get_body
 local pager_current_page = pager_current_page
@@ -897,7 +897,7 @@ function _M.entity_page()
 
     -- Calculate current page. Clamping happens here, after the count, because
     -- `current_page` becomes part of the payload cache key below.
-    current_page = pager_current_page(_GET.page, num_pages)
+    current_page = pager_current_page((env._GET or {}).page, num_pages)
 
     if count > 0 then
       if use_projection then

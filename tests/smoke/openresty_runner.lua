@@ -265,6 +265,27 @@ local scenarios = {
       write(render{'SMOKE_CSRF_TOKEN=' .. (csrf_token() or '')})
     end)
   end,
+  --[[ Who does this request think it is, asked two ways.
+
+    `modules/user` answers from whatever `_SESSION` it is holding; the second
+    line reads the jailed environment at call time, which is the table
+    `session_start()` built for *this* request. On a correct runtime the two
+    agree. They diverge when a module has captured `_SESSION` as a load-time
+    local, because `module()` replaces that file's environment and the capture
+    then freezes to whichever request happened to load the module.
+  ]]
+  whoami = function()
+    return run_bootstrap(function()
+      local user = ophal.modules.user
+      local live = env._SESSION or {}
+
+      write(render{
+        'SMOKE_LOGGED_IN=' .. tostring(user.is_logged_in() and true or false),
+        'SMOKE_MODULE_USER_ID=' .. tostring(user.current().id or ''),
+        'SMOKE_SESSION_USER_ID=' .. tostring(live.user_id or ''),
+      })
+    end)
+  end,
   file_upload_chunk = function()
     return run_bootstrap(function()
       local body = request_get_body() or ''

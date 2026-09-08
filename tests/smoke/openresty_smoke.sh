@@ -1316,6 +1316,38 @@ author_csrf=$(extract_marker 'SMOKE_CSRF_TOKEN')
 [[ -n "$author_csrf" ]] || fail 'signed-in session reported no CSRF token'
 report_ok db_author_csrf
 
+# Two clients, one persistent worker. This is the assertion that says a session
+# belongs to the request that carries it, and it exists because nothing else in
+# the suite would notice if it did not: a leaked sign-in makes every other
+# scenario more permissive, never less.
+#
+# Both lines of the whoami probe matter. `SMOKE_MODULE_USER_ID` is what
+# `modules/user` believes, and `SMOKE_SESSION_USER_ID` is what this request's
+# own `_SESSION` holds. A module that captured `_SESSION` as a load-time local
+# answers the first from the worker's first request forever, so the two
+# disagree and the anonymous client is served as somebody else.
+run_request db_author_whoami -c "$author_cookie" -b "$author_cookie" \
+  "$DB_URL/__smoke__?scenario=whoami"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_LOGGED_IN=true'
+assert_contains 'SMOKE_MODULE_USER_ID=2'
+assert_contains 'SMOKE_SESSION_USER_ID=2'
+report_ok db_author_whoami
+
+# No cookie jar at all: a visitor who has never been here. Served by the same
+# worker that just answered the signed-in request above.
+run_request db_anonymous_whoami "$DB_URL/__smoke__?scenario=whoami"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_LOGGED_IN=false'
+# Anonymous is user id 0, not a missing id: `load_by_field()` answers id 0 with
+# a synthetic account and `init()` seeds `_SESSION.user_id = 0`. Asserting the
+# zero rather than an absence is what makes a leaked `user_id` of 2 visible.
+assert_contains 'SMOKE_MODULE_USER_ID=0'
+assert_contains 'SMOKE_SESSION_USER_ID=0'
+report_ok db_anonymous_whoami
+
 # Warms this account's caches. An authenticated request pays four permission
 # queries the first time a worker sees the user id; that cost belongs to the
 # session, not to the page, so it is spent here rather than inside a budget.

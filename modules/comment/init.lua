@@ -4,7 +4,7 @@ local add_js, theme, header, arg, env, l = add_js, theme, header, route_arg, env
 local modules, tonumber, empty = ophal.modules, tonumber, seawolf.variable.empty
 local request_get_body, json, type = request_get_body, require 'dkjson', type
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
-local _SESSION, time, module_invoke_all = _SESSION, os.time, module_invoke_all
+local time, module_invoke_all = os.time, module_invoke_all
 local pairs, render_t, url = pairs, render_t, url
 
 local debug = debug

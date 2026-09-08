@@ -4,7 +4,7 @@ local _M = {
 ophal.modules[_M.entity_type] = _M
 
 local config = settings.content or {}
-local env, theme, _GET, tonumber, ceil = env, theme, _GET, tonumber, math.ceil
+local env, theme, tonumber, ceil = env, theme, tonumber, math.ceil
 local tinsert, tconcat, pairs, debug = table.insert, table.concat, pairs, debug
 local ipairs = ipairs
 local pager, l, page_set_title, arg = pager, l, page_set_title, route_arg
@@ -599,7 +599,7 @@ function frontpage()
 
   -- Calculate current page. Clamping happens here, after the count, because
   -- `current_page` becomes part of the payload cache key below.
-  current_page = pager_current_page(_GET.page, num_pages)
+  current_page = pager_current_page((env._GET or {}).page, num_pages)
 
   -- Render list
   if use_projection then

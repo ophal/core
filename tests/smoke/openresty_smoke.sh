@@ -470,10 +470,11 @@ return function(settings, vault)
   -- The media path is measured here rather than on the module-less instance
   -- because that one runs with `lua_code_cache off`, which resets
   -- `package.loaded` between requests -- the counters would be zero every time
-  -- they were read. `filedb_storage` stays off until the `file` table exists in
-  -- the seeded schema.
+  -- they were read. `filedb_storage` is on so the registration and the deferred
+  -- type inspection execute against a real database and a real queue; the
+  -- module-less profile leaves it off and covers the storage-only path.
   settings.file = {
-    filedb_storage = false,
+    filedb_storage = true,
     bytes_per_chunk = 8,
   }
 
@@ -1726,7 +1727,43 @@ assert_contains 'SMOKE_MERGED_FILE=AAAAAAAABBB'
 # Zero is the assertion that matters here. Any reintroduction of a read-back
 # pass shows up in `read` and `bytes` immediately, whatever shape it takes.
 assert_fs_budget 0 0 0 1 0 0
+media_file_id=$(extract_marker 'SMOKE_MERGE_ID')
+[[ -n "$media_file_id" ]] || fail 'finalize registered no file row'
 report_ok "db_media_merge (open=$FS_OPEN read=$FS_READ write=$FS_WRITE bytes=$FS_BYTES)"
+
+# The row is written by finalize; identifying the file is not. Reading the file
+# to work out its type is the unbounded half, and it is the half that moves --
+# the same trade the projection rebuilds make.
+run_request db_media_mime_deferred "$DB_URL/__smoke__?scenario=file_row&id=$media_file_id"
+assert_status_zero
+assert_contains "SMOKE_FILE_NAME=$media_name"
+assert_contains 'SMOKE_FILE_SIZE=11'
+report_ok db_media_mime_deferred
+
+# The work is on the queue and has not run.
+run_request db_media_job_queued "$DB_URL/__smoke__?scenario=jobs_status&kind=file_post_process"
+assert_status_zero
+assert_contains 'SMOKE_JOBS_STATUS=pending'
+report_ok db_media_job_queued
+
+run_request db_media_cron "$DB_URL/cron?token=smoke-cron-token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_media_cron
+
+# And the drain takes it. This fails if the job is never enqueued, if the
+# handler was never registered -- `module_invoke_all` would leave the kind
+# unknown and the job would sit there -- or if the handler raises.
+#
+# What it deliberately does not assert is the type itself. libmagic is an
+# optional binding and is not present in this workspace, so `filemime` stays
+# null here and the identification is covered by a unit test with a stubbed
+# `finfo` instead. Same treatment as the PostgreSQL claim clause: the part that
+# cannot execute here is named rather than pretended over.
+run_request db_media_job_drained "$DB_URL/__smoke__?scenario=jobs_status&kind=file_post_process"
+assert_status_zero
+assert_contains 'SMOKE_JOBS_STATUS=done'
+report_ok db_media_job_drained
 
 # A partial upload must not be sitting in the directory files are served from.
 # `nginx.ophal.conf` serves several extensions straight off the document root

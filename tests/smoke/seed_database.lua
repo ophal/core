@@ -105,6 +105,23 @@ local schema = {
 )]],
   [[CREATE INDEX idx_route_alias_alias_language_id ON route_alias (alias, language, id)]],
   [[CREATE INDEX idx_route_alias_source_language_id ON route_alias (source, language, id)]],
+
+  -- File storage. These are the columns `modules/file` actually reads and
+  -- writes, which are not the ones INSTALL.md documents for this table. The
+  -- code is what the smoke suite has to agree with, because the code is what
+  -- runs.
+  [[CREATE TABLE file(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id UNSIGNED BIG INT,
+  filename VARCHAR(255),
+  filepath VARCHAR(255),
+  filemime VARCHAR(255),
+  filesize UNSIGNED BIG INT,
+  status BOOLEAN,
+  timestamp UNSIGNED BIG INT
+)]],
+  [[CREATE INDEX idx_file_timestamp ON file (timestamp DESC)]],
+  [[CREATE INDEX idx_file_user ON file (user_id)]],
 }
 
 -- Every seeded string a smoke assertion greps for is spelled once, here, so a

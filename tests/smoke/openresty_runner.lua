@@ -113,6 +113,20 @@ local scenarios = {
       })
     end)
   end,
+  -- Reads one `file` row back. `filemime` is the field that matters: finalize
+  -- leaves it null and the queue fills it in, so this is what tells the two
+  -- halves apart from outside.
+  file_row = function()
+    return run_bootstrap(function()
+      local entity = ophal.modules.file.load(query_arg('id'))
+
+      write(render{
+        'SMOKE_FILE_NAME=' .. tostring(entity and entity.filename or ''),
+        'SMOKE_FILE_MIME=' .. tostring(entity and entity.filemime or ''),
+        'SMOKE_FILE_SIZE=' .. tostring(entity and entity.filesize or ''),
+      })
+    end)
+  end,
   stale_projection = function()
     return run_bootstrap(function()
       local projection = require 'includes.projection'
@@ -155,9 +169,10 @@ local scenarios = {
   jobs_status = function()
     return run_bootstrap(function()
       local jobs = require 'includes.jobs'
+      local kind = query_arg('kind') or 'smoke_probe'
       local rs = db_query(
         'SELECT status, last_error FROM ophal_jobs WHERE kind = ? ORDER BY id',
-        'smoke_probe'
+        kind
       )
       local row = rs and rs:fetch()
 
@@ -276,6 +291,7 @@ local scenarios = {
       write(render{
         'SMOKE_MERGE_SUCCESS=' .. tostring(output and output.success == true),
         'SMOKE_MERGE_ERROR=' .. tostring(output and output.error or ''),
+        'SMOKE_MERGE_ID=' .. tostring(output and output.id or ''),
         'SMOKE_MERGED_FILE=' .. stored,
       })
     end)

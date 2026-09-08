@@ -3,7 +3,7 @@ local config, theme, header = settings.file or {}, theme, header
 local tinsert, tconcat, lfs, env = table.insert, table.concat, lfs, env
 local is_dir, is_file, add_js = seawolf.fs.is_dir, seawolf.fs.is_file, add_js
 local temp_dir, empty = seawolf.behaviour.temp_dir, seawolf.variable.empty
-local request_get_body, io_open, tonumber = request_get_body, io.open, tonumber
+local request_get_body, io_open, tonumber, type = request_get_body, io.open, tonumber, type
 local json, files_path = require 'dkjson', settings.site.files_path
 local os_remove, os_rename, modules, time = os.remove, os.rename, ophal.modules, os.time
 local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
@@ -20,6 +20,7 @@ local debug = debug
 -- `module()` below would put the local out of reach of nothing -- the require
 -- result is an upvalue, which survives the environment swap.
 local fs_stats = require 'includes.fs.stats'
+local jobs = require 'includes.jobs'
 
 module 'ophal.modules.file'
 
@@ -320,23 +321,29 @@ function merge_service()
     return output
   end
 
-  -- Register the file into the database
+  -- Register the file into the database.
+  --
+  -- The row is written here and the type inspection is not. The INSERT is one
+  -- bounded statement and the client needs the id it returns -- `theme.file`
+  -- renders it into a hidden field, so deferring it would break the upload
+  -- form. Reading the file to identify it is the unbounded half: libmagic opens
+  -- the finished file and reads it, on the request, after the bytes have
+  -- already been written once. That is what moves to the queue.
   if config.filedb_storage then
-    local mime = finfo.open(finfo.MIME_TYPE, finfo.NO_CHECK_COMPRESS)
-    local rc = mime:load()
-    if rc ~= 0 then
-      output.error = mime:error()
+    file.status = true
+    file.timestamp = time()
+    file.filesize = staged_size
+
+    data, err = create(file)
+    if empty(err) then
+      output.id = data
+      -- `filemime` is null until the queue is drained. Nothing enforces on it,
+      -- and a null there is honest: the type is not known yet. A site with no
+      -- cron gets a file it can serve and a column it never fills, which is the
+      -- same trade every other deferred consequence makes.
+      jobs.enqueue('file_post_process', ('file:%s'):format(data), {id = data})
     else
-      file.filemime = mime:file(file.filepath)
-      file.status = true
-      file.timestamp = time()
-      file.filesize = staged_size
-      data, err = create(file)
-      if empty(err) then
-        output.id = data
-      else
-        output.error = err
-      end
+      output.error = err
     end
   end
 
@@ -436,6 +443,58 @@ function delete(entity)
 
   return rs, err
 end
+
+--[[ Identify an uploaded file's type, off the request that uploaded it.
+
+  Registered at load time, the way `modules/system` registers
+  `projection_rebuild`, so the drain can find it from the kind alone.
+
+  The two "nothing to do" cases return true, not false. `run_pending()` reads a
+  false return as "handler declined the job" and sends it back to the queue with
+  a backoff, so false is for work that should be tried again. A file that is no
+  longer there and a host with no libmagic are both settled answers -- retrying
+  either one four more times before giving up achieves nothing.
+]]
+jobs.register('file_post_process', function(payload)
+  local id = (payload or {}).id
+  local entity = id and load(id)
+
+  -- Deleted between finalize and the drain. An ordinary race, and settled.
+  if empty(entity) or empty(entity.filepath) then
+    return true
+  end
+
+  -- libmagic is an optional binding, not a dependency. Where it is absent there
+  -- is no type to record and nothing to retry, so this completes rather than
+  -- failing: a queue that kept retrying an identification the host cannot
+  -- perform would burn `max_attempts` on every upload and leave a failed row
+  -- behind for each one.
+  --
+  -- Before this ran on the queue it ran inline, which meant a host without
+  -- libmagic raised from inside `file/merge` and the upload failed outright
+  -- even though the bytes were safely on disk. Deferring it is what turns a
+  -- missing optional binding into a null column.
+  if type(finfo) ~= 'table' then
+    return true
+  end
+
+  local mime = finfo.open(finfo.MIME_TYPE, finfo.NO_CHECK_COMPRESS)
+
+  if mime:load() ~= 0 then
+    return nil, mime:error()
+  end
+
+  entity.filemime = mime:file(entity.filepath)
+  fs_stats.record('read', nil, entity.filepath)
+
+  local _, err = update(entity)
+
+  if err then
+    return nil, err
+  end
+
+  return true
+end)
 
 function handle_upload(src, tgt)
   local src_id = src.entity[src.field]

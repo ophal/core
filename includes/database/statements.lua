@@ -198,4 +198,110 @@ WHERE status = ? OR status = ?]],
   tables = {'ophal_jobs'},
 })
 
+--[[ Routes: the normalized source, and the index projected from it.
+
+  `route_alias` and `route_redirect` are the source of truth an administrator
+  edits. `route_index` is the projection both are read through on a request, and
+  it is loaded once per worker rather than once per request -- so the statements
+  below are write-path and cold-start work, not per-request work.
+
+  The redirect insert that carries an explicit id named a column `alias`, which
+  `route_redirect` does not have: every other statement in the file spells it
+  `target`, and so does the row that comes back from a SELECT. It was unreachable
+  in this workspace because `route_redirects_storage` defaults to false and no
+  shipped schema creates the table, so nothing ever ran it.
+]]
+define('route.alias_read', {
+  sql = 'SELECT * FROM route_alias WHERE id = ?',
+  tables = {'route_alias'},
+})
+
+define('route.aliases_all', {
+  sql = 'SELECT * FROM route_alias',
+  tables = {'route_alias'},
+})
+
+define('route.alias_create', {
+  sql = [[INSERT INTO route_alias(source, alias, language)
+VALUES(?, ?, ?)]],
+  tables = {'route_alias'},
+})
+
+define('route.alias_create_with_id', {
+  sql = [[INSERT INTO route_alias(id, source, alias, language)
+VALUES(?, ?, ?, ?)]],
+  tables = {'route_alias'},
+})
+
+define('route.alias_update', {
+  sql = [[UPDATE route_alias SET source = ?, alias = ?, language = ?
+WHERE id = ?]],
+  tables = {'route_alias'},
+})
+
+define('route.alias_delete', {
+  sql = 'DELETE FROM route_alias WHERE id = ?',
+  tables = {'route_alias'},
+})
+
+define('route.redirect_read', {
+  sql = 'SELECT * FROM route_redirect WHERE id = ?',
+  tables = {'route_redirect'},
+})
+
+define('route.redirects_all', {
+  sql = 'SELECT * FROM route_redirect',
+  tables = {'route_redirect'},
+})
+
+define('route.redirect_create', {
+  sql = [[INSERT INTO route_redirect(source, target, language, type)
+VALUES(?, ?, ?, ?)]],
+  tables = {'route_redirect'},
+})
+
+define('route.redirect_create_with_id', {
+  sql = [[INSERT INTO route_redirect(id, source, target, language, type)
+VALUES(?, ?, ?, ?, ?)]],
+  tables = {'route_redirect'},
+})
+
+define('route.redirect_update', {
+  sql = [[UPDATE route_redirect SET source = ?, target = ?, language = ?, type = ?
+WHERE id = ?]],
+  tables = {'route_redirect'},
+})
+
+define('route.redirect_delete', {
+  sql = 'DELETE FROM route_redirect WHERE id = ?',
+  tables = {'route_redirect'},
+})
+
+--[[ The route index, one statement per kind rather than one per kind and shape.
+
+  `kind` was a bind parameter in the writes and a literal in the two reads, so
+  the same projection was addressed two ways. It binds everywhere now, which is
+  one statement instead of two and one compiled form instead of two.
+]]
+define('route.index_read', {
+  sql = 'SELECT * FROM route_index WHERE kind = ?',
+  tables = {'route_index'},
+})
+
+define('route.index_insert', {
+  sql = [[INSERT INTO route_index(kind, source, target, language, http_code, updated_at)
+VALUES(?, ?, ?, ?, ?, ?)]],
+  tables = {'route_index'},
+})
+
+define('route.index_delete', {
+  sql = 'DELETE FROM route_index WHERE kind = ? AND source = ?',
+  tables = {'route_index'},
+})
+
+define('route.index_clear', {
+  sql = 'DELETE FROM route_index WHERE kind = ?',
+  tables = {'route_index'},
+})
+
 return true

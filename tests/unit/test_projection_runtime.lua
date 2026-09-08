@@ -177,10 +177,11 @@ local function make_db_query(state)
       -- queries again shows up in the budget assertions below.
       state.versions[args[1]] = args[2]
       return rows_result({})
-    elseif sql == "SELECT * FROM route_index WHERE kind = 'alias'" then
-      return rows_result(state.route_index.alias)
-    elseif sql == "SELECT * FROM route_index WHERE kind = 'redirect'" then
-      return rows_result(state.route_index.redirect)
+    elseif sql == 'SELECT * FROM route_index WHERE kind = ?' then
+      -- One statement for both kinds now: `kind` was a literal in the reads and
+      -- a bind parameter in the writes, so the same projection was addressed
+      -- two ways.
+      return rows_result(state.route_index[args[1]] or {})
     elseif sql == 'SELECT * FROM route_alias' then
       return rows_result(state.route_alias)
     elseif sql == 'SELECT * FROM route_redirect' then
@@ -662,10 +663,17 @@ local function run_queued_rebuild(key)
   return require('includes.projection').run_rebuild(key)
 end
 
-local function query_count(state, pattern)
+--[[ How many recorded statements match.
+
+  `first_param` narrows a statement that serves several cases through one bind
+  parameter -- the route index is read with `kind = ?` rather than once per kind
+  -- so counting the alias reads still means counting alias reads.
+]]
+local function query_count(state, pattern, first_param)
   local count = 0
   for _, query in ipairs(state.queries) do
-    if query.sql:match(pattern) then
+    if query.sql:match(pattern)
+        and (first_param == nil or query.params[1] == first_param) then
       count = count + 1
     end
   end
@@ -982,7 +990,7 @@ end
 
 io.write '\n-- reusing a loaded route table --\n'
 
-local ALIAS_INDEX_READ = "^SELECT %* FROM route_index WHERE kind = 'alias'$"
+local ALIAS_INDEX_READ = '^SELECT %* FROM route_index WHERE kind = %?$'
 local ALIAS_SOURCE_READ = '^SELECT %* FROM route_alias$'
 
 -- Bootstrap loads the alias table before routing on every request, and nothing
@@ -1004,12 +1012,12 @@ do
   projection = require 'includes.projection'
   route_aliases_load()
 
-  before = query_count(state, ALIAS_INDEX_READ)
+  before = query_count(state, ALIAS_INDEX_READ, 'alias')
   assert_eq('route_reload_first_load_reads_index', before, 1)
 
   route_aliases_load()
 
-  assert_eq('route_reload_skipped_when_unchanged', query_count(state, ALIAS_INDEX_READ), before)
+  assert_eq('route_reload_skipped_when_unchanged', query_count(state, ALIAS_INDEX_READ, 'alias'), before)
   assert_eq('route_reload_keeps_aliases', ophal.aliases.source['content/1'], 'hello-world')
 
   -- The index version moving is a rebuild or a single-row projection write.
@@ -1055,12 +1063,12 @@ do
   setup_route_env(state)
   route_aliases_load()
 
-  before = query_count(state, ALIAS_INDEX_READ)
+  before = query_count(state, ALIAS_INDEX_READ, 'alias')
   route_aliases_load()
 
   assert_eq(
     'route_same_second_load_not_reused',
-    query_count(state, ALIAS_INDEX_READ),
+    query_count(state, ALIAS_INDEX_READ, 'alias'),
     before + 1
   )
 
@@ -1136,7 +1144,7 @@ end
 -- to the same guard, on their own pair of versions.
 do
   local state = new_projection_state()
-  local read = "^SELECT %* FROM route_index WHERE kind = 'redirect'$"
+  local read = '^SELECT %* FROM route_index WHERE kind = %?$'
   local before
 
   state.versions.route_redirect_index = 100
@@ -1148,12 +1156,12 @@ do
   setup_route_env(state)
   route_redirects_load()
 
-  before = query_count(state, read)
+  before = query_count(state, read, 'redirect')
   assert_eq('route_redirect_first_load_reads_index', before, 1)
 
   route_redirects_load()
 
-  assert_eq('route_redirect_reload_skipped_when_unchanged', query_count(state, read), before)
+  assert_eq('route_redirect_reload_skipped_when_unchanged', query_count(state, read, 'redirect'), before)
   assert_eq('route_redirect_reload_keeps_target', ophal.redirects.source['old-path'][1], 'new-path')
 end
 

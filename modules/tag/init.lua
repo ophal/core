@@ -19,8 +19,8 @@ local pager, print_t, request_get_body = pager, print_t, request_get_body
 local pager_current_page = pager_current_page
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 local projection = require 'includes.projection'
-local projection_query = projection.query
-local projection_exec = projection.exec
+
+require 'modules.tag.statements'
 local projection_touch = projection.touch
 local projection_rebuild_pending = projection.rebuild_pending
 local projection_register_rebuild = projection.register_rebuild
@@ -29,7 +29,7 @@ local projection_cached_value = projection.cached_value
 local projection_version = projection.version
 local projection_is_missing_table = projection.is_missing_table
 
-local db_query, db_limit, db_last_insert_id, user_mod
+local db_connection, user_mod
 local TAG_LISTING_KEY = 'tag_listing_index'
 local TAG_LISTING_SOURCE_KEY = 'tag_listing_source'
 
@@ -81,13 +81,13 @@ local function tag_projection_supported()
 end
 
 local function tag_projection_delete_rows(tag_id)
-  local query = 'DELETE FROM tag_listing_index'
+  local db = db_connection()
   local ok, err
 
   if tag_id ~= nil then
-    ok, err = projection_exec(query .. ' WHERE tag_id = ?', tonumber(tag_id))
+    ok, err = db:try('tag.listing_clear_tag', tonumber(tag_id))
   else
-    ok, err = projection_exec(query)
+    ok, err = db:try 'tag.listing_clear'
   end
 
   if not ok then
@@ -102,12 +102,7 @@ local function tag_projection_delete_rows(tag_id)
 end
 
 local function tag_projection_insert(row, version)
-  local ok, err = projection_exec([[
-INSERT INTO tag_listing_index(
-  tag_id, tag_name, entity_type, entity_id, user_id,
-  language, title, teaser, body, created, changed,
-  status, promote, route, updated_at
-) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]],
+  local ok, err = db_connection():try('tag.listing_insert',
     row.tag_id,
     row.tag_name,
     row.entity_type,
@@ -137,31 +132,13 @@ INSERT INTO tag_listing_index(
 end
 
 local function tag_projection_source_rows(tag_id)
+  local db = db_connection()
   local rs, err
 
-  local projection_sql = [[
-SELECT t.id tag_id, t.name tag_name, 'content' entity_type, cp.id entity_id,
-  cp.user_id, cp.language, cp.title, cp.teaser, cp.body,
-  cp.created, cp.changed, cp.status, cp.promote
-FROM content_public cp
-JOIN field_tag ft ON ft.entity_type = 'content' AND ft.entity_id = cp.id
-JOIN tag t ON t.id = ft.tag_id
-WHERE cp.status = 1]]
-  local legacy_sql = [[
-SELECT t.id tag_id, t.name tag_name, 'content' entity_type, c.id entity_id,
-  c.user_id, c.language, c.title, c.teaser, c.body,
-  c.created, c.changed, c.status, c.promote
-FROM content c
-JOIN field_tag ft ON ft.entity_type = 'content' AND ft.entity_id = c.id
-JOIN tag t ON t.id = ft.tag_id
-WHERE c.status = 1]]
-
   if tag_id ~= nil then
-    projection_sql = projection_sql .. ' AND ft.tag_id = ?'
-    legacy_sql = legacy_sql .. ' AND ft.tag_id = ?'
-    rs, err = projection_query(projection_sql, tonumber(tag_id))
+    rs, err = db:try('tag.source_rows_for_tag', tonumber(tag_id))
   else
-    rs, err = projection_query(projection_sql)
+    rs, err = db:try 'tag.source_rows'
   end
 
   if rs then
@@ -170,13 +147,12 @@ WHERE c.status = 1]]
     error(err)
   end
 
+  -- The content projection is missing or unbuilt, so the listing is rebuilt
+  -- from the normalized table instead.
   if tag_id ~= nil then
-    rs, err = db_query(legacy_sql, tonumber(tag_id))
+    rs = db:run('tag.legacy_source_rows_for_tag', tonumber(tag_id))
   else
-    rs, err = db_query(legacy_sql)
-  end
-  if err then
-    error(err)
+    rs = db:run 'tag.legacy_source_rows'
   end
 
   return rs
@@ -278,10 +254,9 @@ end
 function _M.get_tags()
   local rs, err, tags, order
 
-  rs, err = db_query 'SELECT * FROM tag ORDER BY name'
-  if err then
-    error(err)
-  else
+  rs = db_connection():run 'tag.all'
+
+  do
     tags, order = {}, {}
     for tag in rs:rows(true) do
       tags[tag.id] = tag.name
@@ -295,9 +270,9 @@ end
 --[[ Implements hook init().
 ]]
 function _M.init()
-  db_query = env.db_query
-  db_limit = env.db_limit
-  db_last_insert_id = env.db_last_insert_id
+  -- Captured per request, not at load: a connection object belongs to the
+  -- request that asked for it and raises at its next use once released.
+  db_connection = env.db_connection
   user_mod = modules.user
 end
 
@@ -408,7 +383,8 @@ local function tag_entity_tags(entity_type, entity_id)
     ('entity:%s:%s'):format(entity_type, entity_id),
     function()
       local loaded = {}
-      local rs, query_err = db_query('SELECT t.* FROM field_tag ft JOIN tag t ON t.id = ft.tag_id WHERE ft.entity_type = ? AND ft.entity_id = ?', entity_type, entity_id)
+      local rs, query_err =
+        db_connection():try('tag.entity_tags', entity_type, entity_id)
 
       if query_err then
         return nil, query_err
@@ -457,10 +433,9 @@ function _M.entity_after_save(entity)
     return
   end
 
-  rs, err = db_query('SELECT tag_id id FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
-  if err then
-    error(err)
-  else
+  rs = db_connection():run('tag.entity_tag_ids', entity.type, entity.id)
+
+  do
     tags, in_tags = {}, {}
     local affected = {}
 
@@ -476,20 +451,14 @@ function _M.entity_after_save(entity)
       in_tags[v] = true
       affected[v] = true
       if not tags[v] then
-        rs, err = db_query('INSERT INTO field_tag(entity_type, entity_id, tag_id) VALUES(?, ?, ?)', entity.type, entity.id, v)
-        if err then
-          error(err)
-        end
+        db_connection():run('tag.link', entity.type, entity.id, v)
       end
     end
 
     -- Remove unmarked tags
     for k in pairs(tags) do
       if in_tags[k] == nil then
-        rs, err = db_query('DELETE FROM field_tag WHERE entity_type = ? AND entity_id = ? AND tag_id = ?', entity.type, entity.id, k)
-        if err then
-          error(err)
-        end
+        db_connection():run('tag.unlink', entity.type, entity.id, k)
       end
     end
 
@@ -516,19 +485,15 @@ function _M.entity_after_delete(entity)
   end
 
   affected = {}
-  rs, err = db_query('SELECT tag_id id FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
-  if err then
-    error(err)
-  else
-    for row in rs:rows(true) do
-      affected[row.id] = true
-    end
+  local db = db_connection()
+
+  rs = db:run('tag.entity_tag_ids', entity.type, entity.id)
+
+  for row in rs:rows(true) do
+    affected[row.id] = true
   end
 
-  rs, err = db_query('DELETE FROM field_tag WHERE entity_type = ? AND entity_id = ?', entity.type, entity.id)
-  if err then
-    error(err)
-  end
+  db:run('tag.unlink_entity', entity.type, entity.id)
 
   tag_projection_mark_source(updated_at)
   tag_projection_refresh_ids(affected, updated_at)
@@ -551,10 +516,7 @@ function _M.menus_alter(menus)
       -- set; `items` is rebuilt from it on each call because the menu system
       -- takes ownership of the table it is handed.
       rows, err = projection_cached_value(TAG_LISTING_KEY, 'menu:tags', function()
-        local menu_rs, query_err = projection_query [[SELECT tag_id id, tag_name name
-FROM tag_listing_index
-GROUP BY tag_id, tag_name
-ORDER BY tag_name]]
+        local menu_rs, query_err = db_connection():try 'tag.listing_menu'
         if not menu_rs then
           return nil, query_err
         end
@@ -573,11 +535,7 @@ ORDER BY tag_name]]
       end
     end
 
-    rs, err = db_query [[SELECT t.id, t.name
-FROM tag t JOIN field_tag ft ON t.id = ft.tag_id
-WHERE t.status = 1
-GROUP BY t.id
-ORDER BY t.name]]
+    rs = db_connection():run 'tag.menu'
     for row in rs:rows(true) do
       c = c + 1
       items['tag/' .. row.id] = {weight = c*10, ('%s'):format(row.name)}
@@ -586,11 +544,8 @@ ORDER BY t.name]]
   end
 
   menus.entity_tags_menu = function()
-    local rs, err = db_query([[SELECT t.id, t.name
-FROM tag t JOIN field_tag ft ON t.id = ft.tag_id
-WHERE ft.entity_type = ? AND ft.entity_id = ? AND t.status = 1
-GROUP BY t.id
-ORDER BY t.name]], route_arg(0), tonumber(route_arg(1)))
+    local rs = db_connection():run('tag.entity_menu',
+      route_arg(0), tonumber(route_arg(1)))
     local c, items = 0, {}
     for row in rs:rows(true) do
       c = c + 1
@@ -601,17 +556,9 @@ ORDER BY t.name]], route_arg(0), tonumber(route_arg(1)))
 end
 
 function _M.load(entity_id)
-  local rs, err = db_query('SELECT * FROM ' .. _M.entity_type .. ' WHERE id = ?', entity_id)
+  local entity = db_connection():run('tag.load', entity_id):fetch(true)
 
-  if err then
-    return nil, err
-  end
-
-  local entity, err = rs:fetch(true)
-
-  if err then
-    return nil, err
-  elseif not empty(entity) then
+  if not empty(entity) then
     entity.type = _M.entity_type
     return entity
   end
@@ -620,18 +567,18 @@ end
 function _M.create(entity)
   if entity.type == nil then entity.type = _M.entity_type end
 
-  local rs, err = (function(id, ...)
+  local rs = (function(id, ...)
+    local db = db_connection()
+
     if id then
-      return db_query([[
-INSERT INTO tag(id, user_id, name, description, created, status)
-VALUES(?, ?, ?, ?, ?, ?)]], id, ...)
-    else
-      local rs1, rs2 = db_query([[
-INSERT INTO tag(user_id, name, description, created, status)
-VALUES(?, ?, ?, ?, ?)]], ...)
-      entity.id = db_last_insert_id('tag', 'id')
-      return rs1, rs2
+      return db:run('tag.create_with_id', id, ...)
     end
+
+    local created = db:run('tag.create', ...)
+
+    entity.id = db:last_insert_id('tag', 'id')
+
+    return created
   end)(
     entity.id,
     entity.user_id or user_mod.current().id,
@@ -641,17 +588,15 @@ VALUES(?, ?, ?, ?, ?)]], ...)
     entity.status
   )
 
-  if not err then
-    module_invoke_all('entity_after_save', entity)
-  end
+  module_invoke_all('entity_after_save', entity)
 
-  return entity.id, err
+  return entity.id
 end
 
 function _M.update(entity)
   if entity.type == nil then entity.type = _M.entity_type end
 
-  local rs, err = db_query('UPDATE tag SET name = ?, description = ?, changed = ?, status = ? WHERE id = ?',
+  local rs = db_connection():run('tag.update',
     entity.name,
     entity.description,
     time(),
@@ -659,25 +604,16 @@ function _M.update(entity)
     entity.id
   )
 
-  if not err then
-    module_invoke_all('entity_after_save', entity)
-  end
+  module_invoke_all('entity_after_save', entity)
 
-  return rs, err
+  return rs
 end
 
 function _M.delete(entity)
-  local rs, err = db_query('DELETE FROM field_tag WHERE tag_id = ?', entity.id)
+  local db = db_connection()
 
-  if err then
-    return nil, err
-  end
-
-  rs, err = db_query('DELETE FROM tag WHERE id = ?', entity.id)
-
-  if err then
-    return nil, err
-  end
+  db:run('tag.unlink_tag', entity.id)
+  db:run('tag.delete', entity.id)
 
   module_invoke_all('entity_after_delete', entity)
 
@@ -815,12 +751,8 @@ end
 -- projection unusable, so building the arms has to be callable from both rather
 -- than living inline in the count branch.
 local function tag_legacy_source_queries(tag_id)
-  local rs, err = db_query('SELECT entity_type FROM field_tag WHERE tag_id = ? GROUP BY entity_type', tag_id)
+  local rs = db_connection():run('tag.entity_types', tag_id)
   local count_query, query = {}, {}
-
-  if err then
-    error(err)
-  end
 
   for v in rs:rows(true) do
     tinsert(count_query, 'SELECT COUNT(*) AS total FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
@@ -853,9 +785,8 @@ function _M.entity_page()
         TAG_LISTING_KEY,
         ('listing:count:%s'):format(tag.id),
         function()
-          local count_rs, query_err = projection_query(
-            'SELECT COUNT(*) AS total FROM tag_listing_index WHERE tag_id = ?',
-            tag.id)
+          local count_rs, query_err =
+            db_connection():try('tag.listing_count', tag.id)
           if not count_rs then
             return nil, query_err
           end
@@ -884,13 +815,15 @@ function _M.entity_page()
 
       -- Count rows
       if not empty(count_query) then
+        --[[ Ad-hoc, and it has to be: the UNION has one arm per entity type
+          this tag is attached to, so its arity is not known until it runs and a
+          declared statement has a fixed number of placeholders by construction.
+          `tag_legacy_source_queries()` builds the arms; the entity type in each
+          comes from `field_tag`, never from request input.
+        ]]
         sql = tconcat(count_query, ' UNION ')
-        rs, err = db_query(sql, tag.id)
-        if err then
-          error(err)
-        else
-          count = tonumber((rs:fetch(true) or {}).total) or 0
-        end
+        rs = db_connection():execute(sql, tag.id)
+        count = tonumber((rs:fetch(true) or {}).total) or 0
       end
     end
 
@@ -906,10 +839,10 @@ function _M.entity_page()
           TAG_LISTING_KEY,
           ('listing:rows:%s:%s:%s'):format(tag.id, current_page, ipp),
           function()
-            local rows_rs, query_err = projection_query(
-              'SELECT entity_type type, entity_id id, user_id, language, title, teaser, body, created, changed, status, promote, route FROM tag_listing_index WHERE tag_id = ? ORDER BY created DESC' .. db_limit(),
+            local rows_rs, query_err = db_connection():try(
+              'tag.listing_rows',
               tag.id,
-              (current_page -1)*ipp,
+              (current_page - 1) * ipp,
               ipp
             )
             if not rows_rs then
@@ -940,11 +873,12 @@ function _M.entity_page()
         if empty(query) then
           rs = nil
         else
-          sql = tconcat(query, ' UNION ') .. ' ORDER BY created DESC' .. db_limit()
-          rs, err = db_query(sql, tag.id, (current_page -1)*ipp, ipp)
-          if err then
-            error(err)
-          end
+          -- Ad-hoc for the same reason as the count above. `{{limit}}` is the
+          -- dialect fragment and it means the same thing here as in a
+          -- declaration, so the LIMIT spelling still comes from the driver
+          -- rather than from a free function at the call site.
+          sql = tconcat(query, ' UNION ') .. ' ORDER BY created DESC{{limit}}'
+          rs = db_connection():execute(sql, tag.id, (current_page - 1) * ipp, ipp)
         end
       end
 
@@ -981,10 +915,9 @@ function _M.manage_page()
     go_to 'user/login'
   end
 
-  rs, err = db_query 'SELECT * FROM tag ORDER BY name'
-  if err then
-    error(err)
-  else
+  rs = db_connection():run 'tag.all'
+
+  do
     tags = {}
     for tag in rs:rows(true) do
       tag.operations = tconcat({

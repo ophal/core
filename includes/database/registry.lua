@@ -412,14 +412,22 @@ end
 
 --[[ Compile a string of SQL that was not declared.
 
-  For migrations, the installer and the CLI, where the text is not known until
-  it runs. It goes through the same renderer as a declaration, so a non-binding
-  driver gets its template and a numbered one gets its `$n` -- the difference is
-  only that nothing is cached and attribution falls back to the tokenizer, which
-  is what that parser is for.
+  For migrations, the installer, the CLI, and the two statements whose arity is
+  not known until they run -- an IN list as wide as an account has roles, a
+  UNION with one arm per entity type a tag is attached to. It goes through the
+  same renderer as a declaration, so a non-binding driver gets its template, a
+  numbered one gets its `$n`, and `{{limit}}` means what it means everywhere
+  else. The difference is only that nothing is cached and attribution falls back
+  to the tokenizer, which is what that parser is for.
 ]]
 function M.compile_text(driver, sql)
-  local pieces, count = split_placeholders(sql)
+  local pieces, count
+
+  if sql:find('{{', 1, true) then
+    sql = expand_macros(sql, driver)
+  end
+
+  pieces, count = split_placeholders(sql)
   local rendered, chunks, template = render(driver, pieces, count)
   local tables = stats.tables(sql)
 

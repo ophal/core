@@ -41,6 +41,18 @@ local DRIVER = {
   limit_clause = ' LIMIT ?, ?',
 }
 
+--[[ Whitespace collapsed, so a stand-in matches a statement and not its layout.
+
+  A declaration is written to be read -- wrapped at a sensible width, one clause
+  per line -- and a backend does not care. A stub keyed on the exact text would
+  turn every reformatting into a silent no-match that answers no rows, which is
+  the least useful way for a test to fail. Runs of whitespace inside a SQL
+  string literal would be collapsed too; no statement in the codebase has one.
+]]
+local function normalize(sql)
+  return (sql:gsub('%s+', ' '))
+end
+
 function M.connection(dispatch)
   local conn = {}
 
@@ -53,7 +65,7 @@ function M.connection(dispatch)
       return dispatch.statement(name, ...)
     end
 
-    return dispatch.sql(registry.compile(DRIVER, name).sql, ...)
+    return dispatch.sql(normalize(registry.compile(DRIVER, name).sql), ...)
   end
 
   --[[ A statement whose identifiers are fixed.
@@ -81,7 +93,7 @@ function M.connection(dispatch)
         end
 
         return dispatch.sql(
-          registry.compile(DRIVER, name, values, conn).sql, ...)
+          normalize(registry.compile(DRIVER, name, values, conn).sql), ...)
       end,
     }
   end
@@ -96,10 +108,14 @@ function M.connection(dispatch)
     return result
   end
 
-  -- Ad-hoc SQL: migrations, the installer, and the one permission read whose
-  -- IN list is as wide as the account has roles.
+  --[[ Ad-hoc SQL: migrations, the installer, and the two statements whose
+    arity is not known until they run.
+
+    Compiled the same way a declaration is, so `{{limit}}` is expanded here as
+    well and a stand-in sees what a backend would.
+  ]]
   function conn:execute(sql, ...)
-    return dispatch.sql(sql, ...)
+    return dispatch.sql(normalize(registry.compile_text(DRIVER, sql).sql), ...)
   end
 
   --[[ `db:field()` is the identifier whitelist.

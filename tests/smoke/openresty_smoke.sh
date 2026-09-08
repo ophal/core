@@ -1333,7 +1333,7 @@ assert_contains "$SEED_SECOND_TITLE"
 # all: the route alias index was the third query here until the worker started
 # keeping the table it built, and nothing else on an anonymous render reaches
 # SQL. Two connections' worth of setup is the whole cost of the page.
-assert_query_budget 2 0
+assert_query_budget 0 0
 report_ok "db_frontpage_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_content_warm "$DB_URL/content/1"
@@ -1344,14 +1344,14 @@ assert_contains "$SEED_CONTENT_BODY"
 # A content page reads no normalized table. The last one was the tag module's
 # `entity_load` join, now served from the payload cache under the
 # `tag_listing_source` version.
-assert_query_budget 2 0
+assert_query_budget 0 0
 report_ok "db_content_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_tag_warm "$DB_URL/tag/1"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_TAG_NAME"
-assert_query_budget 2 0
+assert_query_budget 0 0
 report_ok "db_tag_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_alias_warm "$DB_URL/$SEED_ALIAS"
@@ -1361,7 +1361,7 @@ assert_contains "$SEED_CONTENT_TITLE"
 # Same page as db_content_warm, reached through the route alias. The alias
 # itself costs nothing extra, which is what this budget matching the direct
 # route's is saying.
-assert_query_budget 2 0
+assert_query_budget 0 0
 report_ok "db_alias_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # The pager, under `lua_code_cache on`. This is the argument the suite never
@@ -1475,7 +1475,7 @@ assert_contains "$SEED_CONTENT_TITLE"
 # warm read: the account, its roles and its permissions are all per-worker
 # cached by then, which is the end-to-end version of what
 # test_user_permissions.lua pins at the handler level.
-assert_query_budget 2 0
+assert_query_budget 0 0
 report_ok "db_author_frontpage_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # The create. Tags are included because `entity_after_save()` is where the tag
@@ -1516,7 +1516,7 @@ authored_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\
 # `entity_after_save()` stopped touching `tag_listing_source` a second time from
 # inside `tag_projection_rebuild()`; and `projection.touch()` became a single
 # upsert instead of a DELETE plus an INSERT.
-assert_query_budget 17 5
+assert_query_budget 15 5
 report_ok "db_content_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # What the write left for the next visitor. This is anonymous on purpose: the
@@ -1532,7 +1532,7 @@ assert_contains "$AUTHORED_TITLE"
 # rather than by the bucket `projection_touch()` also drops. Still no normalized
 # read. This is the number Phase 5 would be moving, so it is pinned apart from
 # the write's own cost.
-assert_query_budget 4 0
+assert_query_budget 2 0
 report_ok "db_frontpage_after_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 measure_request db_content_update -c "$author_cookie" -b "$author_cookie" \
@@ -1547,7 +1547,7 @@ assert_regex '"success" *: *true'
 # `content_public` -- `load(id)`, which an update genuinely needs and a create
 # no longer performs -- and does one less insert-side write. It was 24 before
 # the same pass; six of those were `projection_version` pairs.
-assert_query_budget 17 5
+assert_query_budget 15 5
 report_ok "db_content_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # Saving over an id that does not exist is a 404, not a 500. The access check
@@ -1594,7 +1594,7 @@ assert_contains "$AUTHORED_UPDATED_BODY"
 # entity that changed. The safe key is the coarse one; a finer key would need a
 # per-entity source version. Until then this is what the first reader after a
 # tag write pays.
-assert_query_budget 4 1
+assert_query_budget 2 1
 report_ok "db_content_page_after_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # The tag listing has to show the authored article too, or the tag rows the
@@ -1608,7 +1608,7 @@ assert_contains "$AUTHORED_UPDATED_TITLE"
 # The listing's own tag entity is keyed on `tag_listing_index`, which the write
 # moved, so it comes back from the normalized `tag` table once. The listing
 # rows themselves are still projection reads.
-assert_query_budget 5 1
+assert_query_budget 3 1
 report_ok "db_tag_after_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # ---------------------------------------------------------------------------
@@ -1714,7 +1714,7 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_contains "$SEED_SECOND_TITLE"
-assert_query_budget 6 2 2
+assert_query_budget 4 2 2
 report_ok "db_frontpage_stale (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED infrastructure=$MEASURED_INFRASTRUCTURE)"
 
 # The second reader in the same window queues nothing: the unique index on
@@ -1724,7 +1724,7 @@ measure_request db_frontpage_stale_again "$DB_URL/"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
-assert_query_budget 4 2 0
+assert_query_budget 2 2 0
 report_ok "db_frontpage_stale_again (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 run_request db_cron_rebuilds_stale "$DB_URL/cron?token=smoke-cron-token"
@@ -1744,7 +1744,7 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_contains "$SEED_SECOND_TITLE"
-assert_query_budget 2 0
+assert_query_budget 0 0
 report_ok "db_frontpage_after_rebuild (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # The alias table is worker state now, so the last thing to prove is that a
@@ -1782,7 +1782,7 @@ measure_request db_late_alias_reused "$DB_URL/$SEED_LATE_ALIAS"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
-assert_query_budget 2 0
+assert_query_budget 0 0
 report_ok "db_late_alias_reused (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # A queue nobody is draining, end to end. This is the one failure the version
@@ -1828,7 +1828,7 @@ measure_request db_stall_recovered "$DB_URL/"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
-assert_query_budget 2 0
+assert_query_budget 0 0
 report_ok "db_stall_recovered (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # --- the media path, measured ---

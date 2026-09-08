@@ -220,40 +220,52 @@ do
     db_result.wrap(new_fake_result()):fetch()[2], 'alpha')
 end
 
-io.write '\n-- db query boundary --\n'
+io.write '\n-- the database boundary --\n'
 
+--[[ `includes/database/init.lua` is the whole application-facing surface now:
+  one accessor answering with a connection object, and the transitional free
+  functions that stage 8.5 deletes as the last call site leaves them.
+
+  The DBI handle is mocked rather than a real database, because what is under
+  test here is the boundary -- lazy connection, memoization per request,
+  release -- and not what SQLite does with a statement.
+]]
 do
   local saved_settings = settings
   local saved_log_error = log_error
-  local saved_seawolf = seawolf
-  local saved_dbh = dbh
-  local saved_db_set_db_id = db_set_db_id
-  local saved_db_connect = db_connect
-  local saved_db_query = db_query
-  local saved_db_connection = db_connection
-  local saved_db_last_insert_id = db_last_insert_id
-  local saved_db_limit = db_limit
-  local saved_db_table_schema_sql = db_table_schema_sql
-  local saved_db_schema_cache_clear = db_schema_cache_clear
-  local saved_db_field = db_field
   local saved_dbi = package.loaded.DBI
-  local saved_sqlite_driver = package.loaded['includes.database.sqlite3']
-  local prepared_query
+  local config = require 'includes.database.config'
+  local request_state = require 'includes.request_state'
+  local connects, closes, prepared, calls = 0, 0, nil, {}
 
   package.loaded.DBI = {
     Connect = function()
+      connects = connects + 1
+
       return {
-        autocommit = function() end,
-        ping = function() return true end,
+        id = connects,
+        autocommit = function()
+          calls[#calls + 1] = 'autocommit'
+        end,
+        close = function()
+          closes = closes + 1
+          return true
+        end,
         prepare = function(_, query)
-          prepared_query = query
+          calls[#calls + 1] = query
+          prepared = query
+
           return {
             execute = function() return true end,
+            close = function() return true end,
             fetch = function(_, named)
-              if named then
-                return {value = 'wrapped'}
+              -- The journal-mode read is positional and below the layer; the
+              -- application's own reads are named.
+              if query == 'PRAGMA journal_mode' then
+                return {'wal'}
               end
-              return {'wrapped'}
+
+              return named and {value = 'wrapped'} or {'wrapped'}
             end,
           }
         end,
@@ -261,22 +273,8 @@ do
     end,
   }
 
-  package.loaded['includes.database.sqlite3'] = {
-    last_insert_id = function() return 1 end,
-    limit = function() return ' LIMIT ?, ?' end,
-    table_schema_sql = function() return 'SELECT field_name FROM mock' end,
-  }
-
-  seawolf = {
-    contrib = {
-      seawolf_table = function()
-        return {}
-      end,
-    },
-  }
   settings = {
     db = {
-      default = 'default',
       default = {
         driver = 'SQLite3',
         database = ':memory:',
@@ -286,140 +284,67 @@ do
   }
   log_error = function() end
 
+  config.reset()
+  request_state.reset()
   dofile('includes/database/init.lua')
 
-  db_set_db_id('default')
-  assert_truthy('db_connect_ping', db_connect())
+  --[[ Nothing connects until a statement runs.
+
+    Bootstrap phase 12 used to call `db_connect()` unconditionally, and the two
+    queries a warm anonymous page cost were that connection's own SQLite
+    pragmas. A page that reads everything from a projection cache now opens no
+    socket at all, which is where those two went.
+  ]]
+  local db = db_connection()
+
+  assert_eq('accessor_does_not_connect', connects, 0)
+  assert_eq('accessor_memoizes_per_request', db_connection(), db)
 
   local rs = db_query('SELECT 1')
-  local row = rs:fetch(true)
 
-  assert_eq('db_query_prepared_query', prepared_query, 'SELECT 1')
-  assert_eq('db_query_returns_wrapper', getmetatable(rs), db_result.Result)
-  assert_eq('db_query_fetch_named_value', row.value, 'wrapped')
-  assert_truthy('db_connection_accessor', db_connection('default'))
+  assert_eq('query_connects_on_first_use', connects, 1)
+  assert_eq('query_reaches_the_driver', prepared, 'SELECT 1')
+  assert_eq('query_returns_a_wrapper', getmetatable(rs), db_result.Result)
+  assert_eq('query_reads_by_name', rs:fetch(true).value, 'wrapped')
 
-  settings = saved_settings
-  log_error = saved_log_error
-  seawolf = saved_seawolf
-  dbh = saved_dbh
-  db_set_db_id = saved_db_set_db_id
-  db_connect = saved_db_connect
-  db_query = saved_db_query
-  db_connection = saved_db_connection
-  db_last_insert_id = saved_db_last_insert_id
-  db_limit = saved_db_limit
-  db_table_schema_sql = saved_db_table_schema_sql
-  db_schema_cache_clear = saved_db_schema_cache_clear
-  db_field = saved_db_field
-  package.loaded.DBI = saved_dbi
-  package.loaded['includes.database.sqlite3'] = saved_sqlite_driver
-end
+  -- LuaDBI opens a transaction on connect and SQLite refuses to change the
+  -- journal mode from inside one, so the pragmas have to follow autocommit.
+  -- Running them first lost WAL to a logged, non-fatal failure and left the
+  -- file in rollback mode while reporting success.
+  assert_eq('autocommit_precedes_the_pragmas', calls[1], 'autocommit')
+  assert_eq('busy_timeout_is_set', calls[2], 'PRAGMA busy_timeout = 1000')
 
-io.write '\n-- connection lifecycle --\n'
+  -- Already WAL, so the mode is read and not set. Setting it takes an
+  -- exclusive lock even when it would be a no-op, which turned every reader
+  -- into a writer for the length of one pragma.
+  assert_eq('journal_mode_is_read_first', calls[3], 'PRAGMA journal_mode')
+  assert_eq('journal_mode_not_reset_when_current', calls[4], 'SELECT 1')
 
--- Bootstrap connects once per request, so a handle that is replaced rather than
--- closed stays open until the collector runs. On SQLite that is not just a leak:
--- a dropped connection whose last statement was never finalized keeps a read
--- transaction open, which blocks writers and stops WAL from checkpointing.
-do
-  local saved_settings = settings
-  local saved_log_error = log_error
-  local saved_seawolf = seawolf
-  local saved_dbh = dbh
-  local saved_db_set_db_id = db_set_db_id
-  local saved_db_connect = db_connect
-  local saved_db_query = db_query
-  local saved_db_connection = db_connection
-  local saved_db_last_insert_id = db_last_insert_id
-  local saved_db_limit = db_limit
-  local saved_db_table_schema_sql = db_table_schema_sql
-  local saved_db_schema_cache_clear = db_schema_cache_clear
-  local saved_db_field = db_field
-  local saved_dbi = package.loaded.DBI
-  local saved_sqlite_driver = package.loaded['includes.database.sqlite3']
-  local connects, closes = 0, 0
-  local calls = {}
+  local second = db_query('SELECT 2')
 
-  package.loaded.DBI = {
-    Connect = function()
-      connects = connects + 1
-      return {
-        id = connects,
-        autocommit = function()
-          calls[#calls + 1] = 'autocommit'
-        end,
-        ping = function() return true end,
-        close = function()
-          closes = closes + 1
-          return true
-        end,
-        prepare = function()
-          return {execute = function() return true end}
-        end,
-      }
-    end,
-  }
+  assert_eq('second_query_reuses_the_connection', connects, 1)
+  assert_truthy('second_query_answers', second)
 
-  package.loaded['includes.database.sqlite3'] = {
-    last_insert_id = function() return 1 end,
-    limit = function() return ' LIMIT ?, ?' end,
-    table_schema_sql = function() return 'SELECT field_name FROM mock' end,
-    on_connect = function()
-      calls[#calls + 1] = 'on_connect'
-    end,
-  }
+  --[[ Release hands the socket back and marks the object.
 
-  seawolf = {
-    contrib = {
-      seawolf_table = function()
-        return {}
-      end,
-    },
-  }
-  settings = {
-    db = {
-      default = {
-        driver = 'SQLite3',
-        database = ':memory:',
-        autocommit = true,
-      },
-    },
-  }
-  log_error = function() end
+    A connection kept in a module upvalue and used next request would otherwise
+    reach a socket that request does not own -- the database-level form of the
+    load-time capture class stage 8.2 closed for `_GET` and `_SESSION`.
+  ]]
+  assert_eq('release_all_releases_one', db_release_all(true), 1)
+  assert_eq('release_closes_the_handle', closes, 1)
+  assert_raises('released_connection_refuses_a_query', 'was released', function()
+    db:run 'core.begin'
+  end)
 
-  dofile('includes/database/init.lua')
-  db_set_db_id('default')
-
-  db_connect()
-  assert_eq('db_connect_first_opens_nothing_to_close', closes, 0)
-  assert_eq('db_connect_first_handle', db_connection('default').id, 1)
-
-  -- LuaDBI opens a transaction on connect, and SQLite refuses to change the
-  -- journal mode from inside one. Running the driver hook before autocommit is
-  -- set therefore lost the WAL pragma to a logged, non-fatal failure.
-  assert_eq('db_connect_autocommit_first', calls[1], 'autocommit')
-  assert_eq('db_connect_pragmas_second', calls[2], 'on_connect')
-
-  db_connect()
-  assert_eq('db_connect_closes_previous', closes, 1)
-  assert_eq('db_connect_replaces_handle', db_connection('default').id, 2)
+  -- And the accessor answers with a new object rather than the released one.
+  assert_truthy('accessor_answers_again_after_release', db_connection() ~= db)
 
   settings = saved_settings
   log_error = saved_log_error
-  seawolf = saved_seawolf
-  dbh = saved_dbh
-  db_set_db_id = saved_db_set_db_id
-  db_connect = saved_db_connect
-  db_query = saved_db_query
-  db_connection = saved_db_connection
-  db_last_insert_id = saved_db_last_insert_id
-  db_limit = saved_db_limit
-  db_table_schema_sql = saved_db_table_schema_sql
-  db_schema_cache_clear = saved_db_schema_cache_clear
-  db_field = saved_db_field
   package.loaded.DBI = saved_dbi
-  package.loaded['includes.database.sqlite3'] = saved_sqlite_driver
+  config.reset()
+  request_state.reset()
 end
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

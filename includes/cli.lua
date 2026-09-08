@@ -380,7 +380,16 @@ local function prepare_migrate_runtime(options)
     return nil, err
   end
 
-  ok, err = pcall(db_connect)
+  --[[ Open the connection here rather than at the first statement.
+
+    Connecting is lazy in the layer, which is right for a request that may not
+    query at all. A CLI is the other case: a process that cannot reach the
+    database should say so before it starts reporting migrations as pending, so
+    this asks for the handle and lets the failure surface now.
+  ]]
+  ok, err = pcall(function()
+    return db_connection():handle()
+  end)
   if not ok then
     return nil, err
   end
@@ -408,9 +417,16 @@ local function run_migrate_status(options)
   end
   migrate = result
 
-  return migrate.status({
+  local outcome, apply_err = migrate.status({
     settings = runtime.settings,
   })
+
+  -- Give the connection back before returning. The process exits soon
+  -- after, but an unfinalized SQLite handle holds a read transaction
+  -- until it does, and whatever the operator runs next has to write.
+  db_release_all(outcome ~= nil)
+
+  return outcome, apply_err
 end
 
 local function run_migrate_apply(options)
@@ -431,9 +447,16 @@ local function run_migrate_apply(options)
   end
   migrate = result
 
-  return migrate.apply({
+  local outcome, apply_err = migrate.apply({
     settings = runtime.settings,
   })
+
+  -- Give the connection back before returning. The process exits soon
+  -- after, but an unfinalized SQLite handle holds a read transaction
+  -- until it does, and whatever the operator runs next has to write.
+  db_release_all(outcome ~= nil)
+
+  return outcome, apply_err
 end
 
 --[[ How many jobs are waiting.

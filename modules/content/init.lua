@@ -568,13 +568,14 @@ function frontpage()
       ('frontpage:count:%s'):format(user_mod.is_logged_in() and 'all' or 'published'),
       function()
         local count_rs, query_err = projection_query(
-          ('SELECT count(*) FROM content_public WHERE promote = 1 %s'):format(query)
+          ('SELECT count(*) AS total FROM content_public WHERE promote = 1 %s')
+            :format(query)
         )
         if not count_rs then
           return nil, query_err
         end
 
-        return (count_rs:fetch() or {})[1]
+        return (count_rs:fetch(true) or {}).total
       end
     )
     if err then
@@ -587,11 +588,12 @@ function frontpage()
   end
 
   if not use_projection then
-    rs, err = db_query(('SELECT count(*) FROM content WHERE promote = 1 %s'):format(query))
+    rs, err = db_query(
+      ('SELECT count(*) AS total FROM content WHERE promote = 1 %s'):format(query))
     if err then
       error(err)
     else
-      count = (rs:fetch() or {})[1]
+      count = (rs:fetch(true) or {}).total
     end
   end
 

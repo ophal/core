@@ -119,4 +119,83 @@ WHERE id IN (
   tables = {'ophal_jobs'},
 })
 
+--[[ Queue a job, unless one with the same identity is already live.
+
+  Dedup is the database's. `active_key` carries a job's identity while it is
+  live and is nulled when it finishes, so a single UNIQUE index over it plus
+  `ON CONFLICT(active_key) DO NOTHING` gives "at most one live job per identity"
+  with no read-then-write race. NULLs are distinct in a unique index on both
+  drivers, so a job with no dedup key is never deduped.
+]]
+define('jobs.enqueue', {
+  sql = [[INSERT INTO ophal_jobs(
+  kind, dedup_key, active_key, payload, status, priority, attempts,
+  available_at, created_at, updated_at
+) VALUES(?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+ON CONFLICT(active_key) DO NOTHING]],
+  tables = {'ophal_jobs'},
+})
+
+define('jobs.claimed', {
+  sql = [[SELECT * FROM ophal_jobs
+WHERE claimed_by = ? AND status = ?
+ORDER BY id]],
+  tables = {'ophal_jobs'},
+})
+
+-- Clearing `active_key` is what releases the dedup slot, so the next time the
+-- same work becomes necessary it can be queued again.
+define('jobs.complete', {
+  sql = [[UPDATE ophal_jobs
+SET status = ?, active_key = NULL, claimed_by = NULL, updated_at = ?
+WHERE id = ?]],
+  tables = {'ophal_jobs'},
+})
+
+--[[ Hand a job back after a failure, in the two shapes that differ by one line.
+
+  A retrying job keeps its `active_key`, so nothing queues a second copy
+  alongside it. A job that has given up releases the key instead: the work may
+  well still be needed, and a later request must be able to ask for it again
+  rather than find the identity permanently poisoned.
+
+  Two declarations rather than one body with the clause formatted in, because
+  the difference is fixed at the call site by a condition the statement cannot
+  see, and a statement that is formatted per call is a statement that is
+  compiled per call.
+]]
+define('jobs.retry', {
+  sql = [[UPDATE ophal_jobs
+SET status = ?, claimed_by = NULL, available_at = ?, updated_at = ?,
+  last_error = ?
+WHERE id = ?]],
+  tables = {'ophal_jobs'},
+})
+
+define('jobs.give_up', {
+  sql = [[UPDATE ophal_jobs
+SET status = ?, active_key = NULL, claimed_by = NULL, available_at = ?,
+  updated_at = ?, last_error = ?
+WHERE id = ?]],
+  tables = {'ophal_jobs'},
+})
+
+--[[ The age of the live job row for an identity.
+
+  At most one row can be live per identity and `complete()` nulls `active_key`,
+  so a row older than the rebuild marker's own lifetime means the marker lapsed
+  with nothing having run in between -- which is how a site whose cron has
+  stopped finds its way back to rebuilding inline.
+]]
+define('jobs.active_age', {
+  sql = 'SELECT created_at FROM ophal_jobs WHERE active_key = ?',
+  tables = {'ophal_jobs'},
+})
+
+define('jobs.pending_count', {
+  sql = [[SELECT count(*) AS total FROM ophal_jobs
+WHERE status = ? OR status = ?]],
+  tables = {'ophal_jobs'},
+})
+
 return true

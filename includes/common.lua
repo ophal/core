@@ -319,6 +319,15 @@ function shutdown_ophal()
   if settings.sessionapi and session_write_close then
     session_write_close()
   end
+
+  -- Give back every connection this request took, after the modules that might
+  -- still have queried in their exit hooks. Under keepalive a socket belongs to
+  -- one request: one that is not released never returns to the pool, and an
+  -- object that outlives its release raises at its next use rather than
+  -- reaching a socket another request now owns.
+  if type(db_release_all) == 'function' then
+    db_release_all(true)
+  end
 end
 
 function exit_ophal()

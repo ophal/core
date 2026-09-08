@@ -306,6 +306,55 @@ do
   dbh = saved_dbh
 end
 
+--[[ The same, with `default` holding the connection table.
+
+  This is the documented shape -- what `examples/vault.lua` shows and what
+  `includes/install.lua` generates -- and it used to answer nil, because
+  `db_handle()` read `settings.db.default` as the *name* of another entry and
+  so indexed the handle table with a table. `driver_name()` beside it had been
+  taught both shapes and this had not; no test asked the two to agree, and each
+  had its own passing one.
+]]
+do
+  local state = new_db_state()
+  local seen_handle
+  local saved_settings = settings
+  local saved_db_connection = db_connection
+
+  settings = {
+    db = {
+      default = {
+        driver = 'sqlite3',
+        database = 'site.sqlite',
+      },
+    },
+  }
+  db_connection = function(id)
+    return {id = id}
+  end
+
+  local result = assert(migrate.apply({
+    db_query = db_query_stub(state),
+    settings = settings,
+    module_names = {'system'},
+    core_migrations = {
+      {
+        id = '001_handle',
+        up = function(ctx)
+          seen_handle = ctx.db_handle
+        end,
+      },
+    },
+  }))
+
+  assert_eq('apply_db_handle_documented_count', result.applied_count, 1)
+  assert_eq('apply_db_handle_documented_id', seen_handle and seen_handle.id,
+    'default')
+
+  settings = saved_settings
+  db_connection = saved_db_connection
+end
+
 io.write '\n-- core migration registry --\n'
 
 -- Every registered migration has to be runnable on both drivers. This is not a

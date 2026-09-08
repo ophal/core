@@ -61,8 +61,9 @@ local function result_of(rows)
   }
 end
 
-local sqlite_driver = dofile('includes/database/sqlite3.lua')
-local pg_driver = dofile('includes/database/postgresql.lua')
+local registry = require 'includes.database.registry'
+
+require 'includes.database.statements'
 
 -- A stand-in for `ophal_jobs`. It keeps rows in a Lua array and answers the
 -- handful of statements the module issues; `state.missing_table` makes every
@@ -71,111 +72,174 @@ local function new_state()
   return {rows = {}, next_id = 1, queries = {}, missing_table = false}
 end
 
-local function install_db(state)
-  settings = {performance = {jobs = {retry_backoff = 30, max_attempts = 2}}}
+--[[ The queue's statements, answered by name.
 
-  db_claim_jobs_sql = function()
-    return sqlite_driver.claim_jobs_sql()
+  Dispatch is on the statement name rather than on the SQL, which is what the
+  layer made possible and what the old stub could not do: `jobs.complete`,
+  `jobs.retry` and `jobs.give_up` are three UPDATEs that differ by one clause,
+  and telling them apart by pattern-matching their text is exactly the
+  brittleness declarations exist to remove. What the SQL itself says is pinned
+  separately, under "declared statements", against the registry.
+]]
+local handlers = {}
+
+function handlers.enqueue(state, args)
+  -- `ON CONFLICT(active_key) DO NOTHING`, modelled the way both drivers
+  -- behave: a NULL active_key never conflicts, a repeated one is dropped.
+  local active_key = args[3]
+
+  if active_key ~= nil then
+    for _, row in ipairs(state.rows) do
+      if row.active_key == active_key then
+        return {}
+      end
+    end
   end
 
-  db_query = function(sql, ...)
+  state.rows[#state.rows + 1] = {
+    id = state.next_id,
+    kind = args[1],
+    dedup_key = args[2],
+    active_key = active_key,
+    payload = args[4],
+    status = args[5],
+    priority = args[6],
+    attempts = 0,
+    available_at = args[7],
+    created_at = args[8],
+  }
+  state.next_id = state.next_id + 1
+
+  return {}
+end
+
+-- args: claimed_at, claimed_by, updated_at, cutoff, limit.
+function handlers.claim(state, args)
+  local taken = 0
+
+  for _, row in ipairs(state.rows) do
+    if taken < args[5] and row.status == 'pending'
+        and (row.available_at or 0) <= args[4] then
+      row.status = 'running'
+      row.claimed_by = args[2]
+      row.attempts = (row.attempts or 0) + 1
+      taken = taken + 1
+    end
+  end
+
+  return {}
+end
+
+function handlers.claimed(state, args)
+  local found = {}
+
+  for _, row in ipairs(state.rows) do
+    if row.claimed_by == args[1] and row.status == args[2] then
+      found[#found + 1] = row
+    end
+  end
+
+  return found
+end
+
+-- args: status, updated_at, id. Clearing `active_key` is what releases the
+-- dedup slot.
+function handlers.complete(state, args)
+  for _, row in ipairs(state.rows) do
+    if row.id == args[3] then
+      row.status = args[1]
+      row.active_key = nil
+    end
+  end
+
+  return {}
+end
+
+-- args: status, available_at, updated_at, last_error, id.
+local function record_failure(state, args, clears_key)
+  for _, row in ipairs(state.rows) do
+    if row.id == args[5] then
+      row.status = args[1]
+      row.available_at = args[2]
+      row.last_error = args[4]
+
+      if clears_key then
+        row.active_key = nil
+      end
+    end
+  end
+
+  return {}
+end
+
+-- A retrying job keeps its `active_key`, so nothing queues a second copy
+-- beside it; one that has given up releases the identity for later.
+function handlers.retry(state, args)
+  return record_failure(state, args, false)
+end
+
+function handlers.give_up(state, args)
+  return record_failure(state, args, true)
+end
+
+function handlers.active_age(state, args)
+  for _, row in ipairs(state.rows) do
+    if row.active_key == args[1] then
+      return {{created_at = row.created_at}}
+    end
+  end
+
+  return {}
+end
+
+function handlers.pending_count(state, args)
+  local count = 0
+
+  for _, row in ipairs(state.rows) do
+    if row.status == args[1] or row.status == args[2] then
+      count = count + 1
+    end
+  end
+
+  return {{total = count}}
+end
+
+local function install_db(state)
+  local connection = {}
+
+  settings = {performance = {jobs = {retry_backoff = 30, max_attempts = 2}}}
+
+  function connection:run(name, ...)
     local args = {...}
-    state.queries[#state.queries + 1] = {sql = sql, args = args}
+    local handler = handlers[(name:gsub('^jobs%.', ''))]
+
+    state.queries[#state.queries + 1] = {statement = name, args = args}
+
+    -- Undeclared names are a mistake in the module, not in the fake, so they
+    -- are as loud here as they would be against a real registry.
+    if registry.declaration(name) == nil then
+      error('undeclared statement: ' .. tostring(name), 0)
+    end
 
     if state.missing_table then
       error('no such table: ophal_jobs')
     end
 
-    if sql:match('^INSERT INTO ophal_jobs') then
-      -- `ON CONFLICT(active_key) DO NOTHING`, modelled the way both drivers
-      -- behave: a NULL active_key never conflicts, a repeated one is dropped.
-      local active_key = args[3]
+    return result_of(handler and handler(state, args) or {})
+  end
 
-      if active_key ~= nil then
-        for _, row in ipairs(state.rows) do
-          if row.active_key == active_key then
-            return result_of({})
-          end
-        end
-      end
+  function connection:try(name, ...)
+    local ok, result = pcall(self.run, self, name, ...)
 
-      state.rows[#state.rows + 1] = {
-        id = state.next_id,
-        kind = args[1],
-        dedup_key = args[2],
-        active_key = active_key,
-        payload = args[4],
-        status = args[5],
-        priority = args[6],
-        attempts = 0,
-        available_at = args[7],
-        created_at = args[8],
-      }
-      state.next_id = state.next_id + 1
-      return result_of({})
-    elseif sql:match('^SELECT created_at FROM ophal_jobs WHERE active_key') then
-      for _, row in ipairs(state.rows) do
-        if row.active_key == args[1] then
-          return result_of({{row.created_at}})
-        end
-      end
-      return result_of({})
-    elseif sql:match("^UPDATE ophal_jobs\nSET status = 'running'") then
-      -- The claim. args: claimed_at, claimed_by, updated_at, cutoff, limit.
-      -- Matched on the literal status rather than on `SET status`, because
-      -- `fail()` opens the same way and a looser pattern swallows it.
-      local taken = 0
-      for _, row in ipairs(state.rows) do
-        if taken < args[5] and row.status == 'pending' and (row.available_at or 0) <= args[4] then
-          row.status = 'running'
-          row.claimed_by = args[2]
-          row.attempts = (row.attempts or 0) + 1
-          taken = taken + 1
-        end
-      end
-      return result_of({})
-    elseif sql:match('^SELECT %* FROM ophal_jobs WHERE claimed_by') then
-      local found = {}
-      for _, row in ipairs(state.rows) do
-        if row.claimed_by == args[1] and row.status == args[2] then
-          found[#found + 1] = row
-        end
-      end
-      return result_of(found)
-    elseif sql:match('^UPDATE ophal_jobs SET status = %?, active_key = NULL') then
-      for _, row in ipairs(state.rows) do
-        if row.id == args[3] then
-          row.status = args[1]
-          row.active_key = nil
-        end
-      end
-      return result_of({})
-    elseif sql:match('^UPDATE ophal_jobs\nSET status = %?') then
-      -- `fail()` builds this one, clearing `active_key` only when it gives up.
-      local clears_key = sql:match('active_key = NULL') ~= nil
-
-      for _, row in ipairs(state.rows) do
-        if row.id == args[5] then
-          row.status = args[1]
-          row.available_at = args[2]
-          row.last_error = args[4]
-          if clears_key then
-            row.active_key = nil
-          end
-        end
-      end
-      return result_of({})
-    elseif sql:match('^SELECT count%(%*%) FROM ophal_jobs') then
-      local count = 0
-      for _, row in ipairs(state.rows) do
-        if row.status == args[1] or row.status == args[2] then
-          count = count + 1
-        end
-      end
-      return result_of({{count}})
+    if not ok then
+      return nil, result
     end
 
-    return result_of({})
+    return result
+  end
+
+  db_connection = function()
+    return connection
   end
 end
 
@@ -430,8 +494,11 @@ do
   local jobs = load_jobs()
   local logged
 
-  db_query = function()
-    error('database is locked')
+  db_connection = function()
+    return {
+      run = function() error('database is locked') end,
+      try = function() return nil, 'database is locked' end,
+    }
   end
   log_error = function(message, context)
     logged = context and context.event
@@ -446,8 +513,10 @@ end
 io.write '\n-- driver claim statements --\n'
 
 do
-  local sqlite_sql = sqlite_driver.claim_jobs_sql()
-  local pg_sql = pg_driver.claim_jobs_sql()
+  local sqlite = require 'includes.database.driver.luadbi_sqlite3'
+  local postgresql = require 'includes.database.driver.luadbi_postgresql'
+  local sqlite_sql = registry.compile(sqlite, 'jobs.claim').sql
+  local pg_sql = registry.compile(postgresql, 'jobs.claim').sql
 
   local function placeholders(sql)
     local count = 0
@@ -464,9 +533,11 @@ do
   assert_eq('claim_sqlite_placeholders', placeholders(sqlite_sql), 5)
   assert_eq('claim_postgresql_placeholders', placeholders(pg_sql), 5)
 
-  -- This is the only statement in the codebase that is not portable, and there
-  -- is no PostgreSQL in this workspace to run it against. Pinning the text is
-  -- the most this suite can do, so it does that much.
+  -- This is the only statement in the codebase that is not portable. It is one
+  -- declaration with a `postgresql` override rather than a function per driver
+  -- now, so what is checked is that compiling the same name for two drivers
+  -- gives two different statements. `tests/bench/driver_contract.lua` runs both
+  -- against real servers; this pins the text where the suite cannot.
   assert_match('claim_postgresql_skip_locked', pg_sql, 'FOR UPDATE SKIP LOCKED')
   assert_eq('claim_sqlite_no_skip_locked', sqlite_sql:match('SKIP LOCKED') == nil, true)
 

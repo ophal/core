@@ -823,7 +823,7 @@ local function tag_legacy_source_queries(tag_id)
   end
 
   for v in rs:rows(true) do
-    tinsert(count_query, 'SELECT COUNT(*) FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
+    tinsert(count_query, 'SELECT COUNT(*) AS total FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
     tinsert(query, 'SELECT e.*, ' .. "'" .. v.entity_type .. "'" .. ' "type" FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
   end
 
@@ -854,12 +854,13 @@ function _M.entity_page()
         ('listing:count:%s'):format(tag.id),
         function()
           local count_rs, query_err = projection_query(
-            'SELECT COUNT(*) FROM tag_listing_index WHERE tag_id = ?', tag.id)
+            'SELECT COUNT(*) AS total FROM tag_listing_index WHERE tag_id = ?',
+            tag.id)
           if not count_rs then
             return nil, query_err
           end
 
-          return (count_rs:fetch() or {})[1]
+          return (count_rs:fetch(true) or {}).total
         end
       )
       if err then
@@ -888,7 +889,7 @@ function _M.entity_page()
         if err then
           error(err)
         else
-          count = tonumber((rs:fetch() or {})[1]) or 0
+          count = tonumber((rs:fetch(true) or {}).total) or 0
         end
       end
     end

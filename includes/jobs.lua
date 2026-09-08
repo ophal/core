@@ -28,18 +28,22 @@ local DEFAULT_RETRY_BACKOFF = 60
 
 local handlers = {}
 
--- `db_query()` raises rather than returning `nil, err`, which is why
--- `projection.query` wraps it the same way. Jobs run from a cron request that
--- must not 500 because a table is missing, so every statement goes through
--- this.
-local function query(sql, ...)
-  local ok, result = pcall(db_query, sql, ...)
+--[[ Every statement here, in the shape this module needs.
+
+  Jobs run from a cron request that must not 500 because the queue table is
+  missing, so nothing raises: `db:try()` is the layer's own `nil, err` form and
+  resolving the connection is guarded the same way, because a site with no
+  database configured must reach "no deferral is available" rather than an
+  error.
+]]
+local function run(name, ...)
+  local ok, db = pcall(db_connection)
 
   if not ok then
-    return nil, result
+    return nil, db
   end
 
-  return result
+  return db:try(name, ...)
 end
 
 -- A queue that has not been migrated is not an error. It means "no deferral is
@@ -135,12 +139,7 @@ function M.enqueue(kind, dedup_key, payload, priority)
     encoded = json.encode(payload)
   end
 
-  rs, err = query([[
-INSERT INTO ophal_jobs(
-  kind, dedup_key, active_key, payload, status, priority, attempts,
-  available_at, created_at, updated_at
-) VALUES(?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-ON CONFLICT(active_key) DO NOTHING]],
+  rs, err = run('jobs.enqueue',
     kind,
     dedup_key,
     dedup_key,
@@ -169,7 +168,8 @@ end
   `FOR UPDATE SKIP LOCKED` so concurrent runners never contend for the same
   row; SQLite has no equivalent and relies on `busy_timeout` plus WAL to
   serialize writers, which is sound because a SQLite deployment is the
-  single-node dev, CLI, test and low-scale case. See `db_claim_jobs_sql()`.
+  single-node dev, CLI, test and low-scale case. The two forms are the
+  `postgresql` override on `jobs.claim`.
 ]]
 function M.claim(worker_id, limit)
   local now = time()
@@ -177,7 +177,7 @@ function M.claim(worker_id, limit)
 
   worker_id = tostring(worker_id or 'unknown')
 
-  rs, err = query(db_claim_jobs_sql(), now, worker_id, now, now, claim_limit(limit))
+  rs, err = run('jobs.claim', now, worker_id, now, now, claim_limit(limit))
 
   if not rs then
     if missing_table(err) then
@@ -187,11 +187,7 @@ function M.claim(worker_id, limit)
     return nil, err
   end
 
-  rs, err = query(
-    'SELECT * FROM ophal_jobs WHERE claimed_by = ? AND status = ? ORDER BY id',
-    worker_id,
-    RUNNING
-  )
+  rs, err = run('jobs.claimed', worker_id, RUNNING)
 
   if not rs then
     if missing_table(err) then
@@ -211,12 +207,7 @@ end
 ]]
 function M.complete(id)
   local now = time()
-  local rs, err = query(
-    'UPDATE ophal_jobs SET status = ?, active_key = NULL, claimed_by = NULL, updated_at = ? WHERE id = ?',
-    DONE,
-    now,
-    id
-  )
+  local rs, err = run('jobs.complete', DONE, now, id)
 
   if not rs then
     if missing_table(err) then
@@ -251,10 +242,10 @@ function M.fail(id, job_error, attempts)
     available_at = now
   end
 
-  rs, err = query(([[
-UPDATE ophal_jobs
-SET status = ?, %s claimed_by = NULL, available_at = ?, updated_at = ?, last_error = ?
-WHERE id = ?]]):format(status == FAILED and 'active_key = NULL,' or ''),
+  -- A job that has given up releases its `active_key`; a retrying one keeps it.
+  -- Two declarations rather than one body with a clause formatted into it, so
+  -- neither is built or compiled per call.
+  rs, err = run(status == FAILED and 'jobs.give_up' or 'jobs.retry',
     status,
     available_at,
     now,
@@ -398,10 +389,7 @@ function M.active_age(active_key)
     return nil
   end
 
-  rs, err = query(
-    'SELECT created_at FROM ophal_jobs WHERE active_key = ?',
-    tostring(active_key)
-  )
+  rs, err = run('jobs.active_age', tostring(active_key))
 
   if not rs then
     if missing_table(err) then
@@ -411,24 +399,20 @@ function M.active_age(active_key)
     return nil, err
   end
 
-  row = rs:fetch()
+  row = rs:fetch(true)
 
-  if not row or row[1] == nil then
+  if not row or row.created_at == nil then
     return nil
   end
 
-  return time() - (tonumber(row[1]) or 0)
+  return time() - (tonumber(row.created_at) or 0)
 end
 
 --[[ How much work is waiting. Used by the CLI and by tests; not on the request
   path.
 ]]
 function M.pending_count()
-  local rs, err = query(
-    'SELECT count(*) FROM ophal_jobs WHERE status = ? OR status = ?',
-    PENDING,
-    RUNNING
-  )
+  local rs, err = run('jobs.pending_count', PENDING, RUNNING)
 
   if not rs then
     if missing_table(err) then
@@ -438,7 +422,7 @@ function M.pending_count()
     return nil, err
   end
 
-  return (rs:fetch() or {})[1] or 0
+  return (rs:fetch(true) or {}).total or 0
 end
 
 -- Test seam: the handler registry is module state, and a unit test that

@@ -1,5 +1,7 @@
 local M = {}
 
+local config = require 'includes.database.config'
+
 local MIGRATION_TABLE = 'ophal_migrations'
 
 local function settings_value(options)
@@ -14,21 +16,36 @@ local function cache_clear_fn(options)
   return options.cache_clear_all or _G.cache_clear_all
 end
 
+--[[ The connection a migration runs against.
+
+  `settings.db.default` has two legal shapes -- the connection table itself, and
+  the name of another entry -- and this function read only the second. With a
+  settings file written the documented way it indexed the handle table with the
+  connection *table* and answered nil, so `ctx.db_handle` was nil for every
+  migration. Nothing shipped uses it, which is why it never surfaced.
+
+  `includes/database/config.lua` is the one reading of `settings.db` now, so
+  both shapes resolve to an identifier here and neither is special.
+]]
 local function db_handle(options)
+  local settings, resolved, ok
+
   if options.db_handle ~= nil then
     return options.db_handle
   end
 
-  local settings = settings_value(options)
-  local db_key = settings and settings.db and (settings.db.default or 'default')
-
-  if type(_G.db_connection) == 'function' and db_key then
-    return _G.db_connection(db_key)
+  if type(_G.db_connection) ~= 'function' then
+    return nil
   end
 
-  if _G.dbh and db_key then
-    return _G.dbh[db_key]
+  settings = settings_value(options)
+  ok, resolved = pcall(config.resolve, settings and settings.db)
+
+  if not ok or resolved == nil or resolved.default == nil then
+    return nil
   end
+
+  return _G.db_connection(resolved.default)
 end
 
 local function optional_require(module_name)

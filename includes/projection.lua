@@ -251,8 +251,8 @@ function M.version(key)
     return nil, err
   end
 
-  row = rs:fetch()
-  row = normalize_version(row and row[1] or nil)
+  row = rs:fetch(true)
+  row = normalize_version(row and row.version or nil)
 
   if row == nil then
     version_miss[normalized] = time() + version_miss_ttl()

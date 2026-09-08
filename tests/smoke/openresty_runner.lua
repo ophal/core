@@ -174,12 +174,15 @@ local scenarios = {
         'SELECT status, last_error FROM ophal_jobs WHERE kind = ? ORDER BY id',
         kind
       )
-      local row = rs and rs:fetch()
+      -- Named, on every backend: two of the three drivers return rows as
+      -- hashes and cannot answer positionally at all, so the layer promises
+      -- only what all of them can keep.
+      local row = rs and rs:fetch(true)
 
       write(render{
         'SMOKE_JOBS_PENDING=' .. tostring(jobs.pending_count()),
-        'SMOKE_JOBS_STATUS=' .. tostring(row and row[1] or ''),
-        'SMOKE_JOBS_HANDLER=' .. tostring(row and row[2] or ''),
+        'SMOKE_JOBS_STATUS=' .. tostring(row and row.status or ''),
+        'SMOKE_JOBS_HANDLER=' .. tostring(row and row.last_error or ''),
       })
     end)
   end,

@@ -229,11 +229,15 @@ function bootstrap(phase, main)
     end,
 
     -- 12. Database API,
+    --
+    -- Nothing connects here. `db_connection()` resolves an object and opens a
+    -- socket on the first statement run through it, so a request that reads
+    -- everything it needs from a projection cache opens no connection at all --
+    -- which is where the last two queries on a warm anonymous page went.
     function ()
       if settings.db ~= nil then
         require 'includes.database.init'
         if settings.db.default ~= nil then
-          db_connect()
           if settings.route_aliases_storage then
             route_aliases_load()
           end

@@ -160,7 +160,7 @@ local function make_db_query(state)
 
       for _, job in ipairs(state.jobs) do
         if job.active_key == args[1] then
-          return rows_result({{job.created_at}})
+          return rows_result({{created_at = job.created_at}})
         end
       end
 
@@ -170,7 +170,7 @@ local function make_db_query(state)
       if row == nil then
         return rows_result({})
       end
-      return rows_result({{row}})
+      return rows_result({{version = row}})
     elseif sql:match('^INSERT INTO projection_version%\(') then
       -- One upsert, matched by prefix because the statement spans lines. It
       -- replaced a DELETE and an INSERT; a touch that starts issuing two
@@ -296,14 +296,14 @@ local function make_db_query(state)
         updated_at = args[15],
       }
       return rows_result({})
-    elseif sql == 'SELECT COUNT(*) FROM tag_listing_index WHERE tag_id = ?' then
+    elseif sql == 'SELECT COUNT(*) AS total FROM tag_listing_index WHERE tag_id = ?' then
       local count = 0
       for _, item in ipairs(state.tag_listing_index) do
         if tonumber(item.tag_id) == tonumber(args[1]) then
           count = count + 1
         end
       end
-      return rows_result({{count}})
+      return rows_result({{total = count}})
     elseif sql:match('^SELECT entity_type type, entity_id id, user_id, language, title, teaser, body, created, changed, status, promote, route FROM tag_listing_index') then
       local rows = {}
       for _, item in ipairs(state.tag_listing_index) do
@@ -344,14 +344,14 @@ local function make_db_query(state)
     elseif sql == 'SELECT * FROM content_public WHERE id = ?' then
       row = state.content_public[tonumber(args[1])]
       return rows_result(row and {row} or {})
-    elseif sql:match('^SELECT count%(%*%) FROM content_public') then
+    elseif sql:match('^SELECT count%(%*%) AS total FROM content_public') then
       local count = 0
       for _, item in pairs(state.content_public) do
         if item.promote == 1 and (sql:find('AND status = 1', 1, true) == nil or item.status == 1) then
           count = count + 1
         end
       end
-      return rows_result({{count}})
+      return rows_result({{total = count}})
     elseif sql:match('^SELECT %* FROM content_public') then
       local rows = {}
       for _, item in pairs(state.content_public) do
@@ -396,7 +396,7 @@ local function make_db_query(state)
         rows[#rows + 1] = item
       end
       return rows_result(rows)
-    elseif sql:match('^SELECT COUNT%(%*%) FROM content e JOIN field_tag ft') then
+    elseif sql:match('^SELECT COUNT%(%*%) AS total FROM content e JOIN field_tag ft') then
       -- The tag listing's legacy count, one UNION arm per tagged entity type.
       -- Deferral made this path ordinary traffic rather than a missing-table
       -- fallback, so the fake has to answer it.
@@ -408,7 +408,7 @@ local function make_db_query(state)
           count = count + 1
         end
       end
-      return rows_result({{count}})
+      return rows_result({{total = count}})
     elseif sql:match('^SELECT e%.%*, .content. "type" FROM content e JOIN field_tag ft') then
       local rows = {}
       for _, rel in ipairs(state.field_tag_rows) do
@@ -419,14 +419,14 @@ local function make_db_query(state)
         end
       end
       return rows_result(rows)
-    elseif sql:match('^SELECT count%(%*%) FROM content WHERE') then
+    elseif sql:match('^SELECT count%(%*%) AS total FROM content WHERE') then
       local count = 0
       for _, item in pairs(state.content_rows) do
         if item.promote == 1 and (sql:find('AND status = 1', 1, true) == nil or item.status == 1) then
           count = count + 1
         end
       end
-      return rows_result({{count}})
+      return rows_result({{total = count}})
     elseif sql:match('^SELECT %* FROM content WHERE promote = 1') then
       local rows = {}
       for _, item in pairs(state.content_rows) do
@@ -490,6 +490,91 @@ local function make_db_query(state)
   end
 end
 
+--[[ A connection object over the SQL stub above.
+
+  Every call site reaches the database through `db_connection()` now, and a
+  declared statement is named at the call site rather than spelled there -- so
+  `run` resolves the name through the real registry and hands the stub the body
+  that declaration carries. A name the registry does not know raises here, which
+  is what keeps this fake honest as call sites move onto the layer: a statement
+  can be renamed or its SQL rewritten, and the stub either recognises the result
+  or the test says so.
+]]
+local registry = require 'includes.database.registry'
+
+require 'includes.database.statements'
+
+local function make_db_connection(query)
+  local conn = {}
+
+  function conn:run(name, ...)
+    local decl = registry.declaration(name)
+
+    if decl == nil then
+      error('undeclared statement: ' .. tostring(name), 0)
+    end
+
+    return query(decl.sql, ...)
+  end
+
+  function conn:try(name, ...)
+    local ok, result = pcall(self.run, self, name, ...)
+
+    if not ok then
+      return nil, result
+    end
+
+    return result
+  end
+
+  -- Ad-hoc SQL, for the call sites stage 8.5 has not reached yet.
+  function conn:execute(sql, ...)
+    return query(sql, ...)
+  end
+
+  -- `db_field()` is the identifier whitelist; the real one answers from the
+  -- schema, and the fake accepts whatever it is asked about.
+  function conn:field(_, field_name)
+    return field_name
+  end
+
+  function conn:last_insert_id()
+    return 1
+  end
+
+  function conn:name()
+    return 'default'
+  end
+
+  function conn:release()
+    return true
+  end
+
+  return conn
+end
+
+--[[ Install one stub as both shapes.
+
+  `db_query` is the transitional free function and `db_connection()` the real
+  accessor; they must be the same fake, or a test measuring queries would count
+  only half of them.
+]]
+local function install_db(state, ...)
+  local query = make_db_query(state)
+  local connection = make_db_connection(query)
+  local accessor = function() return connection end
+
+  for i = 1, select('#', ...) do
+    local target = (select(i, ...))
+
+    target.db_query = query
+    target.db_connection = accessor
+  end
+
+  return query, connection
+end
+
+
 -- `entities` overrides the tag module's configured entity types. The default is
 -- the one shape `tag_projection_supported()` accepts; a test that needs the
 -- unsupported shape passes its own.
@@ -516,11 +601,10 @@ local function setup_tag_env(state, entities)
     },
   }
   env = {
-    db_query = make_db_query(state),
     db_limit = function() return ' LIMIT ?, ?' end,
     db_last_insert_id = function() return 1 end,
   }
-  db_query = env.db_query
+  install_db(state, env, _G)
   _GET = {}
   header = function(name, value)
     if name == 'status' then
@@ -603,7 +687,7 @@ local function setup_route_env(state, projection_overrides)
     route_aliases_prepend_language = false,
     route_redirects_prepend_language = false,
   }
-  db_query = make_db_query(state)
+  install_db(state, _G)
   db_last_insert_id = function() return 1 end
   module_invoke_all = function() end
   request_path = function() return '' end
@@ -640,11 +724,10 @@ local function setup_content_env(state, projection_overrides)
     },
   }
   env = {
-    db_query = make_db_query(state),
     db_limit = function() return ' LIMIT ?, ?' end,
     db_last_insert_id = function() return 1 end,
   }
-  db_query = env.db_query
+  install_db(state, env, _G)
   _GET = {}
   header = function() end
   pager = function() return {} end
@@ -1114,8 +1197,8 @@ do
     created = 15,
   }
 
-  local db_query = make_db_query(state)
-  local original = db_query
+  local original = make_db_query(state)
+  local db_query
   db_query = function(sql, ...)
     if sql == 'SELECT version FROM projection_version WHERE projection_key = ?' then
       error('no such table: projection_version')
@@ -1132,6 +1215,8 @@ do
   content = setup_content_env(state)
   env.db_query = db_query
   _G.db_query = db_query
+  env.db_connection = function() return make_db_connection(db_query) end
+  _G.db_connection = env.db_connection
   content.init()
 
   local entity = content.load(6)
@@ -1169,7 +1254,7 @@ do
   content = setup_content_env(state)
   content.frontpage()
 
-  assert_eq('content_projection_frontpage_count_query', query_count(state, '^SELECT count%(%*%) FROM content_public'), 1)
+  assert_eq('content_projection_frontpage_count_query', query_count(state, '^SELECT count%(%*%) AS total FROM content_public'), 1)
   assert_eq('content_projection_frontpage_rows_query', query_count(state, '^SELECT %* FROM content_public'), 1)
   assert_eq('content_projection_frontpage_legacy_unused', query_count(state, '^SELECT count%(%*%) FROM content WHERE'), 0)
 end
@@ -1207,7 +1292,7 @@ do
   assert_eq('frontpage_clamp_single_rows_query', query_count(state, '^SELECT %* FROM content_public'), 1)
 
   -- The count is cached under a page-independent key, so it stays at one too.
-  assert_eq('frontpage_clamp_single_count_query', query_count(state, '^SELECT count%(%*%) FROM content_public'), 1)
+  assert_eq('frontpage_clamp_single_count_query', query_count(state, '^SELECT count%(%*%) AS total FROM content_public'), 1)
 
   -- The offset handed to SQL is the clamped page, never the raw parameter.
   do
@@ -1408,7 +1493,7 @@ do
   tag_mod = setup_tag_env(state)
   tag_mod.entity_page()
 
-  assert_eq('tag_projection_count_query', query_count(state, '^SELECT COUNT%(%*%) FROM tag_listing_index'), 1)
+  assert_eq('tag_projection_count_query', query_count(state, '^SELECT COUNT%(%*%) AS total FROM tag_listing_index'), 1)
   assert_eq('tag_projection_rows_query', query_count(state, '^SELECT entity_type type, entity_id id, user_id, language, title, teaser, body, created, changed, status, promote, route FROM tag_listing_index'), 1)
   assert_eq('tag_projection_legacy_entity_type_unused', query_count(state, '^SELECT entity_type FROM field_tag'), 0)
 end
@@ -2311,7 +2396,7 @@ end
 
 local function setup_projection_env(state, shared)
   settings = {}
-  db_query = make_db_query(state)
+  install_db(state, _G)
   if shared then
     ngx = {shared = {ophal_projection_versions = shared}}
   else

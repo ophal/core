@@ -27,6 +27,8 @@ local function assert_match(label, got, pattern)
   end
 end
 
+local db_fake = require 'tests.unit.db_fake'
+
 local db_log, hook_log, request_body, selected_account
 local uuid_counter = 0
 local request_host = 'example.com'
@@ -80,10 +82,8 @@ local function load_user_module()
   env = {
     _SESSION = {},
     _GET = {},
-    db_query = mock_db_query,
-    db_field = function(_, field) return field end,
-    db_last_insert_id = function() return 1 end,
   }
+  db_fake.install({sql = mock_db_query}, env, _G)
   _SESSION = env._SESSION
   _GET = env._GET
   _SERVER = function(key)

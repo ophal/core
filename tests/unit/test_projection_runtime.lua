@@ -491,88 +491,23 @@ local function make_db_query(state)
   end
 end
 
---[[ A connection object over the SQL stub above.
+--[[ One stub, installed as both shapes.
 
-  Every call site reaches the database through `db_connection()` now, and a
-  declared statement is named at the call site rather than spelled there -- so
-  `run` resolves the name through the real registry and hands the stub the body
-  that declaration carries. A name the registry does not know raises here, which
-  is what keeps this fake honest as call sites move onto the layer: a statement
-  can be renamed or its SQL rewritten, and the stub either recognises the result
-  or the test says so.
-]]
-local registry = require 'includes.database.registry'
-
-require 'includes.database.statements'
-
-local function make_db_connection(query)
-  local conn = {}
-
-  function conn:run(name, ...)
-    local decl = registry.declaration(name)
-
-    if decl == nil then
-      error('undeclared statement: ' .. tostring(name), 0)
-    end
-
-    return query(decl.sql, ...)
-  end
-
-  function conn:try(name, ...)
-    local ok, result = pcall(self.run, self, name, ...)
-
-    if not ok then
-      return nil, result
-    end
-
-    return result
-  end
-
-  -- Ad-hoc SQL, for the call sites stage 8.5 has not reached yet.
-  function conn:execute(sql, ...)
-    return query(sql, ...)
-  end
-
-  -- `db_field()` is the identifier whitelist; the real one answers from the
-  -- schema, and the fake accepts whatever it is asked about.
-  function conn:field(_, field_name)
-    return field_name
-  end
-
-  function conn:last_insert_id()
-    return 1
-  end
-
-  function conn:name()
-    return 'default'
-  end
-
-  function conn:release()
-    return true
-  end
-
-  return conn
-end
-
---[[ Install one stub as both shapes.
-
-  `db_query` is the transitional free function and `db_connection()` the real
+  `db_query` is the transitional free function and `db_connection()` the
   accessor; they must be the same fake, or a test measuring queries would count
-  only half of them.
+  only half of them. `tests/unit/db_fake.lua` resolves a statement name through
+  the real registry and hands the body to the dispatcher below, so a statement
+  that is renamed or rewritten either still matches this stand-in or the test
+  says so.
 ]]
+local db_fake = require 'tests.unit.db_fake'
+
 local function install_db(state, ...)
   local query = make_db_query(state)
-  local connection = make_db_connection(query)
-  local accessor = function() return connection end
 
-  for i = 1, select('#', ...) do
-    local target = (select(i, ...))
+  db_fake.install({sql = query}, ...)
 
-    target.db_query = query
-    target.db_connection = accessor
-  end
-
-  return query, connection
+  return query
 end
 
 

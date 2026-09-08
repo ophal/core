@@ -62,8 +62,7 @@ local function result_of(rows)
 end
 
 local registry = require 'includes.database.registry'
-
-require 'includes.database.statements'
+local db_fake = require 'tests.unit.db_fake'
 
 -- A stand-in for `ophal_jobs`. It keeps rows in a Lua array and answers the
 -- handful of statements the module issues; `state.missing_table` makes every
@@ -205,42 +204,26 @@ function handlers.pending_count(state, args)
 end
 
 local function install_db(state)
-  local connection = {}
-
   settings = {performance = {jobs = {retry_backoff = 30, max_attempts = 2}}}
 
-  function connection:run(name, ...)
-    local args = {...}
-    local handler = handlers[(name:gsub('^jobs%.', ''))]
+  -- Dispatch on the statement name: `jobs.complete`, `jobs.retry` and
+  -- `jobs.give_up` are three UPDATEs that differ by one clause, and telling
+  -- them apart by pattern-matching their text is exactly the brittleness
+  -- declarations exist to remove. `db_fake` still refuses an undeclared name.
+  db_fake.install({
+    statement = function(name, ...)
+      local args = {...}
+      local handler = handlers[(name:gsub('^jobs%.', ''))]
 
-    state.queries[#state.queries + 1] = {statement = name, args = args}
+      state.queries[#state.queries + 1] = {statement = name, args = args}
 
-    -- Undeclared names are a mistake in the module, not in the fake, so they
-    -- are as loud here as they would be against a real registry.
-    if registry.declaration(name) == nil then
-      error('undeclared statement: ' .. tostring(name), 0)
-    end
+      if state.missing_table then
+        error('no such table: ophal_jobs')
+      end
 
-    if state.missing_table then
-      error('no such table: ophal_jobs')
-    end
-
-    return result_of(handler and handler(state, args) or {})
-  end
-
-  function connection:try(name, ...)
-    local ok, result = pcall(self.run, self, name, ...)
-
-    if not ok then
-      return nil, result
-    end
-
-    return result
-  end
-
-  db_connection = function()
-    return connection
-  end
+      return result_of(handler and handler(state, args) or {})
+    end,
+  }, _G)
 end
 
 local function load_jobs()

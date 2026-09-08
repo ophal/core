@@ -1,5 +1,7 @@
 local seawolf = require 'seawolf'.__build('other', 'variable', 'contrib')
 local json, require, tonumber = require 'dkjson', require, tonumber
+
+require 'modules.user.statements'
 local print, exit, config = print, exit, settings.user or {}
 local error, empty, header, l = error, seawolf.variable.empty, header, l
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
@@ -46,7 +48,7 @@ end
 
 module 'ophal.modules.user'
 
-local db_query, db_field, db_last_insert_id
+local db_connection
 local password_hash_prefix = 'ophal$1$'
 local hash
 
@@ -180,13 +182,12 @@ end
 
 local function password_rehash_account(account, password)
   local new_password_hash = password_hash(password)
-  local rs, err = db_query('UPDATE users SET pass = ? WHERE id = ?', new_password_hash, account.id)
+  local rs = db_connection():run('user.set_password', new_password_hash,
+    account.id)
 
-  if not err then
-    account.pass = new_password_hash
-  end
+  account.pass = new_password_hash
 
-  return rs, err
+  return rs
 end
 
 function password_hash(password, options)
@@ -291,9 +292,9 @@ end
 --[[ Implements hook init().
 ]]
 function init()
-  db_query = env.db_query
-  db_field = env.db_field
-  db_last_insert_id = env.db_last_insert_id
+  -- Captured per request, not at load: a connection object belongs to the
+  -- request that asked for it and raises at its next use once released.
+  db_connection = env.db_connection
 
   -- Set anonymous user ID
   local current_session = session()
@@ -416,8 +417,9 @@ function load_by_field(field, value)
       name = 'Anonymous',
     }
   elseif not empty(field) and not empty(value) then
-    local sql = ('SELECT * FROM users WHERE %s = ?'):format(db_field('users', field))
-    rs = db_query(sql, value)
+    -- The column is part of the compile key, checked against the real schema
+    -- once per distinct value per worker rather than formatted into SQL here.
+    rs = db_connection():with('user.load_by_field', field):run(value)
     entity = rs:fetch(true)
   end
 
@@ -451,7 +453,7 @@ do
 
       -- Load roles from database storage
       if config.permissions_storage then
-        local rs, err = db_query [[SELECT id, name FROM role WHERE active = 1 ORDER BY weight, id]]
+        local rs = db_connection():run 'user.role_list'
         for role in rs:rows(true) do
           roles[role.id] = role.name
         end
@@ -504,10 +506,7 @@ do
 
       -- Load user <--> role relationships from database storage
       if config.permissions_storage then
-        local rs, err = db_query([[
-SELECT ur.role_id
-FROM user_role ur JOIN role r ON ur.role_id = r.id
-WHERE user_id = ?]], user_id)
+        local rs = db_connection():run('user.roles', user_id)
         for row in rs:rows(true) do
           user_roles[row.role_id] = row.role_id
         end
@@ -547,13 +546,25 @@ do
       if config.permissions_storage then
         local roles = xtable(get_user_roles(user_id) or {})
 
-        local rs, err = db_query([[
+        --[[ Ad-hoc, and the one statement here that cannot be declared.
+
+          The IN list is as wide as the account has roles, so its arity is not
+          known until it runs -- a declared statement has a fixed number of
+          placeholders by construction. `db:execute()` is what the layer offers
+          for text that is not known until it runs, and attribution falls back
+          to the tokenizer for it.
+
+          The values interpolated are role ids read out of `user_role` a few
+          lines above, never request input, and this runs once per role set per
+          worker: `test_user_permissions.lua` pins the cold cost at four
+          queries and the warm at zero.
+        ]]
+        local rs = db_connection():execute(([[
 SELECT permission
 FROM role_permission
-WHERE role_id IN (']] .. roles:concat("', '") .. [[')
+WHERE role_id IN ('%s')
 GROUP BY permission
-ORDER BY permission
-]])
+ORDER BY permission]]):format(roles:concat("', '")))
         for row in rs:rows(true) do
           if nil == permissions[row.permission] then
             permissions[row.permission] = true
@@ -627,10 +638,10 @@ function create(entity)
 
   if entity.type == nil then entity.type = 'user' end
 
+  local db = db_connection()
+
   if entity.id then
-    rs, err = db_query([[
-INSERT INTO users(id, name, mail, pass, active, created)
-VALUES(?, ?, ?, ?, ?, ?)]],
+    db:run('user.create_with_id',
       entity.id,
       entity.name,
       entity.mail,
@@ -639,27 +650,23 @@ VALUES(?, ?, ?, ?, ?, ?)]],
       entity.created or time()
     )
   else
-    rs, err = db_query([[
-INSERT INTO users(name, mail, pass, active, created)
-VALUES(?, ?, ?, ?, ?)]],
+    db:run('user.create',
       entity.name,
       entity.mail,
       entity.pass,
       entity.active or false,
       entity.created or time()
     )
-    entity.id = db_last_insert_id('users', 'id')
+    entity.id = db:last_insert_id('users', 'id')
   end
 
-  if not err then
-    module_invoke_all('entity_after_save', entity)
-  end
-  return entity.id, err
+  module_invoke_all('entity_after_save', entity)
+
+  return entity.id
 end
 
 function update(entity)
-  local rs, err
-  rs, err = db_query('UPDATE users SET name = ?, mail = ?, pass = ?, active = ?, created = ? WHERE id = ?',
+  local rs = db_connection():run('user.update',
     entity.name,
     entity.mail,
     entity.pass,
@@ -667,10 +674,10 @@ function update(entity)
     entity.created,
     entity.id
   )
-  if not err then
-    module_invoke_all('entity_after_save', entity)
-  end
-  return rs, err
+
+  module_invoke_all('entity_after_save', entity)
+
+  return rs
 end
 
 

@@ -65,6 +65,8 @@ local function rows_result(items)
   return result
 end
 
+local db_fake = require 'tests.unit.db_fake'
+
 local function new_user_state()
   return {
     queries = {},
@@ -140,10 +142,8 @@ local function setup_user_env(state, session_user_id)
   ophal = {modules = {}}
   env = {
     _SESSION = _SESSION,
-    db_query = make_db_query(state),
-    db_field = function(_, field) return field end,
-    db_last_insert_id = function() return 1 end,
   }
+  db_fake.install({sql = make_db_query(state)}, env, _G)
   header = function() end
   l = function(text) return text end
   theme = setmetatable({}, {__call = function() return '' end})

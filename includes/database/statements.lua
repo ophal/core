@@ -304,4 +304,29 @@ define('route.index_clear', {
   tables = {'route_index'},
 })
 
+--[[ Projection versions.
+
+  A version is a unix second, and `projection.touch()` writes it as one upsert
+  rather than a DELETE and an INSERT: `projection_key` is the primary key on
+  both drivers and `excluded` is spelled the same way in SQLite and PostgreSQL,
+  so it is one portable statement. That halves what a touch costs, and it closes
+  the window the pair left open -- between the DELETE and the INSERT the key had
+  no row at all, and a peer worker reading it there negative-cached the miss for
+  `projection_version_miss_ttl` seconds. An upsert never shows an absent row,
+  and a failed one leaves the old version standing.
+]]
+define('projection.version', {
+  sql = 'SELECT version FROM projection_version WHERE projection_key = ?',
+  tables = {'projection_version'},
+})
+
+define('projection.touch', {
+  sql = [[INSERT INTO projection_version(projection_key, version, updated_at)
+VALUES(?, ?, ?)
+ON CONFLICT(projection_key) DO UPDATE SET
+  version = excluded.version,
+  updated_at = excluded.updated_at]],
+  tables = {'projection_version'},
+})
+
 return true

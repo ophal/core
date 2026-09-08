@@ -18,8 +18,6 @@
   page now opens nothing.
 ]]
 
-local config = require 'includes.database.config'
-local driver_base = require 'includes.database.driver'
 local router = require 'includes.database.router'
 local stats = require 'includes.database.stats'
 
@@ -70,33 +68,13 @@ function db_query_stats_reset()
   return stats.reset()
 end
 
---[[ Transitional, and deliberately marked so.
+--[[ Drop this request's connection's cached table schemas.
 
-  Stage 8.5 moves sixty-three call sites from ad-hoc SQL onto declared
-  statements one file at a time. Until the last of them lands these keep the
-  untouched files working, and they are deleted with the last call site rather
-  than deprecated and left. Each one resolves the default connection implicitly,
-  which is the hazard the object exists to remove -- so nothing new may call
-  them.
+  Reached from `cache_clear_all()`. Per connection rather than per worker: the
+  old cache was keyed by table name alone, so two connections whose schemas
+  differ -- the migration and integration case -- shared one and the second was
+  answered with the first's columns.
 ]]
-function db_query(query, ...)
-  return db_connection():execute(query, ...)
-end
-
-function db_field(table_name, field_name)
-  return db_connection():field(table_name, field_name)
-end
-
-function db_last_insert_id(table_name, field_name)
-  return db_connection():last_insert_id(table_name, field_name)
-end
-
--- The dialect's LIMIT spelling, for the paginated statements that still build
--- their SQL at the call site. Declared statements say `{{limit}}` instead.
-function db_limit()
-  return driver_base.load(config.get().driver_module).limit_clause
-end
-
 function db_schema_cache_clear()
   return db_connection():schema_cache_clear()
 end

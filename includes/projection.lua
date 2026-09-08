@@ -187,17 +187,22 @@ local function lru_evict(bucket, limit)
   end
 end
 
-function M.query(query, ...)
-  local ok, result = pcall(db_query, query, ...)
+--[[ Run a declared statement, answering `nil, err` rather than raising.
+
+  This was `pcall(db_query, ...)` -- a database concern living in the projection
+  layer. `db:try()` is the same shape, in the layer, so what is left here is the
+  part that is actually about projections: resolving the connection is guarded
+  too, because a process with no database configured has to reach "no projection
+  is available" rather than an error.
+]]
+local function run(name, ...)
+  local ok, db = pcall(db_connection)
+
   if not ok then
-    return nil, result
+    return nil, db
   end
 
-  return result
-end
-
-function M.exec(query, ...)
-  return M.query(query, ...)
+  return db:try(name, ...)
 end
 
 function M.is_missing_table(err, table_name)
@@ -242,10 +247,7 @@ function M.version(key)
     return nil
   end
 
-  rs, err = M.query(
-    'SELECT version FROM projection_version WHERE projection_key = ?',
-    normalized
-  )
+  rs, err = run('projection.version', normalized)
 
   if not rs then
     return nil, err
@@ -557,15 +559,7 @@ function M.touch(key, version)
   -- negative-cache the miss for `projection_version_miss_ttl` seconds. An
   -- upsert never shows an absent row, and a failed one leaves the old version
   -- standing instead of deleting it.
-  local ok, err = M.exec([[
-INSERT INTO projection_version(projection_key, version, updated_at) VALUES(?, ?, ?)
-ON CONFLICT(projection_key) DO UPDATE SET
-  version = excluded.version,
-  updated_at = excluded.updated_at]],
-    normalized,
-    current,
-    time()
-  )
+  local ok, err = run('projection.touch', normalized, current, time())
 
   if not ok and M.is_missing_table(err, 'projection_version') then
     version_cache[normalized] = current

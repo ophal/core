@@ -56,7 +56,7 @@ local scenarios = {
   -- Reports the worker's cumulative query counters. It deliberately does not
   -- bootstrap: a probe that connected to the database would add queries to the
   -- number it exists to report. With `lua_code_cache on` and one worker this
-  -- reads the very table `db_query()` counts into, so the difference between
+  -- reads the very table the layer counts into, so the difference between
   -- two probes is exactly what the requests between them cost.
   -- The queue, end to end. Registering the handler here and draining it from
   -- `/cron` works because both locations run in the same worker with
@@ -104,7 +104,8 @@ local scenarios = {
       local projection = require 'includes.projection'
       local key = query_arg('key') or 'content_public'
 
-      db_query('UPDATE ophal_jobs SET created_at = 0 WHERE active_key = ?', key)
+      db_connection():execute(
+        'UPDATE ophal_jobs SET created_at = 0 WHERE active_key = ?', key)
       projection.clear_pending(key)
 
       write(render{
@@ -149,7 +150,7 @@ local scenarios = {
           return false
         end
 
-        db_query(
+        db_connection():execute(
           'UPDATE ophal_jobs SET last_error = ? WHERE kind = ?',
           'smoke handler ran',
           'smoke_probe'
@@ -170,7 +171,9 @@ local scenarios = {
     return run_bootstrap(function()
       local jobs = require 'includes.jobs'
       local kind = query_arg('kind') or 'smoke_probe'
-      local rs = db_query(
+      -- Ad-hoc, because this is a probe rather than an application path: the
+      -- statement exists only to look at what the queue did.
+      local rs = db_connection():execute(
         'SELECT status, last_error FROM ophal_jobs WHERE kind = ? ORDER BY id',
         kind
       )

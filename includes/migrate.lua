@@ -8,8 +8,26 @@ local function settings_value(options)
   return options.settings or _G.settings
 end
 
+--[[ How a migration reaches the database.
+
+  A migration is DDL that is not known until it runs, so its contract stays a
+  function taking SQL -- `ctx.db_query(statement)` -- rather than a statement
+  name. What changed under it is where that SQL goes: `db:execute()` on this
+  request's connection, which is the layer's own path for ad-hoc text, instead
+  of a free function resolving a connection from an ambient identifier.
+]]
 local function db_query_fn(options)
-  return options.db_query or _G.db_query
+  if options.db_query then
+    return options.db_query
+  end
+
+  if type(_G.db_connection) ~= 'function' then
+    return nil
+  end
+
+  return function(sql, ...)
+    return _G.db_connection():execute(sql, ...)
+  end
 end
 
 local function cache_clear_fn(options)

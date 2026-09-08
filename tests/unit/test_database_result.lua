@@ -223,8 +223,9 @@ end
 io.write '\n-- the database boundary --\n'
 
 --[[ `includes/database/init.lua` is the whole application-facing surface now:
-  one accessor answering with a connection object, and the transitional free
-  functions that stage 8.5 deletes as the last call site leaves them.
+  one accessor, answering with a connection object bound to one identifier.
+  There is no `db_query()`, no `db_field()` and no `db_set_db_id()`, so no line
+  can change which database a later line talks to.
 
   The DBI handle is mocked rather than a real database, because what is under
   test here is the boundary -- lazy connection, memoization per request,
@@ -300,7 +301,7 @@ do
   assert_eq('accessor_does_not_connect', connects, 0)
   assert_eq('accessor_memoizes_per_request', db_connection(), db)
 
-  local rs = db_query('SELECT 1')
+  local rs = db:execute 'SELECT 1'
 
   assert_eq('query_connects_on_first_use', connects, 1)
   assert_eq('query_reaches_the_driver', prepared, 'SELECT 1')
@@ -320,7 +321,7 @@ do
   assert_eq('journal_mode_is_read_first', calls[3], 'PRAGMA journal_mode')
   assert_eq('journal_mode_not_reset_when_current', calls[4], 'SELECT 1')
 
-  local second = db_query('SELECT 2')
+  local second = db:execute 'SELECT 2'
 
   assert_eq('second_query_reuses_the_connection', connects, 1)
   assert_truthy('second_query_answers', second)

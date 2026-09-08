@@ -44,6 +44,14 @@ settings = {
       database = os.getenv('OPHAL_BENCH_SQLITE')
         or '/tmp/ophal_contract.sqlite',
     },
+    -- The same file through the other binding, so the two answer the same
+    -- questions side by side and the integer defect is a difference between
+    -- two rows of this report rather than a claim in a comment.
+    lsqlite = {
+      driver = 'lsqlite3',
+      database = (os.getenv('OPHAL_BENCH_SQLITE')
+        or '/tmp/ophal_contract.sqlite') .. '.ls',
+    },
   },
   performance = {query_stats = false},
 }
@@ -113,6 +121,15 @@ local BIG = 123456789012345
 local TRUNCATES_INTEGERS = {luadbi_sqlite3 = -2045911175}
 
 local SCHEMA = {
+  lsqlite3 = {
+    'DROP TABLE IF EXISTS ophal_contract',
+    [[CREATE TABLE ophal_contract(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title VARCHAR(255) NOT NULL,
+      note VARCHAR(255),
+      big BIGINT
+    )]],
+  },
   pgmoon = {
     'DROP TABLE IF EXISTS ophal_contract',
     [[CREATE TABLE ophal_contract(
@@ -280,7 +297,7 @@ end
 
 io.write('\nophal driver contract\n')
 
-for _, name in ipairs{'default', 'mysql', 'sqlite'} do
+for _, name in ipairs{'default', 'mysql', 'sqlite', 'lsqlite'} do
   local ran, err = pcall(check, name)
 
   if not ran then

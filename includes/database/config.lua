@@ -16,16 +16,26 @@
 
 local M = {}
 
--- Driver name to the module under `includes/database/driver/`. The legacy
--- names are the LuaDBI driver strings that existing settings files carry, and
--- they keep meaning LuaDBI: a site upgrading does not have its driver silently
--- swapped for a cosocket one.
+--[[ Driver name to the module under `includes/database/driver/`.
+
+  The legacy names are the LuaDBI driver strings that existing settings files
+  carry, and they keep meaning LuaDBI: a site upgrading does not have its driver
+  silently swapped for one it may not have installed.
+
+  `sqlite3` therefore still means LuaDBI, even though `lsqlite3` is the better
+  binding on both correctness and speed and is what a new site should name.
+  LuaDBI reads integer columns with 32-bit precision, so that default is on a
+  clock -- unix seconds cross 2^31 in January 2038 -- and it changes here, in
+  one line, as soon as lsqlite3 is installable from a rock rather than a build.
+  Flipping it before then would break every existing SQLite site on upgrade.
+]]
 local DRIVERS = {
   sqlite3 = 'luadbi_sqlite3',
   postgresql = 'luadbi_postgresql',
   mysql = 'luadbi_mysql',
   pgmoon = 'pgmoon',
   ['resty-mysql'] = 'resty_mysql',
+  lsqlite3 = 'lsqlite3',
 }
 
 local DEFAULT_KEY = 'default'

@@ -24,7 +24,10 @@ export LD_LIBRARY_PATH="$PG_PREFIX/usr/lib/x86_64-linux-gnu:$PG_PREFIX/usr/lib/p
 export OPHAL_BENCH_SQLITE="${OPHAL_BENCH_SQLITE:-$BACKENDS/run/contract.sqlite}"
 
 mkdir -p "$(dirname "$OPHAL_BENCH_SQLITE")"
-rm -f "$OPHAL_BENCH_SQLITE"
+# The write-ahead log and its shared-memory index are separate files, and a
+# stale one left beside a deleted database is not a fresh database.
+rm -f "$OPHAL_BENCH_SQLITE" "$OPHAL_BENCH_SQLITE"-wal "$OPHAL_BENCH_SQLITE"-shm
+rm -f "$OPHAL_BENCH_SQLITE".ls "$OPHAL_BENCH_SQLITE".ls-wal "$OPHAL_BENCH_SQLITE".ls-shm
 
 cd "$ROOT"
 exec resty tests/bench/driver_contract.lua

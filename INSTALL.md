@@ -90,17 +90,45 @@ OpenResty plus PostgreSQL assumptions for this line:
 Ophal targets the OpenResty runtime and its bundled LuaJIT environment. Install
 the required Lua modules for that runtime.
 
+Required for any site:
+
+- LPeg
+- LuaFilesystem
+- luuid
+- dkjson
+- LuaSocket
+- LuaDBI, plus the driver for your database
+- Seawolf
+
+No cryptography library is needed. See the note in `README.md`: SHA-256 is the
+default password algorithm and a pure-Lua implementation ships with Ophal.
+
 ### Debian
 
 ```sh
+$ sudo apt-get install uuid-dev libsqlite3-dev libpq-dev
 $ sudo luarocks install lpeg
-$ sudo apt-get install uuid-dev
-$ sudo luarocks install luuid
 $ sudo luarocks install luafilesystem
+$ sudo luarocks install luuid
+$ sudo luarocks install dkjson
+$ sudo luarocks install luasocket
 $ cd /tmp
-$ git clone --depth=1 git://github.com/ophal/seawolf.git
+$ git clone --depth=1 https://github.com/ophal/seawolf.git
 $ sudo mv seawolf /usr/local/share/lua/5.1/
 ```
+
+Then install the LuaDBI driver for the database you are going to use, or both.
+The driver rock pulls in the LuaDBI base with it, so there is no separate step
+for `DBI` itself:
+
+```sh
+$ sudo luarocks install luadbi-sqlite3 SQLITE_INCDIR=/usr/include
+$ sudo luarocks install luadbi-postgresql PGSQL_INCDIR=/usr/include/postgresql
+```
+
+`examples/Dockerfile` performs this same install against
+`openresty/openresty:bullseye-fat` and is the quickest way to check the list is
+still current.
 
 
 ## III. Installation

@@ -131,6 +131,69 @@ function csrf_denied(output)
   return false
 end
 
+--[[ Whether a value is safe to use as one segment of a filesystem path.
+
+  The upload endpoints take a filename, an upload id and a chunk index from the
+  query string and interpolate all three into paths. Nothing downstream can
+  undo that: by the time a path reaches `io.open` it is just a path, and
+  `files/` lives under the document root that `nginx.ophal.conf` serves static
+  extensions from directly. A caller holding `upload files` could therefore
+  write anywhere in the served tree, which is a different privilege from the one
+  the permission grants.
+
+  The rule is deliberately "one segment or nothing" rather than a blocklist of
+  dangerous sequences. A blocklist has to anticipate every encoding of "go up a
+  level"; this accepts a name with no separator in it at all, which is the only
+  shape any of these three values is ever supposed to have.
+
+  Rejecting is the whole answer -- there is deliberately no sanitizing variant
+  that strips the offending characters and continues. A repaired filename still
+  writes a file, just not the one the caller asked for and not where they think,
+  and a caller who did not mean to send `../` is not helped by having it removed
+  silently.
+]]
+function safe_path_segment(value)
+  local MAX = 255
+
+  if type(value) ~= 'string' or value == '' or #value > MAX then
+    return false
+  end
+
+  -- `.` and `..` traverse without containing a separator, so they have to be
+  -- named. Any other leading dot is allowed: it is only a hidden file.
+  if value == '.' or value == '..' then
+    return false
+  end
+
+  -- A separator of either flavour, a NUL, or any other control byte. The NUL
+  -- matters because the C library behind `io.open` stops there, so a name that
+  -- looks long and harmless in Lua can open a shorter one on disk.
+  if value:find('[/\\%z\1-\31]') then
+    return false
+  end
+
+  return true
+end
+
+--[[ Refuse a request whose path segment could escape its directory. ]]
+function unsafe_path_denied(output, name)
+  if type(log_warn) == 'function' then
+    log_warn('unsafe path segment rejected', {
+      event = 'unsafe_path_segment',
+      parameter = name,
+      path = type(request_path) == 'function' and request_path() or nil,
+    })
+  end
+
+  header('status', 400)
+
+  if type(output) == 'table' then
+    output.error = ('Invalid %s.'):format(name or 'parameter')
+  end
+
+  return false
+end
+
 --[[ The cron endpoint's shared secret, or nil when none is configured.
 
   `settings.cron.token` mirrors `vault.cron.token` the way `settings.site.hash`

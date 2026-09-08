@@ -10,12 +10,32 @@ local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
 local render_attributes, format_size = render_attributes, format_size
 local format_date = format_date
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
+-- Captured at load time like the line above, and for the same reason: the
+-- `module()` call below replaces this file's environment, so a global looked up
+-- afterwards resolves to nil.
+local safe_path_segment, unsafe_path_denied = safe_path_segment, unsafe_path_denied
 
 local debug = debug
 
 module 'ophal.modules.file'
 
 local user_mod, db_query, db_field, db_last_insert_id
+
+--[[ A chunk index, or nil when it is not one.
+
+  It reaches `io.open` as a path segment, so "looks numeric" is not enough --
+  `tonumber` accepts `0x10`, ` 3 ` and `1e2`, and a float would interpolate as
+  `1.5`. Only a non-negative integer is a chunk.
+]]
+local function upload_index(value)
+  local number = tonumber(value)
+
+  if number == nil or number < 0 or number % 1 ~= 0 then
+    return nil
+  end
+
+  return number
+end
 
 local function ensure_dir(path)
   local status, err
@@ -103,7 +123,7 @@ function upload_service()
   local status, output_fh, data, file
 
   upload_id = _GET.id
-  index = _GET.index
+  index = upload_index(_GET.index)
   file = {
     filename = _GET.name,
   }
@@ -114,6 +134,19 @@ function upload_service()
 
   if not csrf_validate_request() then
     csrf_denied(output)
+    return output
+  end
+
+  -- Both of these are interpolated into a path below. Checked after CSRF so a
+  -- forged request is refused for being forged, and before anything touches the
+  -- filesystem.
+  if not safe_path_segment(upload_id) then
+    unsafe_path_denied(output, 'id')
+    return output
+  end
+
+  if index == nil then
+    unsafe_path_denied(output, 'index')
     return output
   end
 
@@ -164,12 +197,7 @@ function merge_service()
   local source_path, file
 
   upload_id = _GET.id
-  index = tonumber(_GET.index)
-  file = {
-    filename = _GET.name,
-    filepath = ('%s/%s'):format(files_path, _GET.name),
-    filesize = tonumber(_GET.size or 0),
-  }
+  index = upload_index(_GET.index)
 
   output = {
     success = false,
@@ -179,6 +207,33 @@ function merge_service()
     csrf_denied(output)
     return output
   end
+
+  -- `filename` is the one that matters most: it is joined to `files_path`,
+  -- which lives under the document root nginx serves static extensions from
+  -- directly, so an unchecked `../` here is a write into the served tree for
+  -- anyone holding `upload files`. The entity is built after the check rather
+  -- than before it so that no path is constructed from a value that has not
+  -- been accepted.
+  if not safe_path_segment(_GET.name) then
+    unsafe_path_denied(output, 'name')
+    return output
+  end
+
+  if not safe_path_segment(upload_id) then
+    unsafe_path_denied(output, 'id')
+    return output
+  end
+
+  if index == nil then
+    unsafe_path_denied(output, 'index')
+    return output
+  end
+
+  file = {
+    filename = _GET.name,
+    filepath = ('%s/%s'):format(files_path, _GET.name),
+    filesize = tonumber(_GET.size or 0),
+  }
 
   target_fh, err = io_open(file.filepath, 'w+')
   if err then

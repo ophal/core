@@ -854,6 +854,54 @@ assert_regex '^HTTP/1\.[01] 200'
 assert_contains 'SMOKE_MERGE_SUCCESS=true'
 report_ok file_merge_chunks
 
+# The traversal, refused. `files_path` sits under the document root that
+# nginx.ophal.conf serves static extensions from directly, so an unchecked
+# `name` here is an arbitrary write into the served tree for anyone holding
+# `upload files` -- a different privilege from the one that permission grants.
+# 400 rather than 401: the caller was authenticated and authorised, they just
+# asked for something that is not a filename.
+escape_target="$SMOKE_ROOT/escaped.html"
+rm -f "$escape_target"
+run_request file_merge_rejects_traversal \
+  -c "$upload_cookie" -b "$upload_cookie" \
+  -X POST \
+  -H "X-CSRF-Token: $upload_token" \
+  "$BASE_URL/__smoke__?scenario=file_merge_chunks&name=../escaped.html&id=$upload_id&size=11&index=1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 400'
+assert_contains 'SMOKE_MERGE_SUCCESS=false'
+assert_contains 'SMOKE_MERGE_ERROR=Invalid name.'
+if [[ -e "$escape_target" ]]; then
+  fail "traversal wrote outside files_path: $escape_target"
+fi
+report_ok file_merge_rejects_traversal
+
+# The same check on the chunk endpoint, where the upload id is the segment that
+# reaches a path.
+run_request file_upload_rejects_traversal \
+  -c "$upload_cookie" -b "$upload_cookie" \
+  -X POST \
+  -H "X-CSRF-Token: $upload_token" \
+  --data 'alpha=part-' \
+  "$BASE_URL/__smoke__?scenario=file_upload_chunk&name=$upload_name&id=../../escape&index=0"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 400'
+assert_contains 'SMOKE_UPLOAD_SUCCESS=false'
+assert_contains 'SMOKE_UPLOAD_ERROR=Invalid id.'
+report_ok file_upload_rejects_traversal
+
+# A chunk index is a path segment too, so "looks numeric" is not the test.
+run_request file_upload_rejects_bad_index \
+  -c "$upload_cookie" -b "$upload_cookie" \
+  -X POST \
+  -H "X-CSRF-Token: $upload_token" \
+  --data 'alpha=part-' \
+  "$BASE_URL/__smoke__?scenario=file_upload_chunk&name=$upload_name&id=$upload_id&index=1.5"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 400'
+assert_contains 'SMOKE_UPLOAD_ERROR=Invalid index.'
+report_ok file_upload_rejects_bad_index
+
 run_request cron_smoke "$BASE_URL/cron"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'

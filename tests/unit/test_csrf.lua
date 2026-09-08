@@ -234,6 +234,53 @@ do
   assert_eq('cron_denied_status', last_header and last_header.v, 403)
 end
 
+io.write '\n-- safe path segments --\n'
+
+-- The upload endpoints interpolate a filename, an upload id and a chunk index
+-- into filesystem paths, and `files/` is under the document root nginx serves
+-- static extensions from. So the question this answers is not "is this tidy"
+-- but "can a caller holding `upload files` write outside the directory the
+-- permission is about".
+do
+  setup_security_env()
+
+  assert_eq('segment_plain_name', safe_path_segment('report.pdf'), true)
+  assert_eq('segment_hidden_file', safe_path_segment('.hidden'), true)
+  assert_eq('segment_uuid', safe_path_segment('8f14e45f-ceea-467a-9f37-3e2b1c0d5a99'), true)
+  assert_eq('segment_spaces_and_unicode', safe_path_segment('mi informe (final).pdf'), true)
+
+  -- The traversal itself, in the shapes that reach a path.
+  assert_eq('segment_parent', safe_path_segment('..'), false)
+  assert_eq('segment_self', safe_path_segment('.'), false)
+  assert_eq('segment_relative', safe_path_segment('../etc/passwd'), false)
+  assert_eq('segment_absolute', safe_path_segment('/etc/passwd'), false)
+  assert_eq('segment_nested', safe_path_segment('a/b'), false)
+  assert_eq('segment_backslash', safe_path_segment('a\\b'), false)
+
+  -- A NUL truncates the name the C library actually opens, so a value that
+  -- reads as harmless in Lua can open a different, shorter path on disk.
+  assert_eq('segment_nul', safe_path_segment('safe.txt\0/../../evil'), false)
+  assert_eq('segment_newline', safe_path_segment('a\nb'), false)
+  assert_eq('segment_tab', safe_path_segment('a\tb'), false)
+
+  assert_eq('segment_empty', safe_path_segment(''), false)
+  assert_eq('segment_nil', safe_path_segment(nil), false)
+  assert_eq('segment_number', safe_path_segment(7), false)
+  assert_eq('segment_too_long', safe_path_segment(('a'):rep(256)), false)
+  assert_eq('segment_at_the_limit', safe_path_segment(('a'):rep(255)), true)
+end
+
+-- A refusal the client can see, and a 400 rather than a 401: the request was
+-- authenticated and authorised, it just asked for something that is not a name.
+do
+  setup_security_env()
+  local output = {}
+
+  assert_eq('unsafe_path_returns_false', unsafe_path_denied(output, 'name'), false)
+  assert_eq('unsafe_path_status', last_header and last_header.v, 400)
+  assert_eq('unsafe_path_names_the_parameter', output.error, 'Invalid name.')
+end
+
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then
   os.exit(1)

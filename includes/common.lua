@@ -2,6 +2,7 @@ local seawolf = require 'seawolf'.__build('maths', 'text', 'fs')
 local pairs, tcon, date, time = pairs, table.concat, os.date, os.time
 local lfs, json, round = lfs, require 'dkjson', seawolf.maths.round
 local str_replace = seawolf.text.str_replace
+local request_state = require 'includes.request_state'
 
 if type(html_url_escape) ~= 'function' then
   pcall(require, 'includes.escape')
@@ -94,14 +95,31 @@ do
 end
 
 do
-  local javascript = {}
-  local order = {}
-  local load_ophal_js = false
+  --[[ The scripts this request has asked for.
+
+    In request state rather than in three file upvalues. The accumulators are
+    filled across the whole of a request -- `init_js()` at reset, modules while
+    they render, the theme at the end -- so a worker that yields in between
+    would otherwise merge two visitors' pages into one script list.
+  ]]
+  local function js_state()
+    local state = request_state.current()
+
+    if state.js == nil then
+      state.js = {javascript = {}, order = {}, load_ophal_js = false}
+    end
+
+    return state.js
+  end
+
   add_js = {}
 
   setmetatable(add_js, {
     __call = function(t, options)
-      load_ophal_js = true
+      local js = js_state()
+      local javascript, order = js.javascript, js.order
+
+      js.load_ophal_js = true
 
       if options == nil then
         options = {}
@@ -131,9 +149,11 @@ do
 
 
   function init_js()
-    javascript = {}
-    order = {}
-    load_ophal_js = false
+    local js = js_state()
+
+    js.javascript = {}
+    js.order = {}
+    js.load_ophal_js = false
 
     add_js 'libraries/jquery.min.js'
     add_js 'libraries/ophal.js'
@@ -142,7 +162,7 @@ do
       add_js {type = 'settings', {csrf_token = csrf_token()}}
     end
     add_js {type = 'settings', namespace = 'locale', settings.locale}
-    load_ophal_js = false
+    js.load_ophal_js = false
 
     for _, v in pairs(theme.settings.js or {}) do
       add_js(v)
@@ -150,7 +170,10 @@ do
   end
 
   function get_js()
-    if not load_ophal_js then
+    local js = js_state()
+    local javascript, order = js.javascript, js.order
+
+    if not js.load_ophal_js then
       return ''
     end
 
@@ -199,10 +222,20 @@ $.extend(true, Ophal.settings, {%s: %s});
 end
 
 do
-  local css = {}
+  local function css_state()
+    local state = request_state.current()
+
+    if state.css == nil then
+      state.css = {}
+    end
+
+    return state.css
+  end
 
   function init_css()
-    css = {}
+    local css = {}
+
+    request_state.current().css = css
 
     css[('themes/%s/style.css'):format(theme.name)] = {}
 
@@ -214,13 +247,13 @@ do
   function add_css(data, options)
     if options == nil then options = {} end
     if data ~= nil then
-      css[data] = options
+      css_state()[data] = options
     end
   end
 
   function get_css()
     local output = {}
-    for k, v in pairs(css) do
+    for k, v in pairs(css_state()) do
       local asset_url = common_asset_url(k)
       if asset_url then
         output[1 + #output] = ([[<link type="text/css" rel="stylesheet" media="all" href="%s" />
@@ -232,10 +265,20 @@ do
 end
 
 do
-  local head = {}
+  local function head_state()
+    local state = request_state.current()
+
+    if state.head == nil then
+      state.head = {}
+    end
+
+    return state.head
+  end
 
   function init_head()
-    head = {}
+    local head = {}
+
+    request_state.current().head = head
 
     for k, v in pairs(theme.settings.head or {}) do
       head[k] = v
@@ -243,13 +286,16 @@ do
   end
 
   function add_head(data)
+    local head
+
     if data ~= nil then
+      head = head_state()
       head[#head + 1] = data
     end
   end
 
   function get_head()
-    return tcon(head, [[
+    return tcon(head_state(), [[
 
 ]])
   end

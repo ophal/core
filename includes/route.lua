@@ -10,6 +10,7 @@ local redirects = ophal.redirects
 local route_set_title, pcall = route_set_title, pcall
 local empty = seawolf.variable.empty
 local projection = require 'includes.projection'
+local request_state = require 'includes.request_state'
 local projection_query = projection.query
 local projection_exec = projection.exec
 local projection_touch = projection.touch
@@ -655,61 +656,73 @@ function route_delete_redirect(id)
   return rs, err
 end
 
-do
-  local arguments
+--[[ This request's path, split on `/` and resolved through the alias table.
 
-  function route_arg(index)
-    local source, rp
+  Kept in request state rather than in a file upvalue. `route_projection_sync()`
+  below can reach SQL, so this function is a yield point, and a worker serving
+  another request in the meantime would otherwise leave the two sharing one
+  split path -- the first to resume would route the second one's URL.
+]]
+function route_arg(index)
+  local state = request_state.current()
+  local arguments = state.route_arguments
+  local source, rp
 
-    index = index + 1
-    if arguments == nil then
-      route_projection_sync()
-      rp = request_path()
-      source = aliases.alias[rp]
-      if source then
-        rp = source
-      end
-      arguments = explode('/', rp ~= '' and rp or settings.site.frontpage)
+  index = index + 1
+  if arguments == nil then
+    route_projection_sync()
+    rp = request_path()
+    source = aliases.alias[rp]
+    if source then
+      rp = source
     end
-
-    return arguments[index]
+    arguments = explode('/', rp ~= '' and rp or settings.site.frontpage)
+    state.route_arguments = arguments
   end
 
-  function route_arg_reset()
-    arguments = nil
-  end
+  return arguments[index]
+end
+
+function route_arg_reset()
+  request_state.current().route_arguments = nil
 end
 
 local slash = settings.slash
 
-do
-  local route_tree, route
-  function init_route()
-    local alias
+-- The route tree the current request resolved to, remembered in request state
+-- for the same reason `route_arg()` is: it is built from `route_arg()`, which
+-- yields.
+function init_route()
+  local state = request_state.current()
+  local route_tree, route = state.route_tree, state.route
+  local a
 
-    if route_tree == nil and route == nil then
-      route_tree, route = {}
+  if route_tree == nil and route == nil then
+    route_tree = {}
 
-      -- build route tree
-      for i = 1,8 do
-        a = route_arg(i - 1)
-        if a == nil or a == '' then
-          break
-        else
-          route = (route or '') .. (route and slash or '') .. (a or '')
-          table.insert(route_tree, route)
-        end
-      end
-      if not #route_tree then
-        error 'Route system error!'
+    -- build route tree
+    for i = 1,8 do
+      a = route_arg(i - 1)
+      if a == nil or a == '' then
+        break
+      else
+        route = (route or '') .. (route and slash or '') .. (a or '')
+        table.insert(route_tree, route)
       end
     end
-    return route_tree, route
-  end
+    if not #route_tree then
+      error 'Route system error!'
+    end
 
-  function init_route_reset()
-    route_tree, route = nil, nil
+    state.route_tree, state.route = route_tree, route
   end
+  return route_tree, route
+end
+
+function init_route_reset()
+  local state = request_state.current()
+
+  state.route_tree, state.route = nil, nil
 end
 
 function route_reset_request()

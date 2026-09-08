@@ -1086,6 +1086,15 @@ awk -v a_start="$interleave_a_start" -v a_end="$interleave_a_end" \
 assert_contains 'SMOKE_GET_BEFORE=alpha'
 assert_contains 'SMOKE_GET_AFTER=alpha'
 
+# Page state and the accumulators: A's own tag, and no trace of B's. `ophal`,
+# `get_head()` and `get_js()` are three separate mechanisms and each is asserted
+# rather than assumed from the one beside it.
+assert_contains 'SMOKE_TITLE_AFTER=alpha'
+assert_contains 'interleave:alpha -->'
+assert_not_contains 'interleave:beta -->'
+assert_contains '/* interleave:alpha */'
+assert_not_contains '/* interleave:beta */'
+
 # A's own session, before and after the yield. Distinct cookie jars, so B's id
 # is a different string; reading it here means A resumed holding B's session.
 interleave_a_session_before=$(extract_marker 'SMOKE_SESSION_BEFORE')

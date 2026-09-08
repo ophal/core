@@ -309,6 +309,7 @@ local scenarios = {
   interleave = function()
     return run_bootstrap(function()
       local delay = tonumber(query_arg('delay') or '') or 0
+      local tag = tostring(query_arg('tag') or '')
 
       local function snapshot()
         return tostring((env._GET or {}).tag or ''),
@@ -316,6 +317,14 @@ local scenarios = {
       end
 
       local get_before, session_before = snapshot()
+
+      -- Page state and the per-request accumulators, marked with this
+      -- request's own tag. `ophal.title` covers the `ophal` half of the split
+      -- and `add_head`/`add_js` cover the closures in `includes/common.lua`,
+      -- which fill across a whole request and so span any yield in it.
+      ophal.title = tag
+      add_head('<!-- interleave:' .. tag .. ' -->')
+      add_js{type = 'inline', ('/* interleave:%s */'):format(tag)}
 
       ngx.update_time()
       local started = ngx.now()
@@ -338,11 +347,14 @@ local scenarios = {
         ('SMOKE_END=%.3f'):format(ended),
         -- Read straight from nginx, so it is this request's own tag whatever
         -- happened to the jailed environment while the coroutine was parked.
-        'SMOKE_TAG=' .. tostring(query_arg('tag') or ''),
+        'SMOKE_TAG=' .. tag,
         'SMOKE_GET_BEFORE=' .. get_before,
         'SMOKE_GET_AFTER=' .. get_after,
         'SMOKE_SESSION_BEFORE=' .. session_before,
         'SMOKE_SESSION_AFTER=' .. session_after,
+        'SMOKE_TITLE_AFTER=' .. tostring(ophal.title or ''),
+        'SMOKE_HEAD_AFTER=' .. tostring(get_head() or ''):gsub('%s+', ' '),
+        'SMOKE_JS_AFTER=' .. tostring((get_js() or {}).header or ''):gsub('%s+', ' '),
       })
     end)
   end,

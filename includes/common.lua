@@ -1,6 +1,6 @@
 local seawolf = require 'seawolf'.__build('maths', 'text', 'fs')
 local pairs, tcon, date, time = pairs, table.concat, os.date, os.time
-local base, lfs, json, round = base, lfs, require 'dkjson', seawolf.maths.round
+local lfs, json, round = lfs, require 'dkjson', seawolf.maths.round
 local str_replace = seawolf.text.str_replace
 
 if type(html_url_escape) ~= 'function' then

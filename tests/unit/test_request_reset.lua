@@ -41,10 +41,15 @@ local function setup_env()
   _G.env = setmetatable({}, {__index = _G})
   _G.ophal = {
     version = 'test/1.0',
-    output_buffer = {},
   }
   env.ophal = _G.ophal
-  env.output_buffer = _G.ophal.output_buffer
+
+  -- The same split bootstrap installs, from the same module, so the assertions
+  -- below are about the runtime's mechanism and not about a stub that models
+  -- it. `_GET`, `base` and `ophal.title` keep their names; where the value
+  -- lives is what changed.
+  package.loaded['includes.request_state'] = nil
+  require('includes.request_state').install(env)
   _G.base = {}
   env.base = _G.base
   _G.settings = {
@@ -336,7 +341,7 @@ do
   ophal.header_title = 'First'
   ophal.blocks = {sidebar = {}}
   ophal.regions = {content = 'html'}
-  ophal.output_buffer[1] = 'stale output'
+  env.output_buffer[1] = 'stale output'
 
   -- Parse route for first request
   assert_eq('pre_reset_arg', route_arg(0), 'content')
@@ -367,7 +372,7 @@ do
   assert_nil('reset_regions_content', ophal.regions.content)
 
   -- 5. Output buffer cleared
-  assert_nil('reset_output_buffer', ophal.output_buffer[1])
+  assert_nil('reset_output_buffer', env.output_buffer[1])
 
   -- 6. Route state cleared — route_arg returns new path
   assert_eq('reset_route_arg_0', route_arg(0), 'tag')

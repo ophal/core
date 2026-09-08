@@ -3,7 +3,7 @@ local pcall, settings, empty = pcall, settings, seawolf.variable.empty
 local assert, error, setfenv = assert, error, setfenv
 local time = os.time
 local currentdir, xtable = lfs.currentdir() .. slash, seawolf.contrib.seawolf_table
-local base, l = base, l
+local l = l
 
 if type(html_escape) ~= 'function' then
   pcall(require, 'includes.escape')

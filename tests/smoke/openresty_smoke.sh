@@ -1026,6 +1026,78 @@ token_b=$(extract_marker 'SMOKE_CSRF_TOKEN')
 [[ "$token_a" != "$token_b" ]] || fail 'persistent request 2 reused request 1 CSRF token'
 report_ok persistent_csrf_req2
 
+# persistent_interleave: request state must still belong to its own request
+# after the coroutine yields. One worker, one Lua VM, two clients in flight at
+# once. Request A parks in `ngx.sleep`; request B is sent during that sleep and
+# runs `ophal_request_reset()` -- which rewrites `_GET`, `ophal.session`,
+# `ophal.cookies` and `base` -- before A resumes.
+#
+# This is not a cosocket test and it needs no database. `ngx.sleep` is standing
+# in for any yield, which is what every query becomes once the driver is
+# non-blocking. Until then a request runs start to finish without ever giving
+# the worker up, which is the only reason worker-global request state has
+# worked at all.
+interleave_a="$SMOKE_ROOT/interleave-a.txt"
+interleave_b="$SMOKE_ROOT/interleave-b.txt"
+cookie_interleave_a="$SMOKE_ROOT/cookie-interleave-a.txt"
+cookie_interleave_b="$SMOKE_ROOT/cookie-interleave-b.txt"
+
+curl -sS -i --max-time 10 -H 'Host: example.com' \
+  -c "$cookie_interleave_a" -b "$cookie_interleave_a" \
+  "$PERSISTENT_URL/__smoke__?scenario=interleave&tag=alpha&delay=0.5" \
+  >"$interleave_a" 2>&1 &
+interleave_pid=$!
+
+# Long enough for A to have reached its sleep, short enough to be well inside
+# it. The overlap is asserted from the timestamps below rather than assumed
+# from this number.
+sleep 0.15
+
+curl -sS -i --max-time 10 -H 'Host: example.com' \
+  -c "$cookie_interleave_b" -b "$cookie_interleave_b" \
+  "$PERSISTENT_URL/__smoke__?scenario=interleave&tag=beta&delay=0" \
+  >"$interleave_b" 2>&1
+wait "$interleave_pid"
+
+LAST_SCENARIO=persistent_interleave
+LAST_STATUS=0
+
+LAST_OUTPUT=$(cat "$interleave_b")
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_TAG=beta'
+interleave_b_start=$(extract_marker 'SMOKE_START')
+interleave_b_end=$(extract_marker 'SMOKE_END')
+interleave_b_session=$(extract_marker 'SMOKE_SESSION_BEFORE')
+
+LAST_OUTPUT=$(cat "$interleave_a")
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_TAG=alpha'
+interleave_a_start=$(extract_marker 'SMOKE_START')
+interleave_a_end=$(extract_marker 'SMOKE_END')
+
+# B has to have started after A and finished before A did, or the two never
+# shared the worker and the assertions below prove nothing.
+awk -v a_start="$interleave_a_start" -v a_end="$interleave_a_end" \
+  -v b_start="$interleave_b_start" -v b_end="$interleave_b_end" \
+  'BEGIN { exit !(b_start >= a_start && b_end <= a_end) }' ||
+  fail "requests did not overlap: A $interleave_a_start-$interleave_a_end, B $interleave_b_start-$interleave_b_end"
+
+# A's own query argument, before and after the yield.
+assert_contains 'SMOKE_GET_BEFORE=alpha'
+assert_contains 'SMOKE_GET_AFTER=alpha'
+
+# A's own session, before and after the yield. Distinct cookie jars, so B's id
+# is a different string; reading it here means A resumed holding B's session.
+interleave_a_session_before=$(extract_marker 'SMOKE_SESSION_BEFORE')
+interleave_a_session_after=$(extract_marker 'SMOKE_SESSION_AFTER')
+[[ -n "$interleave_a_session_before" ]] ||
+  fail 'no session id reported for the interleaved request'
+[[ "$interleave_a_session_before" == "$interleave_a_session_after" ]] ||
+  fail "session changed across the yield: $interleave_a_session_before -> $interleave_a_session_after"
+[[ "$interleave_a_session_after" != "$interleave_b_session" ]] ||
+  fail 'the interleaved request resumed holding the other request session'
+report_ok persistent_interleave
+
 # ================================================================
 # Database profile (second instance, lua_code_cache on, real SQLite)
 # The unit budget tests measure handlers with the database stubbed. These

@@ -286,6 +286,66 @@ local scenarios = {
       })
     end)
   end,
+  --[[ Does request state survive a yield?
+
+    One worker runs one Lua VM and one coroutine per request, so every global
+    and every file upvalue is shared by whatever requests are in flight at the
+    same time. Ophal keeps its request state there -- `_GET`, `_SESSION`,
+    `ophal.session`, `ophal.cookies`, `base` -- and `ophal_request_reset()`
+    rewrites all of it at the start of each request. Nothing goes wrong while a
+    request runs start to finish without ever yielding, which is what a
+    synchronous database driver buys.
+
+    This scenario spends `delay` seconds inside `ngx.sleep`, which yields, and
+    reads the same two values either side of it. A second client sent during
+    that sleep runs its own reset in between. The values are `?tag=` and the
+    session id, because those are the two the caller controls: one comes from
+    the query string and one from the cookie jar.
+
+    A driver that yields on every query makes this the ordinary case rather
+    than a race, which is why it is proven here before pgmoon rather than
+    after.
+  ]]
+  interleave = function()
+    return run_bootstrap(function()
+      local delay = tonumber(query_arg('delay') or '') or 0
+
+      local function snapshot()
+        return tostring((env._GET or {}).tag or ''),
+          tostring((ophal.session or {}).id or '')
+      end
+
+      local get_before, session_before = snapshot()
+
+      ngx.update_time()
+      local started = ngx.now()
+
+      if delay > 0 then
+        ngx.sleep(delay)
+      end
+
+      local get_after, session_after = snapshot()
+
+      ngx.update_time()
+      local ended = ngx.now()
+
+      write(render{
+        -- The timestamps are what stop this from passing vacuously. Two
+        -- requests that never overlapped cannot contaminate each other, so the
+        -- caller has to be able to prove the second one ran inside the first
+        -- one's sleep rather than after it.
+        ('SMOKE_START=%.3f'):format(started),
+        ('SMOKE_END=%.3f'):format(ended),
+        -- Read straight from nginx, so it is this request's own tag whatever
+        -- happened to the jailed environment while the coroutine was parked.
+        'SMOKE_TAG=' .. tostring(query_arg('tag') or ''),
+        'SMOKE_GET_BEFORE=' .. get_before,
+        'SMOKE_GET_AFTER=' .. get_after,
+        'SMOKE_SESSION_BEFORE=' .. session_before,
+        'SMOKE_SESSION_AFTER=' .. session_after,
+      })
+    end)
+  end,
   file_upload_chunk = function()
     return run_bootstrap(function()
       local body = request_get_body() or ''

@@ -1,9 +1,19 @@
 local temp_dir = seawolf.behaviour.temp_dir
 local safe_open, safe_write = seawolf.fs.safe_open, seawolf.fs.safe_write
 local safe_close, table_dump = seawolf.fs.safe_close, seawolf.contrib.table_dump
-local time, base, rawset, tconcat = os.time, base, rawset, table.concat
+local time, rawset, tconcat = os.time, rawset, table.concat
 local format, empty = string.format, seawolf.variable.empty
-local session
+
+--[[ This request's session, or nil before `session_init()` has run.
+
+  Read on entry to each function rather than held in a file upvalue. The
+  session belongs to the request that presented the cookie, and a worker that
+  yields mid-request has more than one of those in flight; an upvalue here
+  handed whichever request resumed the session of whichever request ran last.
+]]
+local function current_session()
+  return ophal.session
+end
 
 -- Session handler
 if settings.sessionapi then
@@ -29,7 +39,6 @@ function session_init()
     id = session_id,
     file = {},
   }
-  session = ophal.session
 end
 
 -- Seed session state on module load; persistent runtimes reset it per request.
@@ -50,8 +59,11 @@ function session_start()
   -- In persistent runtimes, session_init() is called by
   -- ophal_request_reset() before bootstrap phase 7.
   -- On first boot the module-level call above handles it.
+  local session = current_session()
+
   if not session or not session.id then
     session_init()
+    session = current_session()
   end
 
   local fh, sign, err, data, data_function, parsed
@@ -92,6 +104,8 @@ end
 
 -- Reset runtime session data
 local function session_close()
+  local session = current_session()
+
   safe_close(session.file.name, session.file.sign)
   session.open = false
   _SESSION = nil
@@ -99,6 +113,7 @@ end
 
 -- Write session data and end session
 function session_write_close()
+  local session = current_session()
   local serialized, rawdata, saved, err
 
   if session.open then
@@ -119,6 +134,8 @@ end
 
 -- Destroys all data registered to a session
 function session_destroy()
+  local session = current_session()
+
   session_close()
   os.remove(session.file.name)
   session.data = _SESSION -- global _SESSION is blank ATM

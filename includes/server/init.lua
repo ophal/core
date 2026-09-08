@@ -1,8 +1,20 @@
-local buffer = env.output_buffer
+local request_state = require 'includes.request_state'
+
+--[[ This request's output buffer.
+
+  Read through `env` on every call rather than captured here. The buffer is
+  request state now, so a load-time capture would pin this worker to whichever
+  request happened to load the file -- the same defect this file's
+  `ophal_request_reset()` exists to prevent, one level up.
+]]
+local function output_buffer()
+  return env.output_buffer
+end
+
 local time, date = os.time, os.date
 local tinsert = table.insert
 local empty = seawolf.variable.empty
-local base, trim, dirname = base, seawolf.text.trim, seawolf.fs.dirname
+local trim, dirname = seawolf.text.trim, seawolf.fs.dirname
 local parse_date = seawolf.contrib.parse_date
 local tconcat, lower = table.concat, string.lower
 
@@ -134,6 +146,7 @@ do
       if type_ ~= 'string' then
         s = ('(%s)'):format(type_)
       end
+      local buffer = output_buffer()
       tinsert(buffer, #buffer + 1, s)
     end
     io.write = write
@@ -149,6 +162,8 @@ do
   end
 
   function output_clean()
+    local buffer = output_buffer()
+
     for k in pairs(buffer) do
       buffer[k] = nil
     end
@@ -159,7 +174,7 @@ do
 end
 
 function output_get_clean()
-  local output = tconcat(buffer)
+  local output = tconcat(output_buffer())
   output_clean()
   return output
 end
@@ -237,6 +252,11 @@ ophal.cookies = cookie_parse()
   handling a new one.
 ]]
 function ophal_request_reset()
+  -- Discard whatever the previous request left behind. Under nginx this is
+  -- already true -- a new request arrives with a new `ngx.ctx` -- and the call
+  -- is what makes it true for a standalone runtime as well.
+  request_state.reset()
+
   -- Fresh request object from adapter
   local request = server_get_request(true)
 
@@ -252,11 +272,6 @@ function ophal_request_reset()
   -- Clear theme state (rebuilt in bootstrap phase 14)
   ophal.blocks = {}
   ophal.regions = {}
-
-  -- Clear output buffer
-  for k in pairs(buffer) do
-    buffer[k] = nil
-  end
 
   -- Re-derive base URL from new request
   build_base()

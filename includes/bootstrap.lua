@@ -45,26 +45,17 @@ env = {
   socket = nil,
   theme = {},
   mobile = {},
-  base = {
-    system_root = '',
-    route = '/',
-    url = '',
-    path = '',
-  },
-  output_buffer = {},
+  -- `base`, `output_buffer`, `_GET` and `_SESSION` are deliberately absent, and
+  -- so are the request-scoped fields of `ophal`. They are routed to the current
+  -- request's state below, and `__index` only fires for a key the table does
+  -- not hold -- so listing them here as defaults would switch the routing off.
   ophal = {
     version = nil,
     modules = {},
     routes = {},
     aliases = {},
     redirects = {},
-    blocks = {},
-    regions = {},
-    title = '',
-    header_title = '',
-    cookies = {},
     header = nil,
-    session = nil,
   },
 }
 
@@ -94,6 +85,11 @@ if ngx then
     env[k] = v
   end
 end
+
+-- Split the jailed environment into worker state and request state. Everything
+-- above this point is the worker's; `_GET`, `_SESSION`, `base` and the
+-- request-scoped fields of `ophal` belong to one request from here on.
+require('includes.request_state').install(env)
 
 -- The actual module
 local setfenv, type, env = setfenv, type, env

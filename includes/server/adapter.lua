@@ -39,7 +39,7 @@ end
 function server_register_adapter(name, adapter)
   runtime.adapter_name = name
   runtime.adapter = adapter
-  runtime.request = nil
+  ophal.request = nil
 
   if adapter and adapter.init then
     adapter.init(env, settings)
@@ -56,17 +56,23 @@ function server_get_adapter()
   return runtime.adapter
 end
 
+--[[ This request's parsed request table, built once and remembered.
+
+  It is remembered on `ophal`, which is request state, and not on `runtime`,
+  which is the worker's. Two requests in flight in one worker would otherwise
+  share one entry: the second to arrive would install its own table and the
+  first would resume reading the second's method, path, cookies and body.
+]]
 function server_get_request(reset)
   if reset then
-    runtime.request = nil
+    ophal.request = nil
   end
 
-  if runtime.request == nil then
-    runtime.request = server_get_adapter().request()
-    ophal.request = runtime.request
+  if ophal.request == nil then
+    ophal.request = server_get_adapter().request()
   end
 
-  return runtime.request
+  return ophal.request
 end
 
 function server_parse_query(query_string)

@@ -87,6 +87,39 @@ function M.tables(sql)
   return names
 end
 
+--[[ The bucket a statement lands in, from the tables it names.
+
+  The same ordering `record()` applies, lifted out so a declared statement can
+  be classified once at compile time instead of having its SQL tokenized on
+  every call. `includes/database/registry.lua` stores the answer on the
+  compiled statement; `record_bucket()` below then costs one increment.
+
+  Returns nil for a statement naming no table at all, which is what `PRAGMA`
+  and `SELECT last_insert_rowid()` are -- those count toward `total` and
+  nothing else, exactly as the parser leaves them.
+]]
+function M.bucket(names)
+  local normalized, infrastructure
+
+  for _, name in ipairs(names or {}) do
+    if M.is_infrastructure_table(name) then
+      infrastructure = true
+    elseif not M.is_projection_table(name) then
+      normalized = true
+    end
+  end
+
+  if normalized then
+    return 'normalized'
+  elseif infrastructure then
+    return 'infrastructure'
+  elseif #(names or {}) > 0 then
+    return 'projection'
+  end
+
+  return nil
+end
+
 -- Counting is off unless `settings.performance.query_stats` is true, so the
 -- cost on a normal request is one boolean test per query. The setting is read
 -- once per worker because settings do not change at runtime.
@@ -134,6 +167,29 @@ function M.record(sql)
     counts.infrastructure = counts.infrastructure + 1
   elseif #names > 0 then
     counts.projection = counts.projection + 1
+  end
+end
+
+--[[ Count a query whose bucket is already known.
+
+  A declared statement carries its tables and its bucket from compile time, so
+  this is the whole cost of accounting on a routed query: one boolean test and
+  two increments. The parser stays for ad-hoc SQL -- migrations, the CLI, the
+  installer -- which is where a statement's text is not known until it runs.
+]]
+function M.record_bucket(bucket, names)
+  if not stats_enabled() then
+    return
+  end
+
+  counts.total = counts.total + 1
+
+  for _, name in ipairs(names or {}) do
+    counts.tables[name] = (counts.tables[name] or 0) + 1
+  end
+
+  if bucket ~= nil then
+    counts[bucket] = counts[bucket] + 1
   end
 end
 

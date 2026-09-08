@@ -34,4 +34,4 @@ mkdir -p "$(dirname "$OPHAL_BENCH_SQLITE")"
 rm -f "$OPHAL_BENCH_SQLITE"
 
 cd "$ROOT"
-exec resty tests/bench/bench.lua
+exec resty -c 512 tests/bench/bench.lua

@@ -78,16 +78,36 @@ end
 ]]
 local DEFAULT_BUSY_TIMEOUT = 1000
 
+--[[ Run one pragma and finalize it, returning the first column of its answer.
+
+  Finalizing matters more than the answer does. Every pragma here returns a row
+  -- `busy_timeout` echoes the timeout, `journal_mode` echoes the mode -- and a
+  SQLite statement that has been executed but neither stepped to completion nor
+  finalized holds a read transaction open on the connection. The old
+  `db_connect()` said as much about handles kept across requests; the same rule
+  applies to a statement kept across a pragma.
+
+  Leaving one open here does not merely block later writers. It puts the
+  connection inside an implicit transaction, so the next explicit `BEGIN` nests
+  and the matching `ROLLBACK` unwinds everything the connection has done since
+  it opened -- `tests/bench/driver_contract.lua` caught exactly that: a
+  transaction test rolled back the CREATE TABLE that had set the contract up.
+]]
 local function pragma(handle, statement)
   local sth, err = handle:prepare(statement)
-  local ok
+  local ok, row
 
   if sth ~= nil then
     ok, err = sth:execute()
 
     if ok then
-      return sth
+      row = sth:fetch()
+      sth:close()
+
+      return row and row[1] or true
     end
+
+    sth:close()
   end
 
   if type(log_error) == 'function' then
@@ -105,17 +125,9 @@ end
 -- a property of the file rather than of the connection, so a database switched
 -- to WAL once comes back as WAL for every later connection.
 local function current_journal_mode(handle)
-  local sth = pragma(handle, 'PRAGMA journal_mode')
-  local row
+  local mode = pragma(handle, 'PRAGMA journal_mode')
 
-  if sth == nil then
-    return nil
-  end
-
-  row = sth:fetch()
-  sth:close()
-
-  return row and type(row[1]) == 'string' and row[1]:lower() or nil
+  return type(mode) == 'string' and mode:lower() or nil
 end
 
 local function sqlite_pragmas(handle, config)

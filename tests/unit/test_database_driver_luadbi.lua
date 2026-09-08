@@ -33,6 +33,8 @@ end
 local function record_queries(current_mode, failing)
   local queries = {}
 
+  queries.opened, queries.closed = 0, 0
+
   package.loaded.DBI = {
     Connect = function()
       return {
@@ -44,15 +46,22 @@ local function record_queries(current_mode, failing)
             return nil, 'no such pragma'
           end
 
+          queries.opened = queries.opened + 1
+
           return {
             execute = function() return true end,
-            close = function() return true end,
+            close = function()
+              queries.closed = queries.closed + 1
+              return true
+            end,
             fetch = function()
               if sql == 'PRAGMA journal_mode' then
                 return {current_mode}
               end
 
-              return {}
+              -- Every pragma answers a row: `busy_timeout` echoes the timeout
+              -- it was given, and so does the journal-mode write.
+              return {1000}
             end,
           }
         end,
@@ -153,6 +162,23 @@ do
 
   assert_eq('sqlite_busy_timeout_negative_defaults', queries[1],
     'PRAGMA busy_timeout = 1000')
+end
+
+--[[ Every pragma statement is finalized.
+
+  A SQLite statement that has been executed but neither stepped to completion
+  nor finalized holds a read transaction open, which does not merely block later
+  writers: it puts the connection inside an implicit transaction, so the next
+  explicit `BEGIN` nests and the matching `ROLLBACK` unwinds everything the
+  connection has done since it opened. `tests/bench/driver_contract.lua` caught
+  that against a real database -- a transaction test rolled back the CREATE
+  TABLE that had set it up -- and this is the same fact, cheaply.
+]]
+do
+  local queries = connect({}, 'delete')
+
+  assert_eq('sqlite_every_pragma_is_finalized', queries.closed, queries.opened)
+  assert_eq('sqlite_pragmas_were_opened_at_all', queries.opened, 3)
 end
 
 -- A pragma that fails must not take the connection down with it. The handle is

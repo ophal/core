@@ -58,6 +58,11 @@ end
   all: it is nginx's own escaper, not a gsub written here. Numbers do not go
   through it -- it would quote them into strings -- so they take the integer
   path for the reason spelled out in `includes/database/driver/init.lua`.
+
+  `ngx` is read here rather than captured at the top of the file on purpose:
+  `tests/unit/test_query_layer.lua` requires this module under plain `lua5.1` to
+  compile statements for the MySQL dialect, where there is no `ngx` to capture
+  and nothing that escapes anything.
 ]]
 function M.escape(value)
   local kind = type(value)
@@ -119,16 +124,24 @@ local function assemble_wide(compiled, ...)
   return concat(out)
 end
 
+-- Exported so `tests/bench/layer_bench.lua` can measure the two forms against
+-- each other. The choice between them was made by that measurement, so it needs
+-- to stay reproducible.
 M.assemble = assemble
 M.assemble_wide = assemble_wide
 
 function M.execute(handle, compiled, ...)
-  local sql = compiled.chunks[1]
+  local sql, res, err
 
-  if compiled.nparams > 0 then
+  if compiled.nparams == 0 then
+    -- The whole body, with no `%` doubled into it; the template is for `format`
+    -- and this path does not go through `format`.
+    sql = compiled.chunks[1]
+  else
     sql = assemble(compiled, ...) or assemble_wide(compiled, ...)
   end
-  local res, err = handle:query(sql)
+
+  res, err = handle:query(sql)
 
   if res == nil then
     return nil, err

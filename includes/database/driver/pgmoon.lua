@@ -36,14 +36,14 @@ local NUMERIC = 1700
 local function install_serializers(pg)
   local serializers = pg.type_serializers or {}
 
+  -- Both halves go through `base.number_literal`, which is the same escaper the
+  -- literal path uses. pgmoon's own serializer wrote the fractional case with
+  -- `tostring` as well, so a number too long for `%.14g` was truncated on its
+  -- way into a `numeric` column too -- less loudly than the OID, and by the
+  -- same mistake.
   serializers.number = function(_, value)
-    if value % 1 == 0
-        and value >= -9223372036854775808
-        and value <= 9223372036854775807 then
-      return INT8, ('%d'):format(value)
-    end
-
-    return NUMERIC, tostring(value)
+    return base.is_integer(value) and INT8 or NUMERIC,
+      base.number_literal(value)
   end
 
   pg.type_serializers = serializers
@@ -131,9 +131,20 @@ function M.release(handle, ok)
   return false
 end
 
--- pgmoon returns rows as an array of hashes, with SQL NULL absent -- which is
--- nil, and is what every call site already assumes. Nothing to normalize.
+--[[ pgmoon returns rows as a list of hashes, with SQL NULL absent -- which is
+  nil, and is what every call site already assumes. So there is nothing to
+  normalize per row.
+
+  What does need normalizing is the answer to a statement that produced no rows
+  at all: pgmoon returns `true` for an INSERT or an UPDATE without RETURNING,
+  and the layer's contract is a list. Nothing reads an affected-row count
+  anywhere in the codebase, so it is dropped rather than carried.
+]]
 function M.rows(res)
+  if res == true then
+    return {}
+  end
+
   return res
 end
 

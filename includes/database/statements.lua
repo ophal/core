@@ -22,17 +22,31 @@ define('core.rollback', {sql = 'ROLLBACK', tables = {}})
 
 --[[ A table's columns.
 
-  Each backend answers from somewhere different. SQLite has no
-  `information_schema`; `pragma_table_info` is the table-valued form of
-  `PRAGMA table_info` and, unlike the bare pragma, takes a bind parameter, so
-  the table name is not interpolated.
+  Each backend answers from somewhere different, so there is no portable body
+  here and the base is PostgreSQL's. SQLite has no `information_schema` at all;
+  `pragma_table_info` is the table-valued form of `PRAGMA table_info` and,
+  unlike the bare pragma, takes a bind parameter, so the table name is not
+  interpolated.
+
+  `information_schema.columns` spans every schema on a PostgreSQL database and
+  every *database* on a MySQL server, so both are scoped to the one this
+  connection is attached to. Unscoped, a same-named table elsewhere on the
+  server contributes its columns to the answer -- and this answer is
+  `db_field()`, which is the whitelist `load_by_field` interpolates a column
+  name through. The old `table_schema_sql()` on both drivers was unscoped; it
+  was invisible while SQLite was the only backend anything ran against.
 ]]
 define('core.table_schema', {
-  sql = [[SELECT column_name field_name
+  sql = [[SELECT column_name AS field_name
 FROM information_schema.columns
-WHERE table_name = ?]],
+WHERE table_name = ? AND table_schema = CURRENT_SCHEMA()]],
+  mysql = {
+    sql = [[SELECT column_name AS field_name
+FROM information_schema.columns
+WHERE table_name = ? AND table_schema = DATABASE()]],
+  },
   sqlite3 = {
-    sql = [[SELECT name field_name
+    sql = [[SELECT name AS field_name
 FROM pragma_table_info(?)]],
   },
   -- `information_schema` is neither site content nor framework bookkeeping.
@@ -45,12 +59,17 @@ FROM pragma_table_info(?)]],
 
   Three genuinely different answers, which is why this was a per-driver function
   and stays a per-dialect override. PostgreSQL needs the sequence's name, built
-  from the table and column, so it is the one statement here with identifiers.
+  from the table and column, so it is the one statement here with identifiers --
+  and the other two dialects take them and have nowhere to put them, which is
+  what keeps `db:last_insert_id(table, field)` one shape everywhere.
+
+  All three alias the value as `id`. Without that, reading it means taking the
+  first column positionally, which a hash-row driver cannot do.
 ]]
 define('core.last_insert_id', {
-  sql = 'SELECT last_insert_rowid()',
-  postgresql = {sql = "SELECT CURRVAL('{table:bare}_{field:bare}_seq')"},
-  mysql = {sql = 'SELECT LAST_INSERT_ID()'},
+  sql = 'SELECT last_insert_rowid() AS id',
+  postgresql = {sql = "SELECT CURRVAL('{table:bare}_{field:bare}_seq') AS id"},
+  mysql = {sql = 'SELECT LAST_INSERT_ID() AS id'},
   idents = {table = true, field = true},
   order = {'table', 'field'},
   tables = {},

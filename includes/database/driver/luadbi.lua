@@ -16,10 +16,11 @@ local base = require 'includes.database.driver'
 
 local M = {}
 
-local function release(handle, ok)
-  -- Nothing to pool: LuaDBI has no keepalive, and a handle kept across requests
-  -- is the thing `db_connect()` closes on purpose -- an unfinalized SQLite
-  -- statement holds a read transaction and blocks every later writer.
+-- Closed either way, which is why the outcome is not a parameter here: LuaDBI
+-- has no keepalive, and a handle kept across requests is the thing
+-- `db_connect()` closes on purpose -- an unfinalized SQLite statement holds a
+-- read transaction and blocks every later writer.
+local function release(handle)
   pcall(function() handle:close() end)
 
   return false

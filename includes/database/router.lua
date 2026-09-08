@@ -66,12 +66,11 @@ end
 function M.release_all(ok)
   local state = request_state.current()
   local pool = state[KEY]
+  local released = 0
 
   if pool == nil then
     return 0
   end
-
-  local released = 0
 
   for _, conn in pairs(pool) do
     pcall(conn.release, conn, ok)

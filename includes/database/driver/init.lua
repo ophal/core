@@ -7,6 +7,12 @@
     placeholder       'numbered' ($1), 'question' (?), or nil (cannot bind)
     connect(config)   a live handle, or nil plus a message
     execute(...)      run a compiled statement, return a result
+    rows(res)         that result as rows: a list of tables keyed by column
+                      name, or something `includes/database/result.lua` can pull
+                      rows from. Never a boolean and never nil -- a statement
+                      that produced no rows produced an empty list, and the
+                      normalising a backend needs (`ngx.null`, a sentinel) is
+                      this function's job rather than the call sites'
     release(h, ok)    pool it on success, close it on failure
     quote_identifier  a table or column name, quoted for this backend
     escape(value)     only for a driver that cannot bind
@@ -22,6 +28,17 @@ local M = {}
 
 local format = string.format
 
+-- int8's range. A Lua number outside it, or with a fraction, is not an integer
+-- to any of the three backends whatever it looks like in Lua.
+local INT8_MIN, INT8_MAX = -9223372036854775808, 9223372036854775807
+
+-- Whether a number is one a backend will take as an integer. Separate from the
+-- literal below because pgmoon needs the same answer to pick a type OID rather
+-- than to write text.
+function M.is_integer(value)
+  return value % 1 == 0 and value >= INT8_MIN and value <= INT8_MAX
+end
+
 --[[ A Lua number as SQL sees it.
 
   `tostring` is the wrong tool and this is not theoretical: LuaJIT's `tostring`
@@ -33,24 +50,28 @@ local format = string.format
   coerces the column and no index can serve it.
 
   Whole numbers therefore go out as integers, and only a real fraction gets
-  `%.17g`, which round-trips a double exactly.
+  `%.17g`, which round-trips a double exactly -- `%.14g` loses digits off a
+  fraction just as readily as off an integer, it merely does it quietly.
 ]]
 function M.number_literal(value)
-  if value % 1 == 0 and value >= -9223372036854775808 and value <= 9223372036854775807 then
+  if M.is_integer(value) then
     return format('%d', value)
   end
 
   return format('%.17g', value)
 end
 
--- Every driver quotes identifiers the same way once the name is known to be a
--- bare identifier, which the registry has already checked. Backends differ on
--- the quote character, so this takes it.
-function M.identifier_quoter(char)
-  local closing = char == '`' and '`' or char
+--[[ A table or column name, quoted for a backend.
 
+  The name has already been held to `^[%a_][%w_]*$` by
+  `includes/database/registry.lua`, so it cannot carry the quote character and
+  there is nothing here to escape -- the validation is what makes this safe, and
+  a quoter that took arbitrary text would not be. Backends differ only in the
+  character, and every one of them closes with the character it opened with.
+]]
+function M.identifier_quoter(char)
   return function(name)
-    return char .. name .. closing
+    return char .. name .. char
   end
 end
 

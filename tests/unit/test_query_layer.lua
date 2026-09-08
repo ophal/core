@@ -174,6 +174,7 @@ io.write '\n-- per-dialect overrides --\n'
 do
   local pgmoon = require 'includes.database.driver.pgmoon'
   local sqlite = require 'includes.database.driver.luadbi_sqlite3'
+  local mysql = require 'includes.database.driver.resty_mysql'
 
   require 'includes.database.statements'
 
@@ -190,11 +191,54 @@ do
   assert_eq('sequence_name_unquoted',
     registry.compile(pgmoon, 'core.last_insert_id',
       {table = 'content', field = 'id'}).sql,
-    "SELECT CURRVAL('content_id_seq')")
+    "SELECT CURRVAL('content_id_seq') AS id")
+  -- Every dialect aliases it, because reading the first column positionally is
+  -- what a hash-row driver cannot do.
   assert_eq('last_insert_id_sqlite',
     registry.compile(sqlite, 'core.last_insert_id',
       {table = 'content', field = 'id'}).sql,
-    'SELECT last_insert_rowid()')
+    'SELECT last_insert_rowid() AS id')
+
+  --[[ `information_schema` spans every schema on a PostgreSQL database and
+    every database on a MySQL server, so an unscoped read answers with the
+    columns of a same-named table elsewhere on the server. It is `db_field()`
+    that answers from this, and `db_field()` is the whitelist `load_by_field`
+    interpolates a column name through.
+  ]]
+  local function schema_read(driver)
+    local schema = registry.compile(driver, 'core.table_schema')
+
+    return schema.sql or schema.template
+  end
+
+  assert_truthy('schema_read_scoped_on_postgresql',
+    schema_read(pgmoon):find('CURRENT_SCHEMA()', 1, true))
+  assert_truthy('schema_read_scoped_on_mysql',
+    schema_read(mysql):find('DATABASE()', 1, true))
+  assert_truthy('schema_read_is_a_pragma_on_sqlite',
+    schema_read(sqlite):find('pragma_table_info', 1, true))
+end
+
+do
+  --[[ A declaration with identifiers and no order for them is broken at every
+    use: `order` is what fixes the walk through the compile cache and what makes
+    `db:with()`'s values positional. So it is refused at declaration, at load,
+    rather than on whichever request reaches that statement first -- the same
+    reason an unknown driver name fails at resolve.
+  ]]
+  assert_raises('idents_need_an_order', 'no order for them',
+    registry.define, 'test.unordered',
+    {sql = 'DELETE FROM {table}', idents = {table = true}})
+
+  assert_raises('order_names_an_undeclared_ident', 'does not declare',
+    registry.define, 'test.misordered',
+    {sql = 'DELETE FROM {table}', idents = {table = true},
+      order = {'table', 'column'}})
+
+  assert_raises('ident_left_out_of_the_order', 'leaves it out',
+    registry.define, 'test.partial',
+    {sql = 'DELETE FROM {table} WHERE {column} = ?',
+      idents = {table = true, column = true}, order = {'table'}})
 end
 
 io.write '\n-- identifiers are compile keys --\n'
@@ -313,6 +357,37 @@ end
 
 assert_raises('unknown_identifier_is_not_the_default', 'no connection named',
   connection.open, 'nonexistent')
+
+do
+  --[[ A connection has to be collectable once the request that took it is over,
+    and the weak-keyed state table beside it is what allows that. It is easy to
+    defeat: Lua 5.1 marks the values of a weak-keyed table strongly and has no
+    ephemerons, so an entry whose value can reach its own key is never removed.
+    A memoized `with()` statement holding its connection object was exactly that
+    shape, and it pinned the connection, its compiled table, its identifier tree
+    and its schema cache for the life of the worker -- one per request, on every
+    request that deleted an entity or loaded a row by field.
+  ]]
+  local seen = setmetatable({}, {__mode = 'v'})
+
+  do
+    local conn = connection.open()
+
+    seen.conn = conn
+    conn:with('test.delete', 'content')
+  end
+
+  collectgarbage('collect')
+  collectgarbage('collect')
+
+  assert_eq('connection_is_collectable_after_with', seen.conn, nil)
+end
+
+-- A statement with identifiers has to be reached through `with()`, and saying
+-- so beats indexing a nil `values` inside the compiler.
+assert_raises('ident_statement_refuses_a_bare_run', 'db:with', function()
+  connection.open():run('test.delete', 1)
+end)
 
 io.write '\n-- connection lifetime --\n'
 

@@ -23,7 +23,7 @@ local M = {}
 
 local stats = require 'includes.database.stats'
 
-local format, gsub, sub = string.format, string.gsub, string.sub
+local gsub, sub = string.gsub, string.sub
 
 local statements = {}
 
@@ -84,8 +84,10 @@ end
 local function render(driver, pieces, count)
   local style = driver.placeholder
 
+  -- Three values either way: the SQL for a driver that binds, or the literal
+  -- chunks and the format template for one that cannot.
   if style == 'question' then
-    return table.concat(pieces, '?'), nil
+    return table.concat(pieces, '?'), nil, nil
   elseif style == 'numbered' then
     local out = {pieces[1]}
 
@@ -94,7 +96,7 @@ local function render(driver, pieces, count)
       out[#out + 1] = pieces[i + 1]
     end
 
-    return table.concat(out), nil
+    return table.concat(out), nil, nil
   elseif style == nil then
     --[[ The driver cannot bind, so the layer builds the SQL -- and how it
       builds it was decided by measuring rather than by taste.
@@ -134,7 +136,7 @@ end
   rather than concatenated into SQL on every call, which is what
   `'DELETE FROM ' .. entity.type` does today.
 ]]
-local function substitute(text, decl, values, driver, connection)
+local function substitute(text, decl, values, quote, connection)
   return (gsub(text, '{(%w+)(:?%a*)}', function(key, modifier)
     local resolver = decl.idents and decl.idents[key]
     local value = values[key]
@@ -172,6 +174,10 @@ local function substitute(text, decl, values, driver, connection)
       held to `^[%a_][%w_]*$` above: a name that matches that cannot carry a
       quote, a comment or a semicolon. The check is the safety property, and the
       quoting is the correctness one.
+
+      `quote` itself is nil for the other caller that wants a bare name: the
+      attribution pass in `build()`, which resolves the table a statement
+      touches rather than the SQL spelling of it.
     ]]
     if modifier == ':bare' then
       return value
@@ -179,7 +185,7 @@ local function substitute(text, decl, values, driver, connection)
       fail('%s: unknown identifier modifier %q on %q', decl.name, modifier, key)
     end
 
-    return driver.quote_identifier and driver.quote_identifier(value) or value
+    return quote and quote(value) or value
   end))
 end
 
@@ -209,6 +215,38 @@ function M.define(name, decl)
     fail('%s needs an sql body', name)
   end
 
+  --[[ `order` is what fixes the walk through the compile cache and the meaning
+    of `db:with(name, ...)`'s positional values, so a declaration that has
+    identifiers and no order for them is broken at every use of it.
+
+    Checked here, at load, for the same reason `includes/database/config.lua`
+    checks a driver name at resolve rather than at the first query: the failure
+    should be at the line that got it wrong, not on whichever request happens to
+    reach that statement first.
+  ]]
+  if decl.idents ~= nil then
+    local order, seen = decl.order, {}
+
+    if type(order) ~= 'table' then
+      fail('%s declares identifiers and no order for them', name)
+    end
+
+    for _, key in ipairs(order) do
+      if decl.idents[key] == nil then
+        fail('%s orders identifier %q, which it does not declare', name, key)
+      end
+
+      seen[key] = true
+    end
+
+    for key in pairs(decl.idents) do
+      if not seen[key] then
+        fail('%s declares identifier %q and leaves it out of its order',
+          name, key)
+      end
+    end
+  end
+
   decl.name = name
   statements[name] = decl
 
@@ -231,10 +269,12 @@ function M.defined()
   return names
 end
 
--- Only the unit suite needs this; declarations are load-time and immutable.
-function M.reset()
-  statements, compiled = {}, {}
-end
+-- There is deliberately no `reset()`. Declarations are load-time and immutable,
+-- and the framework's own arrive by `require`, which runs once per process --
+-- so clearing them would leave `core.begin` and the rest permanently undefined
+-- rather than reloaded. The compile cache is derived and could be dropped
+-- safely, but nothing needs to, and an entry point nothing exercises is one
+-- more thing to be wrong.
 
 --[[ Dialect fragments that are not worth a whole override.
 
@@ -273,7 +313,7 @@ local function build(decl, driver, values, connection)
   end
 
   if decl.idents then
-    body = substitute(body, decl, values, driver, connection)
+    body = substitute(body, decl, values, driver.quote_identifier, connection)
   end
 
   pieces, count = split_placeholders(body)
@@ -283,9 +323,11 @@ local function build(decl, driver, values, connection)
 
   for i, name in ipairs(decl.tables or {}) do
     if decl.idents then
-      -- A statement whose table is an identifier attributes to the table it
-      -- was actually compiled for, not to the literal `{table}`.
-      name = substitute(name, decl, values, {}, connection)
+      -- A statement whose table is an identifier attributes to the table it was
+      -- actually compiled for, not to the literal `{table}`. Unquoted, because
+      -- this is a name for `includes/database/stats.lua` to classify, not
+      -- SQL for a backend to parse.
+      name = substitute(name, decl, values, nil, connection)
     end
 
     tables[i] = name:lower()
@@ -319,6 +361,13 @@ function M.compile(driver, name, values, connection)
     fail('%s is not defined', tostring(name))
   end
 
+  -- Without this, a statement with identifiers reached through `run()` fails by
+  -- indexing a nil `values` several lines down, which names neither the
+  -- statement nor the mistake.
+  if decl.idents ~= nil and values == nil then
+    fail('%s takes identifiers; reach it with db:with(%q, ...)', name, name)
+  end
+
   if per_driver == nil then
     per_driver = {}
     compiled[driver.name] = per_driver
@@ -341,7 +390,8 @@ function M.compile(driver, name, values, connection)
   end
 
   -- `order` fixes the walk, so the same identifiers always reach the same leaf.
-  for _, key in ipairs(decl.order or fail('%s with idents needs an order', name)) do
+  -- `define()` has already held it to the declared identifiers.
+  for _, key in ipairs(decl.order) do
     local value = values[key]
     local next_node = node[value]
 

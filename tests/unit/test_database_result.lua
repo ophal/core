@@ -19,6 +19,25 @@ local function assert_truthy(label, got)
   assert_eq(label, got and true or false, true)
 end
 
+-- Asserts that `fn` raises and that the message names `needle`, so a test
+-- cannot pass on an error raised for some other reason.
+local function assert_raises(label, needle, fn)
+  local ok, err = pcall(fn)
+
+  if ok then
+    fail_count = fail_count + 1
+    io.write(('  FAIL %s: expected an error naming %q, got none\n'):format(
+      label, needle))
+  elseif not tostring(err):find(needle, 1, true) then
+    fail_count = fail_count + 1
+    io.write(('  FAIL %s: expected an error naming %q, got: %s\n'):format(
+      label, needle, tostring(err)))
+  else
+    pass_count = pass_count + 1
+    io.write(('  ok %s\n'):format(label))
+  end
+end
+
 local function new_fake_result()
   local rows = {
     {1, 'alpha'},
@@ -99,6 +118,106 @@ do
 
   assert_truthy('wrap_close_delegates', wrapped:close())
   assert_eq('wrap_close_marks_raw', raw.closed, true)
+end
+
+do
+  --[[ LuaDBI hands back **userdata**, not a table: its `fetch` is reached
+    through a metatable. A wrapper that decided the shape by asking for a table
+    would take every LuaDBI result for a list of rows and read nil from it,
+    which is what `tests/bench/driver_contract.lua` caught on SQLite.
+  ]]
+  local handle = newproxy(true)
+  local fake = new_fake_result()
+
+  getmetatable(handle).__index = {
+    fetch = function(_, named) return fake:fetch(named) end,
+  }
+
+  assert_eq('userdata_handle_pulls_rows',
+    db_result.wrap(handle):fetch(true).name, 'alpha')
+end
+
+io.write '\n-- rows a driver built itself --\n'
+
+--[[ The cosocket drivers do not hand back a statement handle to pull rows from.
+  pgmoon and lua-resty-mysql both answer with the rows themselves, as a list of
+  tables keyed by column name, so the wrapper reads a list as readily as a
+  cursor. Without this the layer could not read a single row on either of the
+  two drivers stage 8.3 chose -- and nothing caught it, because the bench
+  measured `db:run()` without ever looking at what it returned.
+]]
+local function new_list_result()
+  return {
+    {id = 1, name = 'alpha'},
+    {id = 2, name = 'beta'},
+  }
+end
+
+do
+  local wrapped = db_result.wrap(new_list_result())
+
+  assert_eq('list_fetch_first', wrapped:fetch(true).name, 'alpha')
+  assert_eq('list_fetch_advances', wrapped:fetch(true).name, 'beta')
+  assert_eq('list_fetch_past_the_end', wrapped:fetch(true), nil)
+end
+
+do
+  local wrapped = db_result.wrap(new_list_result())
+  local names = {}
+
+  for row in wrapped:rows(true) do
+    names[#names + 1] = row.name
+  end
+
+  assert_eq('list_rows_count', #names, 2)
+  assert_eq('list_rows_second', names[2], 'beta')
+  assert_truthy('list_close_is_a_noop', wrapped:close())
+end
+
+do
+  -- Handed over rather than copied: the front page and the tags menu both read
+  -- a whole projection row set this way and then cache it, so a copy would be a
+  -- second pass over every row to build a table indistinguishable from the one
+  -- it discarded.
+  local rows = new_list_result()
+  local wrapped = db_result.wrap(rows)
+
+  assert_eq('list_all_is_the_list_itself', wrapped:all(true), rows)
+  -- And taken, so a second read does not serve the same rows again.
+  assert_eq('list_all_consumes', #wrapped:all(true), 0)
+end
+
+do
+  local wrapped = db_result.wrap(new_list_result())
+
+  wrapped:fetch(true)
+
+  assert_eq('list_all_after_a_fetch_skips_what_was_taken',
+    #wrapped:all(true), 1)
+end
+
+do
+  --[[ A hash row has no first column, and `lua-resty-mysql` has no other result
+    mode to ask for -- so the layer takes rows by name on every backend rather
+    than promising something two of its three drivers cannot keep. The refusal
+    is what makes `(rs:fetch() or {})[1]` fail in the unit suite on SQLite
+    instead of in production on PostgreSQL.
+  ]]
+  local list = db_result.wrap(new_list_result())
+  local cursor = db_result.named(new_fake_result())
+
+  assert_raises('list_refuses_a_positional_fetch', 'named',
+    function() return list:fetch() end)
+  assert_raises('layer_result_refuses_a_positional_fetch', 'named',
+    function() return cursor:fetch() end)
+  assert_raises('layer_result_refuses_positional_rows', 'named',
+    function() return cursor:rows() end)
+  assert_eq('layer_result_reads_by_name', cursor:fetch(true).name, 'alpha')
+
+  -- The legacy `db_query()` path keeps positional rows: sixty-three call sites
+  -- still read them that way, and LuaDBI can answer.
+  assert_eq('wrap_still_reads_positionally',
+    db_result.wrap(new_fake_result()):fetch()[2], 'alpha')
 end
 
 io.write '\n-- db query boundary --\n'

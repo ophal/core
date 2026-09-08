@@ -89,14 +89,25 @@ end
 
 --[[ The bucket a statement lands in, from the tables it names.
 
-  The same ordering `record()` applies, lifted out so a declared statement can
-  be classified once at compile time instead of having its SQL tokenized on
-  every call. `includes/database/registry.lua` stores the answer on the
-  compiled statement; `record_bucket()` below then costs one increment.
+  One query lands in exactly one bucket, and the buckets are ordered rather than
+  counted separately: a query counts as normalized if it names any source table,
+  so a join back to source data is not hidden by the projection table beside it,
+  and as infrastructure if it names no source table but touches the framework's
+  own bookkeeping. Only a query that reads nothing but read models counts as
+  projection.
+
+  The order is what makes each number mean something on its own. If a mixed
+  query counted in two buckets, `normalized` would stop being the count of
+  requests that reconstructed source data, which is the claim Phase 4 rests on.
+  So this is the one place it is decided, for a declared statement and a parsed
+  one alike -- the difference between them is only where the names came from,
+  and when. A declaration is classified once at compile time by
+  `includes/database/registry.lua`, which stores the answer on the compiled
+  statement; ad-hoc SQL is tokenized per call, which is 225x dearer.
 
   Returns nil for a statement naming no table at all, which is what `PRAGMA`
   and `SELECT last_insert_rowid()` are -- those count toward `total` and
-  nothing else, exactly as the parser leaves them.
+  nothing else.
 ]]
 function M.bucket(names)
   local normalized, infrastructure
@@ -131,43 +142,20 @@ local function stats_enabled()
   return enabled
 end
 
--- One query lands in exactly one bucket, and the buckets are ordered rather
--- than counted separately: a query counts as normalized if it names any source
--- table, so a join back to source data is not hidden by the projection table
--- beside it, and as infrastructure if it names no source table but touches the
--- framework's own bookkeeping. Only a query that reads nothing but read models
--- counts as projection.
---
--- The order is what makes each number mean something on its own. If a mixed
--- query counted in two buckets, `normalized` would stop being the count of
--- requests that reconstructed source data, which is the claim Phase 4 rests on.
+-- Count a query from its SQL, reading the tables out of the text. The bucket
+-- and the counting are `bucket()` and `record_bucket()` below, so a statement
+-- that arrives as text and one that arrives declared are classified by the same
+-- code rather than by two copies of it that have to keep agreeing.
 function M.record(sql)
-  local names, normalized, infrastructure
+  local names
 
   if not stats_enabled() then
     return
   end
 
   names = M.tables(sql)
-  counts.total = counts.total + 1
 
-  for _, name in ipairs(names) do
-    counts.tables[name] = (counts.tables[name] or 0) + 1
-
-    if M.is_infrastructure_table(name) then
-      infrastructure = true
-    elseif not M.is_projection_table(name) then
-      normalized = true
-    end
-  end
-
-  if normalized then
-    counts.normalized = counts.normalized + 1
-  elseif infrastructure then
-    counts.infrastructure = counts.infrastructure + 1
-  elseif #names > 0 then
-    counts.projection = counts.projection + 1
-  end
+  M.record_bucket(M.bucket(names), names)
 end
 
 --[[ Count a query whose bucket is already known.

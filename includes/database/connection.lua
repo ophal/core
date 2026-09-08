@@ -65,21 +65,16 @@ local function own(self)
   return s
 end
 
---[[ Reached whenever `_handle` is nil, which is both interesting cases.
+--[[ Reached whenever the handle is nil, which is both interesting cases.
 
-  A connection that has never been used is nil because connecting is lazy; a
-  released one is nil because releasing clears it. So the hot path is a single
-  nil test that covers connecting on first use *and* refusing a connection that
-  has outlived its request, and neither costs anything when the handle is there.
+  A connection that has never been used has none because connecting is lazy; a
+  released one has none because releasing clears it. So the hot path is a single
+  nil test on a field the caller already holds -- `s.handle or connect(s)` --
+  that covers connecting on first use *and* refusing a connection which has
+  outlived its request, and costs nothing when the handle is there.
 ]]
-local function handle_of(self)
-  local s = own(self)
-  local handle = s.handle
-  local err
-
-  if handle ~= nil then
-    return handle
-  end
+local function connect(s)
+  local handle, err
 
   if s.released then
     fail('connection %q was released at the end of its request; ask for a new one',
@@ -114,21 +109,24 @@ local function handle_of(self)
   return handle
 end
 
-local function compiled_for(self, name)
-  local s = own(self)
-  local compiled = s.compiled[name]
+--[[ Run a compiled statement against a connection's state.
 
-  if compiled == nil then
-    compiled = registry.compile(s.driver, name, nil, self)
-    s.compiled[name] = compiled
-  end
+  The state rather than the object, and that is not only to save a second weak
+  lookup on the hot path. A `Statement` from `with()` has to remember what to
+  run against, and remembering the *object* defeats the weak key that lets a
+  connection be collected: Lua 5.1 marks the values of a weak-keyed table
+  strongly and has no ephemerons, so an entry whose value can reach its own key
+  is never removed. A statement holding its connection therefore pinned that
+  connection, its compiled table, its identifier tree and its schema cache for
+  the life of the worker -- one per request, on every request that deleted an
+  entity or loaded a row by field. Holding the state instead breaks the cycle,
+  because nothing in the state names the object.
 
-  return compiled
-end
-
-local function run_compiled(self, compiled, ...)
-  local handle = handle_of(self)
-  local s = state[self]
+  `connection_is_collectable_after_with` is the assertion, and it was red before
+  this.
+]]
+local function run_compiled(s, compiled, ...)
+  local handle = s.handle or connect(s)
   local res, err
 
   stats.record_bucket(compiled.bucket, compiled.tables)
@@ -153,7 +151,10 @@ local function run_compiled(self, compiled, ...)
     fail('%s failed on %q: %s', compiled.name, s.name, tostring(err))
   end
 
-  return db_result.wrap(s.driver.rows(res))
+  -- Named, on every backend: two of the three drivers return rows as hashes and
+  -- cannot answer positionally at all, so the layer promises only what all of
+  -- them can keep. `includes/database/result.lua` says what that costs.
+  return db_result.named(s.driver.rows(res))
 end
 
 --[[ Run a declared statement.
@@ -163,7 +164,15 @@ end
   straight through to a binding driver without a table being allocated for them.
 ]]
 function Connection:run(name, ...)
-  return run_compiled(self, compiled_for(self, name), ...)
+  local s = own(self)
+  local compiled = s.compiled[name]
+
+  if compiled == nil then
+    compiled = registry.compile(s.driver, name, nil, self)
+    s.compiled[name] = compiled
+  end
+
+  return run_compiled(s, compiled, ...)
 end
 
 --[[ The same, returning `nil, err` instead of raising.
@@ -204,7 +213,11 @@ function Connection:with(name, ...)
     fail('%s is not defined', tostring(name))
   end
 
-  order = decl.order or fail('%s declares no identifier order', name)
+  -- A statement with identifiers always has an order; `registry.define()`
+  -- refuses one without. So no order means no identifiers, and this is a
+  -- statement to run directly.
+  order = decl.order
+    or fail('%s declares no identifiers; run it with :run()', name)
   count = select('#', ...)
 
   if count ~= #order then
@@ -240,8 +253,9 @@ function Connection:with(name, ...)
     end
 
     stmt = setmetatable({}, Statement)
+    -- The connection's state, never the connection: see `run_compiled()`.
     state[stmt] = {
-      connection = self,
+      owner = s,
       compiled = registry.compile(s.driver, name, values, self),
     }
 
@@ -254,7 +268,7 @@ end
 function Statement:run(...)
   local s = own(self)
 
-  return run_compiled(s.connection, s.compiled, ...)
+  return run_compiled(s.owner, s.compiled, ...)
 end
 
 function Statement:sql()
@@ -345,17 +359,22 @@ function Connection:schema_cache_clear()
   own(self).schema = {}
 end
 
+--[[ The id the last INSERT on this connection produced.
+
+  The table and the column are identifiers rather than parameters because
+  PostgreSQL needs them to build a sequence name, and passing them the same way
+  on every dialect is what keeps the call one shape -- the SQLite and MySQL
+  bodies simply have no slot to put them in.
+
+  Every dialect aliases the value as `id`, so the row is read by name like every
+  other row the layer returns.
+]]
 function Connection:last_insert_id(table_name, field_name)
-  local decl = registry.declaration('core.last_insert_id')
-  local row
+  local row = self:with('core.last_insert_id', table_name, field_name)
+    :run()
+    :fetch(true)
 
-  if decl.idents then
-    row = self:with('core.last_insert_id', table_name, field_name):run():fetch()
-  else
-    row = self:run('core.last_insert_id'):fetch()
-  end
-
-  return row and row[1]
+  return row and row.id
 end
 
 function Connection:name()
@@ -374,7 +393,9 @@ end
 -- speak SQL directly. Deliberately awkward to reach: nothing on a request path
 -- should want it.
 function Connection:handle()
-  return handle_of(self)
+  local s = own(self)
+
+  return s.handle or connect(s)
 end
 
 --[[ Ad-hoc SQL, for migrations, the installer and the CLI.
@@ -384,17 +405,17 @@ end
   what that parser is for.
 ]]
 function Connection:execute(sql, ...)
-  local compiled = registry.compile_text(own(self).driver, sql)
+  local s = own(self)
 
-  return run_compiled(self, compiled, ...)
+  return run_compiled(s, registry.compile_text(s.driver, sql), ...)
 end
 
 --[[ Give the connection up.
 
   Pooled on success, closed on failure, and closed if a statement ever errored
   on it -- a handle whose last statement failed may hold a live transaction or
-  unread protocol traffic. `_handle` is cleared either way, so any later use
-  takes the slow path in `handle_of()` and raises rather than reaching a socket
+  unread protocol traffic. The handle is cleared either way, so any later use
+  falls into `connect()` and raises rather than reaching a socket
   the pool has given to somebody else.
 ]]
 function Connection:release(ok)

@@ -1,5 +1,5 @@
 local seawolf = require 'seawolf'.__build('fs', 'behaviour', 'variable')
-local config, theme, header, _GET = settings.file or {}, theme, header, _GET
+local config, theme, header = settings.file or {}, theme, header
 local tinsert, tconcat, lfs, env = table.insert, table.concat, lfs, env
 local is_dir, is_file, add_js = seawolf.fs.is_dir, seawolf.fs.is_file, add_js
 local temp_dir, empty = seawolf.behaviour.temp_dir, seawolf.variable.empty
@@ -16,6 +16,10 @@ local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 local safe_path_segment, unsafe_path_denied = safe_path_segment, unsafe_path_denied
 
 local debug = debug
+-- Required rather than captured from a global: this is a module of its own, and
+-- `module()` below would put the local out of reach of nothing -- the require
+-- result is an upvalue, which survives the environment swap.
+local fs_stats = require 'includes.fs.stats'
 
 module 'ophal.modules.file'
 
@@ -27,6 +31,21 @@ local user_mod, db_query, db_field, db_last_insert_id
   `tonumber` accepts `0x10`, ` 3 ` and `1e2`, and a float would interpolate as
   `1.5`. Only a non-negative integer is a chunk.
 ]]
+--[[ This request's query arguments.
+
+  Read through `env` on every call rather than captured as a local at load time.
+  `ophal_request_reset()` rebinds `_GET` to a *new* table for each request, so a
+  load-time capture keeps pointing at whatever the worker's first request
+  carried. That is invisible under `lua_code_cache off`, which reloads this file
+  every request, and permanent under the `lua_code_cache on` that
+  `nginx.ophal.conf` ships -- which is to say it is broken exactly in
+  production. `env` is the jailed environment itself and `ophal_request_reset()`
+  assigns into it, so indexing it here is what makes the read current.
+]]
+local function query_args()
+  return env._GET or {}
+end
+
 local function upload_index(value)
   local number = tonumber(value)
 
@@ -122,10 +141,12 @@ function upload_service()
   local output, target, upload_id, index, upload_dir, err
   local status, output_fh, data, file
 
-  upload_id = _GET.id
-  index = upload_index(_GET.index)
+  local args = query_args()
+
+  upload_id = args.id
+  index = upload_index(args.index)
   file = {
-    filename = _GET.name,
+    filename = args.name,
   }
 
   output = {
@@ -178,10 +199,12 @@ function upload_service()
     target = ('%s/%s.part'):format(upload_dir, index)
     data = request_get_body()
     output_fh, err = io_open(target, 'w+')
+    fs_stats.record('open', nil, target)
     if err then
       output.error = err
     else
       output_fh:write(data)
+      fs_stats.record('write', #data, target)
       output_fh:close()
       output.success = true
     end
@@ -196,8 +219,10 @@ function merge_service()
   local output, source_fh, target_fh, index, upload_id, data, err, status
   local source_path, file
 
-  upload_id = _GET.id
-  index = upload_index(_GET.index)
+  local args = query_args()
+
+  upload_id = args.id
+  index = upload_index(args.index)
 
   output = {
     success = false,
@@ -214,7 +239,7 @@ function merge_service()
   -- anyone holding `upload files`. The entity is built after the check rather
   -- than before it so that no path is constructed from a value that has not
   -- been accepted.
-  if not safe_path_segment(_GET.name) then
+  if not safe_path_segment(args.name) then
     unsafe_path_denied(output, 'name')
     return output
   end
@@ -230,28 +255,32 @@ function merge_service()
   end
 
   file = {
-    filename = _GET.name,
-    filepath = ('%s/%s'):format(files_path, _GET.name),
-    filesize = tonumber(_GET.size or 0),
+    filename = args.name,
+    filepath = ('%s/%s'):format(files_path, args.name),
+    filesize = tonumber(args.size or 0),
   }
 
   target_fh, err = io_open(file.filepath, 'w+')
+  fs_stats.record('open', nil, file.filepath)
   if err then
     output.error = err
   elseif index > 0 then
     for i = 1, index do
       source_path = ('%s/ophal_uploads/%s/%s.part'):format(temp_dir(), upload_id, i - 1)
       source_fh = io_open(source_path, 'r')
+      fs_stats.record('open', nil, source_path)
       if not source_fh then
         output.error = ('missing upload part: %s'):format(source_path)
         break
       end
 
       data, err = source_fh:read '*a'
+      fs_stats.record('read', data and #data or 0, source_path)
       if err then
         output.error = err
       else
         status, err = target_fh:write(data)
+        fs_stats.record('write', #data, file.filepath)
         if err then
           output.error = err
           target_fh:close()
@@ -261,6 +290,7 @@ function merge_service()
       source_fh:close()
       if not output.error then
         os_remove(source_path)
+        fs_stats.record('remove', nil, source_path)
       end
     end
     target_fh:close()
@@ -270,6 +300,7 @@ function merge_service()
     end
 
     os_remove(('%s/ophal_uploads/%s'):format(temp_dir(), upload_id))
+    fs_stats.record('remove')
 
     -- Register the file into the database
     if config.filedb_storage then
@@ -298,7 +329,7 @@ end
 
 function delete_service()
   local rs, err
-  local file_id = _GET.id
+  local file_id = query_args().id
   local output = {success = false}
 
   if not csrf_validate_request() then
@@ -380,6 +411,7 @@ function delete(entity)
   if not err then
     if entity.filepath then
       os_remove(entity.filepath)
+      fs_stats.record('remove', nil, entity.filepath)
     end
     module_invoke_all('entity_after_delete', entity)
   end

@@ -168,6 +168,23 @@ local scenarios = {
       })
     end)
   end,
+  -- The filesystem counterpart of `db_stats`, and non-bootstrapping for the
+  -- same reason: bootstrap reads templates and asset metadata, so a probe that
+  -- booted would add filesystem work to the number it exists to report.
+  fs_stats = function()
+    local stats = require 'includes.fs.stats'
+    local snapshot = stats.snapshot()
+    local lines = {
+      'SMOKE_FS_OPEN=' .. tostring(snapshot.open),
+      'SMOKE_FS_READ=' .. tostring(snapshot.read),
+      'SMOKE_FS_WRITE=' .. tostring(snapshot.write),
+      'SMOKE_FS_RENAME=' .. tostring(snapshot.rename),
+      'SMOKE_FS_REMOVE=' .. tostring(snapshot.remove),
+      'SMOKE_FS_BYTES=' .. tostring(snapshot.bytes),
+    }
+
+    ngx.print(render(lines))
+  end,
   db_stats = function()
     local stats = require 'includes.database.stats'
     local snapshot = stats.snapshot()

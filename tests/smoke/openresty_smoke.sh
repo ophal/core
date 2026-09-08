@@ -464,6 +464,17 @@ return function(settings, vault)
     content = true,
     user = true,
     tag = true,
+    file = true,
+  }
+
+  -- The media path is measured here rather than on the module-less instance
+  -- because that one runs with `lua_code_cache off`, which resets
+  -- `package.loaded` between requests -- the counters would be zero every time
+  -- they were read. `filedb_storage` stays off until the `file` table exists in
+  -- the seeded schema.
+  settings.file = {
+    filedb_storage = false,
+    bytes_per_chunk = 8,
   }
 
   -- Which entity types carry tags is site configuration with no sensible
@@ -489,6 +500,7 @@ return function(settings, vault)
   -- per worker, so it has to be true from the worker's first request.
   settings.performance = {
     query_stats = true,
+    fs_stats = true,
   }
 
   -- This profile is the one that configures a cron token, so both halves of
@@ -1025,6 +1037,67 @@ read_db_stats() {
   [[ -n "$DB_STATS_TOTAL" && -n "$DB_STATS_NORMALIZED" && -n "$DB_STATS_INFRASTRUCTURE" ]] ||
     fail 'query stats probe reported nothing'
   LAST_SCENARIO=$saved_scenario
+}
+
+# The filesystem counterpart of `read_db_stats`, and cumulative in the same way:
+# the difference between two probes is what the requests between them cost.
+read_fs_stats() {
+  local saved_scenario=$LAST_SCENARIO
+
+  run_request fs_stats_probe "$DB_URL/__smoke__?scenario=fs_stats"
+  assert_status_zero
+  assert_regex '^HTTP/1\.[01] 200'
+  FS_STATS_OPEN=$(extract_marker 'SMOKE_FS_OPEN')
+  FS_STATS_READ=$(extract_marker 'SMOKE_FS_READ')
+  FS_STATS_WRITE=$(extract_marker 'SMOKE_FS_WRITE')
+  FS_STATS_RENAME=$(extract_marker 'SMOKE_FS_RENAME')
+  FS_STATS_REMOVE=$(extract_marker 'SMOKE_FS_REMOVE')
+  FS_STATS_BYTES=$(extract_marker 'SMOKE_FS_BYTES')
+  [[ -n "$FS_STATS_OPEN" && -n "$FS_STATS_BYTES" ]] ||
+    fail 'filesystem stats probe reported nothing'
+  LAST_SCENARIO=$saved_scenario
+}
+
+measure_fs_request() {
+  local name=$1
+  shift
+  local b_open b_read b_write b_rename b_remove b_bytes
+  local measured_output measured_status
+
+  read_fs_stats
+  b_open=$FS_STATS_OPEN; b_read=$FS_STATS_READ; b_write=$FS_STATS_WRITE
+  b_rename=$FS_STATS_RENAME; b_remove=$FS_STATS_REMOVE; b_bytes=$FS_STATS_BYTES
+
+  run_request "$name" "$@"
+  measured_output=$LAST_OUTPUT
+  measured_status=$LAST_STATUS
+
+  read_fs_stats
+  FS_OPEN=$((FS_STATS_OPEN - b_open))
+  FS_READ=$((FS_STATS_READ - b_read))
+  FS_WRITE=$((FS_STATS_WRITE - b_write))
+  FS_RENAME=$((FS_STATS_RENAME - b_rename))
+  FS_REMOVE=$((FS_STATS_REMOVE - b_remove))
+  FS_BYTES=$((FS_STATS_BYTES - b_bytes))
+
+  LAST_OUTPUT=$measured_output
+  LAST_STATUS=$measured_status
+  LAST_SCENARIO=$name
+}
+
+# `bytes` is the number that carries the argument. Ops alone would rate a rename
+# and a read-then-write copy of the same file as comparable; bytes is what says
+# one of them moved the file through Lua and the other moved a directory entry.
+assert_fs_budget() {
+  local e_open=$1 e_read=$2 e_write=$3 e_rename=$4 e_remove=$5 e_bytes=$6
+  local measured="open=$FS_OPEN read=$FS_READ write=$FS_WRITE rename=$FS_RENAME remove=$FS_REMOVE bytes=$FS_BYTES"
+
+  [[ "$FS_OPEN" -eq "$e_open" ]] || fail "expected $e_open opens; $measured"
+  [[ "$FS_READ" -eq "$e_read" ]] || fail "expected $e_read reads; $measured"
+  [[ "$FS_WRITE" -eq "$e_write" ]] || fail "expected $e_write writes; $measured"
+  [[ "$FS_RENAME" -eq "$e_rename" ]] || fail "expected $e_rename renames; $measured"
+  [[ "$FS_REMOVE" -eq "$e_remove" ]] || fail "expected $e_remove removes; $measured"
+  [[ "$FS_BYTES" -eq "$e_bytes" ]] || fail "expected $e_bytes bytes through Lua; $measured"
 }
 
 # Runs one request between two probes and leaves the request's own response in
@@ -1594,6 +1667,63 @@ assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_query_budget 2 0
 report_ok "db_stall_recovered (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# --- the media path, measured ---
+#
+# A two-chunk upload against `bytes_per_chunk = 8`, so the reassembly is real
+# rather than a single-chunk special case: 8 bytes then 3, and the merged file
+# has to be the concatenation in the right order.
+
+media_upload_id='media-smoke-upload'
+media_name='media-smoke.txt'
+
+run_request db_media_csrf "$DB_URL/__smoke__?scenario=csrf_token" -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt"
+assert_status_zero
+media_csrf=$(extract_marker 'SMOKE_CSRF_TOKEN')
+[[ -n "$media_csrf" ]] || fail 'no CSRF token for the media smoke'
+report_ok db_media_csrf
+
+measure_fs_request db_media_chunk_one \
+  -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt" \
+  -X POST -H "X-CSRF-Token: $media_csrf" \
+  --data-binary 'AAAAAAAA' \
+  "$DB_URL/__smoke__?scenario=file_upload_chunk&name=$media_name&id=$media_upload_id&index=0"
+assert_status_zero
+assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
+# One open and one write of the chunk itself. This is the cheap half; the
+# expensive half is what the merge then does with what these two wrote.
+assert_fs_budget 1 0 1 0 0 8
+report_ok "db_media_chunk_one (open=$FS_OPEN write=$FS_WRITE bytes=$FS_BYTES)"
+
+measure_fs_request db_media_chunk_two \
+  -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt" \
+  -X POST -H "X-CSRF-Token: $media_csrf" \
+  --data-binary 'BBB' \
+  "$DB_URL/__smoke__?scenario=file_upload_chunk&name=$media_name&id=$media_upload_id&index=1"
+assert_status_zero
+assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
+report_ok "db_media_chunk_two (open=$FS_OPEN write=$FS_WRITE bytes=$FS_BYTES)"
+
+measure_fs_request db_media_merge \
+  -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt" \
+  -X POST -H "X-CSRF-Token: $media_csrf" \
+  "$DB_URL/__smoke__?scenario=file_merge_chunks&name=$media_name&id=$media_upload_id&size=11&index=2"
+assert_status_zero
+assert_contains 'SMOKE_MERGE_SUCCESS=true'
+# The bytes have to come back in order, or the reassembly is not reassembly.
+assert_contains 'SMOKE_MERGED_FILE=AAAAAAAABBB'
+# The baseline this phase exists to move, pinned before it moves so the
+# improvement is a measurement rather than an assertion of one. Reassembling an
+# 11-byte file reads 11 bytes back and writes them again -- 22 through Lua here,
+# 33 counting the 11 the chunk requests already wrote, three times the size of
+# the file. `read '*a'` also materialises a whole chunk as a Lua string, so the
+# memory cost tracks the chunk size rather than a buffer.
+#
+# The three removes are the two `.part` files and the directory holding them,
+# which exist only because the bytes were staged somewhere other than where they
+# were going.
+assert_fs_budget 3 2 2 0 3 22
+report_ok "db_media_merge (open=$FS_OPEN read=$FS_READ write=$FS_WRITE bytes=$FS_BYTES)"
 
 printf 'all openresty smoke scenarios passed
 '

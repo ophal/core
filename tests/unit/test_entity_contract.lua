@@ -37,6 +37,8 @@ end
 seawolf = require 'seawolf'
 seawolf.__build('text', 'variable', 'contrib', 'fs')
 
+local db_fake = require 'tests.unit.db_fake'
+
 -- DB query recorder
 local db_log = {}
 local function mock_db_query(sql, ...)
@@ -56,9 +58,18 @@ local function reset_all()
   db_log = {}
   hook_log = {}
 
-  -- Clear cached module entries from package.loaded
+  --[[ Clear cached module entries from package.loaded, so each case re-runs a
+    module body against the environment it just built.
+
+    A module's statement declarations are deliberately not cleared. They are
+    load-time and immutable -- `registry.define()` refuses a name twice, which
+    is what catches two modules claiming one statement -- and the registry has
+    no `reset()` for the same reason `includes/database/statements.lua` keeps
+    none: clearing declarations would leave them undefined rather than reloaded.
+  ]]
   for k in pairs(package.loaded) do
-    if k:find('^modules%.') or k:find('^ophal%.modules%.') then
+    if (k:find('^modules%.') or k:find('^ophal%.modules%.'))
+        and not k:find('%.statements$') then
       package.loaded[k] = nil
     end
   end
@@ -82,8 +93,7 @@ local function reset_all()
   page_set_title = function() end
   go_to = function() end
   _GET = {}
-  db_query = mock_db_query
-  db_last_insert_id = function() return 1 end
+  db_fake.install({sql = mock_db_query}, _G)
 
   -- Load module system (provides module_invoke_all, module_list, etc.)
   dofile('includes/module.lua')
@@ -440,10 +450,9 @@ local function setup_tag_env()
 
   -- Extra globals needed by tag module at load time
   env = {
-    db_query = mock_db_query,
     db_limit = function() return ' LIMIT ?,?' end,
-    db_last_insert_id = function() return 1 end,
   }
+  db_fake.install({sql = mock_db_query}, env, _G)
   add_css = function() end
   add_js = function() end
   pager = function() return {} end
@@ -567,10 +576,9 @@ local function setup_tag_page_env(opts)
   settings.slash = nil
 
   env = {
-    db_query = mock_db_query,
     db_limit = function() return ' LIMIT ?,?' end,
-    db_last_insert_id = function() return 1 end,
   }
+  db_fake.install({sql = mock_db_query}, env, _G)
   add_css = function() end
   add_js = function() end
   pager = function() return {} end

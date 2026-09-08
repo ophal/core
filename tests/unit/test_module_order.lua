@@ -91,7 +91,9 @@ local function reset_globals()
 
   -- Clear any mocked info.lua entries from package.loaded
   for k in pairs(package.loaded) do
-    if k:find('^modules%.') then
+    -- Statement declarations are load-time and immutable; see
+    -- `tests/unit/test_entity_contract.lua` for why they survive this.
+    if k:find('^modules%.') and not k:find('%.statements$') then
       package.loaded[k] = nil
     end
   end

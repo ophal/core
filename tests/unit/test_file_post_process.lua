@@ -23,6 +23,8 @@ do
   }, ';')
 end
 
+local db_fake = require 'tests.unit.db_fake'
+
 local pass_count, fail_count = 0, 0
 
 local function assert_eq(label, got, expected)
@@ -95,9 +97,9 @@ local function load_file_module(state)
 
   _G.env = {
     _GET = {},
-    db_field = function(_, field) return field end,
-    db_last_insert_id = function() return 1 end,
-    db_query = function(sql, ...)
+  }
+  db_fake.install({
+    sql = function(sql, ...)
       local args = {...}
 
       state.queries[#state.queries + 1] = {sql = sql, args = args}
@@ -118,7 +120,7 @@ local function load_file_module(state)
 
       return result_of{}
     end,
-  }
+  }, _G.env, _G)
 
   -- `includes/jobs.lua` keeps one registry per process, so a handler from an
   -- earlier block would otherwise still be standing.

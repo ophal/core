@@ -5,17 +5,25 @@ if type(html_escape) ~= 'function' then
   pcall(require, 'includes.escape')
 end
 
+require 'modules.entity.statements'
+
 local t, module_invoke_all, route_arg = t, module_invoke_all, route_arg
 local l, theme, empty = l, theme, seawolf.variable.empty
 local xtable, config = seawolf.contrib.seawolf_table, settings.entity
 local csrf_token, csrf_validate_request, csrf_denied = csrf_token, csrf_validate_request, csrf_denied
 
-local user_mod
+local user_mod, db_connection
 
 --[[ Implements hook init().
 ]]
 function _M.init()
   user_mod = ophal.modules.user
+
+  -- Captured per request, not at load: a connection object belongs to the
+  -- request that asked for it and raises at its next use once released. This
+  -- file is not `module()`-jailed, so the accessor is reachable as a plain
+  -- global; `env` is not, in a unit test that builds no jailed environment.
+  db_connection = _G.db_connection or env and env.db_connection
 end
 
 --[[ Implements hook route().
@@ -160,21 +168,25 @@ function _M.entity_access(entity, action)
   return false
 end
 
-function _M.delete(entity)
-  local rs, err
+--[[ Delete an entity and the relation rows that point at it.
 
-  rs, err = db_query('DELETE FROM ' .. entity.type .. ' WHERE id = ?', entity.id)
+  The entity type and each relation table are identifiers, so they are part of
+  the compile key: `db:with()` memoizes a compiled statement per distinct value
+  per worker, where this used to concatenate a table name into SQL on every
+  call. The relation naming convention lives in the declaration now -- see
+  `modules/entity/statements.lua`.
+]]
+function _M.delete(entity)
+  local db = db_connection()
+  local rs = db:with('entity.delete', entity.type):run(entity.id)
 
   for _, parent in ipairs((config[entity.type] or {}).parents or {}) do
-    local query = ('DELETE FROM rel_%s_%s WHERE %s_id = ?'):format(entity.type, parent, entity.type)
-    rs, err = db_query(query, entity.id)
+    db:with('entity.delete_relation', entity.type, parent):run(entity.id)
   end
 
-  if not err then
-    module_invoke_all('entity_after_delete', entity)
-  end
+  module_invoke_all('entity_after_delete', entity)
 
-  return rs, err
+  return rs
 end
 
 --[[ Implements hook route_alter().

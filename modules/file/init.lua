@@ -6,6 +6,8 @@ local temp_dir, empty = seawolf.behaviour.temp_dir, seawolf.variable.empty
 local request_get_body, io_open, tonumber, type = request_get_body, io.open, tonumber, type
 local request_get_body_file = request_get_body_file
 local json, files_path = require 'dkjson', settings.site.files_path
+require 'modules.file.statements'
+
 local os_remove, os_rename, modules, time = os.remove, os.rename, ophal.modules, os.time
 local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
 local render_attributes, format_size = render_attributes, format_size
@@ -25,7 +27,7 @@ local jobs = require 'includes.jobs'
 
 module 'ophal.modules.file'
 
-local user_mod, db_query, db_field, db_last_insert_id
+local user_mod, db_connection
 
 --[[ A chunk index, or nil when it is not one.
 
@@ -101,9 +103,9 @@ end
 --[[ Implements hook init().
 ]]
 function init()
-  db_query = env.db_query
-  db_field = env.db_field
-  db_last_insert_id = env.db_last_insert_id
+  -- Captured per request, not at load: a connection object belongs to the
+  -- request that asked for it and raises at its next use once released.
+  db_connection = env.db_connection
   user_mod = modules.user
 end
 
@@ -132,19 +134,16 @@ end
 function load_by_field(field, value)
   if field == nil then field = 'id' end
 
-  local rs, err
+  local entity
 
   if field == 'id' then
     value = tonumber(value or 0)
   end
 
-  local sql = ('SELECT * FROM file WHERE %s = ?'):format(db_field('file', field))
-  rs, err = db_query(sql, value)
-  if err then
-    error(err)
-  end
-
-  entity = rs:fetch(true)
+  entity = db_connection()
+    :with('file.load_by_field', field)
+    :run(value)
+    :fetch(true)
 
   if entity then
     entity.type = 'file'
@@ -406,22 +405,22 @@ function delete_service()
 end
 
 function create(entity)
-  local rs, err
+  local rs
 
   if entity.type == nil then entity.type = 'file' end
 
-  rs, err = (function(id, ...)
+  rs = (function(id, ...)
+    local db = db_connection()
+
     if id then
-      return db_query([[
-INSERT INTO file(id, user_id, filename, filepath, filemime, filesize, status, timestamp)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?)]], id, ...)
-    else
-      local rs1, rs2 = db_query([[
-INSERT INTO file(user_id, filename, filepath, filemime, filesize, status, timestamp)
-VALUES(?, ?, ?, ?, ?, ?, ?)]], ...)
-      entity.id = db_last_insert_id('file', 'id')
-      return rs1, rs2
+      return db:run('file.create_with_id', id, ...)
     end
+
+    local created = db:run('file.create', ...)
+
+    entity.id = db:last_insert_id('file', 'id')
+
+    return created
   end)(
     entity.id,
     entity.user_id or user_mod.current().id,
@@ -433,16 +432,13 @@ VALUES(?, ?, ?, ?, ?, ?, ?)]], ...)
     entity.timestamp
   )
 
-  if not err then
-    module_invoke_all('entity_after_save', entity)
-  end
+  module_invoke_all('entity_after_save', entity)
 
-  return entity.id, err
+  return entity.id
 end
 
 function update(entity)
-  local rs, err
-  rs, err = db_query('UPDATE file SET user_id = ?, filename = ?, filepath = ?, filemime = ?, filesize = ?, status = ?, timestamp = ? WHERE id = ?',
+  local rs = db_connection():run('file.update',
       entity.user_id,
       entity.filename,
       entity.filepath,
@@ -452,26 +448,23 @@ function update(entity)
       entity.timestamp,
       entity.id
   )
-  if not err then
-    module_invoke_all('entity_after_save', entity)
-  end
-  return rs, err
+
+  module_invoke_all('entity_after_save', entity)
+
+  return rs
 end
 
 function delete(entity)
-  local rs, err
+  local rs = db_connection():run('file.delete', entity.id)
 
-  rs, err = db_query('DELETE FROM file WHERE id = ?', entity.id)
-
-  if not err then
-    if entity.filepath then
-      os_remove(entity.filepath)
-      fs_stats.record('remove', nil, entity.filepath)
-    end
-    module_invoke_all('entity_after_delete', entity)
+  if entity.filepath then
+    os_remove(entity.filepath)
+    fs_stats.record('remove', nil, entity.filepath)
   end
 
-  return rs, err
+  module_invoke_all('entity_after_delete', entity)
+
+  return rs
 end
 
 --[[ Identify an uploaded file's type, off the request that uploaded it.

@@ -1,3 +1,5 @@
+require 'modules.comment.statements'
+
 local config = settings.comment or {}
 if config.render_handler == nil then config.render_handler = 'onload' end
 local add_js, theme, header, arg, env, l = add_js, theme, header, route_arg, env, l
@@ -11,14 +13,14 @@ local debug = debug
 
 module 'ophal.modules.comment'
 
-local user_mod, db_query, db_field, db_last_insert_id
+local user_mod, db_connection
 
 --[[ Implements hook init().
 ]]
 function init()
-  db_query = env.db_query
-  db_field = env.db_field
-  db_last_insert_id = env.db_last_insert_id
+  -- Captured per request, not at load: a connection object belongs to the
+  -- request that asked for it and raises at its next use once released.
+  db_connection = env.db_connection
   user_mod = modules.user
 end
 
@@ -72,11 +74,7 @@ function load(id)
 
   id = tonumber(id or 0)
 
-  rs, err = db_query('SELECT * FROM comment WHERE id = ?', id)
-  if err then
-    error(err)
-  end
-
+  rs = db_connection():run('comment.load', id)
   entity = rs:fetch(true)
 
   if entity then
@@ -91,14 +89,13 @@ function load_multiple_by(field_name, value)
   local rs, err
   local rows = {}
 
-  local sql = ('SELECT * FROM comment WHERE %s = ?'):format(db_field('comment', field_name))
-  rs, err = db_query(sql, value)
+  rs = db_connection():with('comment.load_by_field', field_name):run(value)
 
   for row in rs:rows(true) do
     rows[1 + #rows] = row
   end
 
-  return rows, err
+  return rows
 end
 
 function comment_access(entity, action)
@@ -235,10 +232,10 @@ function create(entity)
 
   if entity.type == nil then entity.type = 'comment' end
 
+  local db = db_connection()
+
   if entity.id then
-    rs, err = db_query([[
-INSERT INTO comment(id, entity_id, parent_id, user_id, language, body, created, status, sticky)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)]],
+    db:run('comment.create_with_id',
       entity.id,
       entity.entity_id,
       entity.parent_id,
@@ -250,9 +247,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)]],
       entity.sticky or false
     )
   else
-    rs, err = db_query([[
-INSERT INTO comment(entity_id, parent_id, user_id, language, body, created, status, sticky)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
+    db:run('comment.create',
       entity.entity_id,
       entity.parent_id,
       entity.user_id or user_mod.current().id,
@@ -262,20 +257,19 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
       entity.status,
       entity.sticky or false
     )
-    entity.id = db_last_insert_id('comment', 'id')
+    entity.id = db:last_insert_id('comment', 'id')
   end
 
-  if not err then
-    module_invoke_all('entity_after_save', entity)
-  end
-  return entity.id, err
+  module_invoke_all('entity_after_save', entity)
+
+  return entity.id
 end
 
 function update(entity)
-  local rs, err
-  rs, err = db_query('UPDATE comment SET body = ?, status = ?, changed = ? WHERE id = ?', entity.body, entity.status, time(), entity.id)
-  if not err then
-    module_invoke_all('entity_after_save', entity)
-  end
-  return rs, err
+  local rs = db_connection():run('comment.update',
+    entity.body, entity.status, time(), entity.id)
+
+  module_invoke_all('entity_after_save', entity)
+
+  return rs
 end

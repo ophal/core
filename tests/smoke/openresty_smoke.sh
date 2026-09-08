@@ -1487,6 +1487,20 @@ assert_regex '"success" *: *false'
 assert_contains 'No such content.'
 report_ok db_content_save_missing
 
+# Creating a tag, which is the one authoring path with a table of its own that
+# nothing else touches: `db_content_create` attaches tag 1 by id, so the
+# module's own INSERT never ran under test. It named a `description` column
+# that no schema declared -- not INSTALL.md's, not the seed's -- so this
+# request failed on every install until 2026-09-08.
+run_request db_tag_create -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  --data-binary "{\"action\":\"create\",\"name\":\"SmokeCreatedTag\",\"description\":\"Created by the smoke suite\",\"status\":true,\"csrf_token\":\"$author_csrf\"}" \
+  "$DB_URL/tag/service"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"success" *: *true'
+report_ok db_tag_create
+
 measure_request db_content_page_after_update "$DB_URL/content/$authored_id"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'

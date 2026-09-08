@@ -277,17 +277,18 @@ Run the following SQL queries in strict order:
 ```SQL
 CREATE TABLE comment(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id UNSIGNED BIG INT,
-  entity_type VARCHAR(255),
   entity_id UNSIGNED BIG INT,
-  title VARCHAR(255),
+  parent_id UNSIGNED BIG INT,
+  user_id UNSIGNED BIG INT,
+  language VARCHAR(12),
   body TEXT,
   created UNSIGNED BIG INT,
   changed UNSIGNED BIG INT,
-  status BOOLEAN
+  status BOOLEAN,
+  sticky BOOLEAN
 );
 CREATE INDEX idx_comment_created ON comment (created DESC);
-CREATE INDEX idx_comment_entity ON comment (entity_type, entity_id);
+CREATE INDEX idx_comment_entity ON comment (entity_id);
 CREATE INDEX idx_comment_user ON comment (user_id);
 ```
 
@@ -295,23 +296,31 @@ CREATE INDEX idx_comment_user ON comment (user_id);
 ```SQL
 CREATE TABLE comment(
   id integer NOT NULL,
-  user_id bigint,
-  entity_type character varying(255),
   entity_id bigint,
-  title character varying(255),
+  parent_id bigint,
+  user_id bigint,
+  language character varying(12),
   body text,
   created bigint,
   changed bigint,
-  status smallint
+  status smallint,
+  sticky smallint
 );
 CREATE SEQUENCE comment_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
 ALTER SEQUENCE comment_id_seq OWNED BY comment.id;
 ALTER TABLE ONLY comment ALTER COLUMN id SET DEFAULT nextval('comment_id_seq'::regclass);
 ALTER TABLE ONLY comment ADD CONSTRAINT comment_pkey PRIMARY KEY (id);
 CREATE INDEX idx_comment_created ON comment USING btree (created DESC);
-CREATE INDEX idx_comment_entity ON comment USING btree (entity_type, entity_id);
+CREATE INDEX idx_comment_entity ON comment USING btree (entity_id);
 CREATE INDEX idx_comment_user ON comment USING btree (user_id);
 ```
+
+As with the `file` table, these are the columns the module names in its own
+`INSERT` and `UPDATE`. An earlier revision documented `entity_type` and `title`,
+which nothing reads or writes, and omitted `parent_id`, `language` and
+`sticky`, which every insert names — so posting a comment on a site installed
+from it failed on the first missing column. Comments attach to content by
+`entity_id` alone, which is why the entity index no longer leads with a type.
 
 Now add the following to settings.lua:
 ```Lua
@@ -489,6 +498,7 @@ CREATE TABLE tag(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id UNSIGNED BIG INT,
   name VARCHAR(255),
+  description TEXT,
   created UNSIGNED BIG INT,
   changed UNSIGNED BIG INT,
   status BOOLEAN
@@ -512,6 +522,7 @@ CREATE TABLE tag(
   id integer NOT NULL,
   user_id bigint,
   name character varying(255),
+  description text,
   created bigint,
   changed bigint,
   status smallint
@@ -579,17 +590,16 @@ Run the following SQL queries in strict order:
 CREATE TABLE file(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id UNSIGNED BIG INT,
-  name VARCHAR(255),
-  type VARCHAR(255),
-  size UNSIGNED BIG INT,
-  path VARCHAR(255),
-  created UNSIGNED BIG INT,
-  changed UNSIGNED BIG INT,
-  status BOOLEAN
+  filename VARCHAR(255),
+  filepath VARCHAR(255),
+  filemime VARCHAR(255),
+  filesize UNSIGNED BIG INT,
+  status BOOLEAN,
+  timestamp UNSIGNED BIG INT
 );
-CREATE INDEX idx_file_created ON file (created DESC);
-CREATE INDEX idx_file_changed ON file (changed DESC);
+CREATE INDEX idx_file_timestamp ON file (timestamp DESC);
 CREATE INDEX idx_file_user ON file (user_id);
+CREATE INDEX idx_file_filename ON file (filename);
 ```
 
 ####PostgreSQL
@@ -597,22 +607,35 @@ CREATE INDEX idx_file_user ON file (user_id);
 CREATE TABLE file(
   id integer NOT NULL,
   user_id bigint,
-  name character varying(255),
-  type character varying(255),
-  size bigint,
-  path character varying(255),
-  created bigint,
-  changed bigint,
-  status smallint
+  filename character varying(255),
+  filepath character varying(255),
+  filemime character varying(255),
+  filesize bigint,
+  status smallint,
+  timestamp bigint
 );
 CREATE SEQUENCE file_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
 ALTER SEQUENCE file_id_seq OWNED BY file.id;
 ALTER TABLE ONLY file ALTER COLUMN id SET DEFAULT nextval('file_id_seq'::regclass);
 ALTER TABLE ONLY file ADD CONSTRAINT file_pkey PRIMARY KEY (id);
-CREATE INDEX idx_file_created ON file USING btree (created DESC);
-CREATE INDEX idx_file_changed ON file USING btree (changed DESC);
+CREATE INDEX idx_file_timestamp ON file USING btree (timestamp DESC);
 CREATE INDEX idx_file_user ON file USING btree (user_id);
+CREATE INDEX idx_file_filename ON file USING btree (filename);
 ```
+
+These are the columns the module reads and writes: `create()` and `update()`
+name them directly, and `db_field()` maps a name to itself rather than
+translating one, so a differently named column is an absent column and not a
+rename. An earlier revision of this section documented `name`, `type`, `size`,
+`path`, `created` and `changed`, which no code has ever used -- a site
+installed from it could not store a file at all.
+
+`filename` carries its own index because the module looks a file up by it
+before accepting an upload, which is how it refuses a name that is already
+taken. `filemime` is left null by the upload itself: the type inspection runs
+on the deferred queue as `file_post_process`, so the column fills in on the
+next `/cron` drain rather than during the request. See "Deferred work and the
+cron schedule" above.
 
 Now add the following to settings.lua:
 ```Lua

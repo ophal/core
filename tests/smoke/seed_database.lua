@@ -87,6 +87,7 @@ local schema = {
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id UNSIGNED BIG INT,
   name VARCHAR(255),
+  description TEXT,
   created UNSIGNED BIG INT,
   changed UNSIGNED BIG INT,
   status BOOLEAN
@@ -183,6 +184,13 @@ VALUES('authenticated', 'access tags', 'tag')]]},
 VALUES('authenticated', 'create content', 'content')]]},
   {[[INSERT INTO role_permission(role_id, permission, module)
 VALUES('authenticated', 'edit own content', 'content')]]},
+
+  -- `tag/service` creates a row of its own, which no other scenario exercises:
+  -- the authoring test attaches an existing tag by id. That is how the `tag`
+  -- table went without a `description` column everywhere it was declared while
+  -- both of the module's INSERT statements named one.
+  {[[INSERT INTO role_permission(role_id, permission, module)
+VALUES('authenticated', 'create tags', 'tag')]]},
 
   {[[INSERT INTO user_role(user_id, role_id) VALUES(1, 'authenticated')]]},
   {[[INSERT INTO user_role(user_id, role_id) VALUES(2, 'authenticated')]]},

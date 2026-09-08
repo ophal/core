@@ -22,8 +22,8 @@ Ophal has the following dependencies:
 - Seawolf (http://github.com/ophal/seawolf)
 - LPEG
 - LuaFilesystem
-- lsqlite3 (SQLite), pgmoon (PostgreSQL), or LuaDBI for the command-line
-  tool on PostgreSQL and MySQL
+- lsqlite3 (SQLite) or pgmoon (PostgreSQL); MySQL uses the `lua-resty-mysql`
+  that ships with OpenResty
 - luuid
 - dkjson
 

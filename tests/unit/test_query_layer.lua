@@ -349,7 +349,7 @@ do
   local other = connection.open('legacy')
 
   assert_eq('second_object_has_its_own_name', other:name(), 'legacy')
-  assert_eq('second_object_has_its_own_driver', other:driver(), 'luadbi_mysql')
+  assert_eq('second_object_has_its_own_driver', other:driver(), 'resty-mysql')
   -- Two connections, two drivers, live at the same time. This is the migration
   -- and integration case, and it is what `db_set_db_id()` could not express.
   assert_eq('first_object_unchanged', conn:driver(), 'lsqlite3')

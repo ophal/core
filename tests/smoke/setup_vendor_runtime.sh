@@ -7,9 +7,9 @@ VENDOR_DEBS="$VENDOR_ROOT/debs"
 VENDOR_UNPACK="$VENDOR_ROOT/unpack"
 VENDOR_SEAWOLF="$VENDOR_ROOT/seawolf"
 SEAWOLF_REF="${SEAWOLF_REF:-master}"
-# `lua-dbi-*` is still here because the `ophal` CLI reaches PostgreSQL and MySQL
-# through LuaDBI; SQLite goes through lsqlite3, which is built below.
-PACKAGES=(lua-filesystem lua-lpeg lua-socket lua-dkjson lua-dbi-common)
+# No database binding here: SQLite is lsqlite3, built below, and PostgreSQL and
+# MySQL are pgmoon and the bundled `lua-resty-mysql`. LuaDBI is gone.
+PACKAGES=(lua-filesystem lua-lpeg lua-socket lua-dkjson)
 LSQLITE_REF="${LSQLITE_REF:-master}"
 LSQLITE_TARBALL="https://github.com/LuaDist/lsqlite3/archive/refs/heads/$LSQLITE_REF.tar.gz"
 # The headers lsqlite3 compiles against. Taken from the pool directory rather

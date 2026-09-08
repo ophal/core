@@ -28,10 +28,11 @@ RUN luarocks install luasocket
 RUN luarocks install luuid
 # SQLite goes through lsqlite3; `lsqlite3complete` links SQLite statically.
 RUN luarocks install lsqlite3complete
+# pgmoon serves both the worker and the command line: cosockets under
+# OpenResty, LuaSocket under plain lua5.1. luaossl is what it authenticates
+# with, and scram-sha-256 is the default on PostgreSQL 14 and later.
 RUN luarocks install pgmoon
-# Only the `ophal migrate` command line needs a blocking PostgreSQL driver: the
-# worker reaches PostgreSQL through pgmoon on cosockets.
-RUN luarocks install luadbi-postgresql PGSQL_INCDIR=/usr/include/postgresql
+RUN luarocks install luaossl
 
 RUN git clone --depth=1 https://github.com/ophal/seawolf.git /usr/local/share/lua/5.1/seawolf
 

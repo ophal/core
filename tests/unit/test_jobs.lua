@@ -497,24 +497,24 @@ io.write '\n-- driver claim statements --\n'
 
 do
   local sqlite = require 'includes.database.driver.lsqlite3'
-  local postgresql = require 'includes.database.driver.luadbi_postgresql'
-  local sqlite_sql = registry.compile(sqlite, 'jobs.claim').sql
-  local pg_sql = registry.compile(postgresql, 'jobs.claim').sql
-
-  local function placeholders(sql)
-    local count = 0
-    for _ in sql:gmatch('%?') do
-      count = count + 1
-    end
-    return count
-  end
+  local postgresql = require 'includes.database.driver.pgmoon'
+  local sqlite_compiled = registry.compile(sqlite, 'jobs.claim')
+  local pg_compiled = registry.compile(postgresql, 'jobs.claim')
+  local sqlite_sql = sqlite_compiled.sql
+  local pg_sql = pg_compiled.sql
 
   -- `jobs.claim()` binds claimed_at, claimed_by, updated_at, the availability
   -- cutoff and the row limit, in that order, to whichever statement the driver
-  -- returns. If the two statements stop agreeing on the count, one driver is
-  -- silently binding the wrong values.
-  assert_eq('claim_sqlite_placeholders', placeholders(sqlite_sql), 5)
-  assert_eq('claim_postgresql_placeholders', placeholders(pg_sql), 5)
+  -- compiled. If the two stop agreeing on the count, one is silently binding
+  -- the wrong values.
+  --
+  -- Counted from the compiled statement rather than by looking for `?`, because
+  -- the placeholder is the driver's business: lsqlite3 binds `?` and pgmoon
+  -- renders `$1..$n`, so scanning the text answered five for one and zero for
+  -- the other while both were correct.
+  assert_eq('claim_sqlite_placeholders', sqlite_compiled.nparams, 5)
+  assert_eq('claim_postgresql_placeholders', pg_compiled.nparams, 5)
+  assert_match('claim_postgresql_is_numbered', pg_sql, '%$5')
 
   -- This is the only statement in the codebase that is not portable. It is one
   -- declaration with a `postgresql` override rather than a function per driver

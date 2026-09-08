@@ -98,9 +98,11 @@ Required for any site:
 - dkjson
 - LuaSocket
 - lsqlite3, for SQLite
-- LuaDBI plus its driver, only if you run `ophal migrate` against PostgreSQL or
-  MySQL from the command line
+- pgmoon, for PostgreSQL
+- luaossl, only if your PostgreSQL server authenticates with a password
 - Seawolf
+
+MySQL needs nothing installed: `lua-resty-mysql` ships with OpenResty.
 
 No cryptography library is needed. See the note in `README.md`: SHA-256 is the
 default password algorithm and a pure-Lua implementation ships with Ophal.
@@ -127,29 +129,40 @@ needs no system library of its own:
 $ sudo luarocks install lsqlite3complete
 ```
 
-PostgreSQL and MySQL are reached from the OpenResty worker through `pgmoon` and
-the bundled `lua-resty-mysql`, neither of which needs a rock beyond pgmoon:
+PostgreSQL goes through `pgmoon`, which serves both the OpenResty worker and the
+`ophal` command line -- it uses cosockets under OpenResty and LuaSocket under
+plain `lua5.1`, and picks between them itself:
 
 ```sh
 $ sudo luarocks install pgmoon
 ```
 
-The `ophal` command-line tool runs under plain `lua5.1` with no cosockets, so a
-PostgreSQL or MySQL site also needs a blocking driver for `ophal migrate`:
+`pgmoon` needs an OpenSSL binding to authenticate with a password. This is not
+optional on a default PostgreSQL 14 or later, where `scram-sha-256` is the
+default method, and it applies to the worker as much as to the command line:
 
 ```sh
-$ sudo luarocks install luadbi-postgresql PGSQL_INCDIR=/usr/include/postgresql
+$ sudo luarocks install luaossl
 ```
+
+MySQL needs no rock at all. `lua-resty-mysql` ships with OpenResty and is
+reached from the worker; it has no blocking mode, so `ophal migrate` does not
+yet support MySQL -- the migrations have no MySQL branch either.
 
 ### Upgrading from a release before 2026-09-08
 
-SQLite used to go through LuaDBI. It does not any more, and the swap is not
-optional: **LuaDBI reads integer columns with 32-bit precision**, so a
-timestamp breaks in January 2038 and a file over 2 GB reads wrong today. Install
-`lsqlite3complete` and leave `driver = 'sqlite3'` in your settings as it is --
-the name now resolves to the new binding. A site that upgrades without
-installing it stops at boot with a message saying so rather than failing
-somewhere inside its first query.
+**LuaDBI is gone.** It read integer columns with 32-bit precision on SQLite and
+PostgreSQL -- so a timestamp breaks in January 2038 and a file over 2 GB reads
+wrong today -- and returned an empty string for a SQL NULL on MySQL,
+indistinguishable from a column that really holds one. None of that is
+repairable above the binding.
+
+Your `driver` names keep working and now resolve to the replacements:
+`sqlite3` is lsqlite3, `postgresql` is pgmoon, `mysql` is `lua-resty-mysql`.
+Install what your backend needs from the list above; a site that upgrades
+without doing so stops at boot with a message naming the rock, rather than
+failing somewhere inside its first query. A settings file that spells a LuaDBI
+binding explicitly -- `driver = 'luadbi-postgresql'` -- is told what replaced it.
 
 `examples/Dockerfile` performs this same install against
 `openresty/openresty:bullseye-fat` and is the quickest way to check the list is

@@ -1,6 +1,7 @@
 local M = {}
 
 local config = require 'includes.database.config'
+local driver_base = require 'includes.database.driver'
 
 local MIGRATION_TABLE = 'ophal_migrations'
 
@@ -79,12 +80,36 @@ local function optional_require(module_name)
   return nil, result
 end
 
+--[[ The dialect a migration is written for, from the driver a site configured.
+
+  Migrations branch on `sqlite3` versus `postgresql`, which are dialects -- and
+  this used to answer with the *driver* string instead. That worked only while
+  the two LuaDBI drivers happened to be named after their dialects: the moment
+  a site wrote `driver = 'pgmoon'`, `ophal migrate` answered "unsupported
+  migration driver: pgmoon" and no migration could run at all. `lsqlite3` and
+  `resty-mysql` would each have hit the same wall.
+
+  Resolving through `includes/database/driver/` is what makes the CLI's driver
+  and the worker's driver interchangeable: two drivers over one dialect share
+  every migration, which is the same property that lets them share compiled
+  statements.
+]]
+local function dialect_of(driver)
+  local module_name = config.driver_module(driver)
+
+  if module_name == nil then
+    return nil, ('unsupported migration driver: %s'):format(tostring(driver))
+  end
+
+  return driver_base.load(module_name).dialect
+end
+
 local function driver_name(options)
   local settings = settings_value(options)
   local db_key, connection
 
   if type(options.driver) == 'string' and options.driver ~= '' then
-    return options.driver:lower()
+    return dialect_of(options.driver:lower())
   end
 
   if type(settings) ~= 'table' or type(settings.db) ~= 'table' then
@@ -111,7 +136,7 @@ local function driver_name(options)
     return nil, ('database driver missing for key: %s'):format(tostring(db_key))
   end
 
-  return connection.driver:lower()
+  return dialect_of(connection.driver:lower())
 end
 
 local function migration_table_sql(driver)

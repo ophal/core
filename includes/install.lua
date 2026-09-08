@@ -9,7 +9,11 @@ Options +FollowSymLinks
 local DEPENDENCIES = {
   {machine_name = 'lfs', name = 'LuaFilesystem', required = true},
   {machine_name = 'uuid', name = 'luuid', required = true},
-  {machine_name = 'DBI', name = 'LuaDBI', required = true},
+  -- The database bindings are per backend, so none of them is unconditionally
+  -- required: a PostgreSQL site needs pgmoon and no SQLite binding, and a MySQL
+  -- site needs neither because `lua-resty-mysql` ships with OpenResty.
+  {machine_name = 'lsqlite3', name = 'lsqlite3 (SQLite)', required = false},
+  {machine_name = 'pgmoon', name = 'pgmoon (PostgreSQL)', required = false},
   {machine_name = 'lpeg', name = 'LPEG', required = true},
   {machine_name = 'dkjson', name = "David Kolf's JSON", required = true},
   {machine_name = 'seawolf.variable', name = 'Seawolf: variable', required = true},

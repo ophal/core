@@ -18,37 +18,46 @@ local M = {}
 
 --[[ Driver name to the module under `includes/database/driver/`.
 
-  `sqlite3` means lsqlite3. It meant LuaDBI until 2026-09-08, and the swap is
-  deliberate rather than gradual: LuaDBI reads integer columns with 32-bit
-  precision, which nothing above the binding can repair, so a timestamp breaks
-  in January 2038 and a file over 2 GB reads wrong today. Ophal is experimental
-  and a swap is allowed to break an upgrade -- but it has to break it legibly,
-  which is what `driver/lsqlite3.lua` does when the binding is absent.
+  **LuaDBI is gone as of 2026-09-08.** It read integer columns with 32-bit
+  precision on postgresql and sqlite3 -- a timestamp breaks in January 2038 and
+  a file over 2 GB reads wrong today -- and returned `''` for a SQL NULL on
+  mysql, indistinguishable from a column that holds one. Nothing above a binding
+  can repair either.
 
-  The names are what a settings file writes, and they are stable across
-  runtimes: `sqlite3` is lsqlite3 under both OpenResty and the `lua5.1` CLI, and
-  `pgmoon` picks its socket type from whichever it is running under. That is why
-  `driver` and `dialect` are separate keys.
+  It was kept for one job, and that job turned out not to need it. The `ophal`
+  CLI runs under `lua5.1` with no cosockets, so the reading was that PostgreSQL
+  needed a blocking driver there. pgmoon is not one: it takes
+  `socket_type = 'luasocket'` and works, migrations and all. What actually stood
+  in the way was `includes/migrate.lua` branching on the *driver* name as if it
+  were a dialect, so `driver = 'pgmoon'` answered "unsupported migration
+  driver". That is fixed, and one driver per backend now serves both runtimes.
+
+  So these names mean the same binding wherever they are read, which is what
+  makes `driver` and `dialect` separate keys worth having: the worker and the
+  command line share a dialect's statements and its migrations.
 ]]
 local DRIVERS = {
   sqlite3 = 'lsqlite3',
   lsqlite3 = 'lsqlite3',
-  postgresql = 'luadbi_postgresql',
-  mysql = 'luadbi_mysql',
+  postgresql = 'pgmoon',
   pgmoon = 'pgmoon',
+  mysql = 'resty_mysql',
   ['resty-mysql'] = 'resty_mysql',
 }
 
 --[[ Names that used to work, and what to do instead.
 
   Answered apart from an unknown driver, because "no such driver" is a typo and
-  this is an upgrade. A site that spelled the LuaDBI SQLite binding explicitly
-  gets told what replaced it and why, rather than being told its spelling is
-  wrong.
+  this is an upgrade: a settings file that names a LuaDBI binding is told what
+  replaced it and why, rather than told its spelling is wrong.
 ]]
 local RETIRED = {
   ['luadbi-sqlite3'] = 'sqlite3',
   luadbi_sqlite3 = 'sqlite3',
+  ['luadbi-postgresql'] = 'postgresql',
+  luadbi_postgresql = 'postgresql',
+  ['luadbi-mysql'] = 'mysql',
+  luadbi_mysql = 'mysql',
 }
 
 local DEFAULT_KEY = 'default'
@@ -107,10 +116,12 @@ local function build_connection(name, config)
     local replacement = M.retired_driver(config.driver)
 
     if replacement ~= nil then
-      fail('connection %q names %q, which Ophal no longer has. SQLite is\n'
-        .. 'lsqlite3 now, because LuaDBI reads integer columns with 32-bit\n'
-        .. "precision. Write driver = '%s' and install the binding:\n"
-        .. '  luarocks install lsqlite3complete\n'
+      fail('connection %q names %q, which Ophal no longer has. LuaDBI is gone:\n'
+        .. 'it read integer columns with 32-bit precision and lost SQL NULL on\n'
+        .. "MySQL. Write driver = '%s' and install the binding it names:\n"
+        .. '  luarocks install lsqlite3complete   -- sqlite3\n'
+        .. '  luarocks install pgmoon             -- postgresql\n'
+        .. '  (mysql is bundled with OpenResty)\n'
         .. 'More: https://github.com/ophal/core',
         name, config.driver, replacement)
     end

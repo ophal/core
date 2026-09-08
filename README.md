@@ -25,7 +25,16 @@ Ophal has the following dependencies:
 - LuaDBI
 - luuid
 - dkjson
-- LuaCrypto (only if user module is enabled)
+
+The user module needs no cryptography library. Passwords are hashed with
+SHA-256 by default and `includes/sha256.lua` is a pure-Lua implementation that
+ships with Ophal, so the module works on a runtime with no digest bindings at
+all -- which is how the smoke suite exercises sign-in.
+
+Other digest algorithms are optional and each needs its own module, not a
+single one: `md5` for md5, `sha1` for sha1, `lsha2` for sha224, and `sha2` for
+sha384 and sha512. Install one only if you set
+`settings.user.password_hash.algorithm` to something other than `sha256`.
 
 ## OpenResty runtime model
 

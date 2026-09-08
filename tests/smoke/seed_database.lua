@@ -8,7 +8,7 @@
 --
 -- Usage: lua5.1 tests/smoke/seed_database.lua <database-path>
 
-local DBI = require 'DBI'
+local sqlite3 = require 'lsqlite3'
 -- The digest `modules/user` resolves for `sha256` under this vendor runtime,
 -- where neither `lsha2` nor `sha2` is installed and `seawolf.other` does not
 -- build. Requiring it here is what lets the seed store a password the real
@@ -249,17 +249,33 @@ VALUES(18, 1, 'en', ?, 'Tail teaser', 'Tail body', ?, ?, 1, 0, 0, 1)]],
     fixtures.alias},
 }
 
-local dbh, err = DBI.Connect('SQLite3', path)
-assert(dbh, err)
-dbh:autocommit(true)
+--[[ Seeded through lsqlite3, the binding Ophal reaches SQLite with.
+
+  Directly rather than through the query layer, because this runs before there
+  is a settings file to resolve a connection from -- it is the installer's job,
+  done by hand. It used to go through LuaDBI, which reads integer columns with
+  32-bit precision; the timestamps here are already within a few thousand
+  seconds of 2^31, so seeding through it was living on a deadline too.
+
+  No autocommit call: SQLite is in autocommit until a statement opens a
+  transaction, and lsqlite3 does not pretend otherwise.
+]]
+local db = assert(sqlite3.open(path))
 
 local function run(statement, ...)
-  local sth, prepare_err = dbh:prepare(statement)
-  assert(sth, prepare_err)
+  local stmt = db:prepare(statement)
 
-  local ok, execute_err = sth:execute(...)
-  assert(ok, execute_err)
-  sth:close()
+  assert(stmt, db:errmsg())
+
+  if select('#', ...) > 0 then
+    stmt:bind_values(...)
+  end
+
+  -- Stepped to completion and finalized. A statement left mid-scan holds a read
+  -- transaction, which is what the driver's own comments are about.
+  while stmt:step() == sqlite3.ROW do end
+
+  stmt:finalize()
 end
 
 for _, statement in ipairs(schema) do
@@ -270,7 +286,7 @@ for _, row in ipairs(rows) do
   run(unpack(row))
 end
 
-dbh:close()
+db:close()
 
 -- The harness reads these back so its assertions and this file cannot drift.
 for name, value in pairs(fixtures) do

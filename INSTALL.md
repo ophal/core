@@ -97,7 +97,9 @@ Required for any site:
 - luuid
 - dkjson
 - LuaSocket
-- LuaDBI, plus the driver for your database
+- lsqlite3, for SQLite
+- LuaDBI plus its driver, only if you run `ophal migrate` against PostgreSQL or
+  MySQL from the command line
 - Seawolf
 
 No cryptography library is needed. See the note in `README.md`: SHA-256 is the
@@ -117,14 +119,37 @@ $ git clone --depth=1 https://github.com/ophal/seawolf.git
 $ sudo mv seawolf /usr/local/share/lua/5.1/
 ```
 
-Then install the LuaDBI driver for the database you are going to use, or both.
-The driver rock pulls in the LuaDBI base with it, so there is no separate step
-for `DBI` itself:
+Then the database bindings. SQLite goes through `lsqlite3`, and
+`lsqlite3complete` is the same binding with SQLite statically linked, so it
+needs no system library of its own:
 
 ```sh
-$ sudo luarocks install luadbi-sqlite3 SQLITE_INCDIR=/usr/include
+$ sudo luarocks install lsqlite3complete
+```
+
+PostgreSQL and MySQL are reached from the OpenResty worker through `pgmoon` and
+the bundled `lua-resty-mysql`, neither of which needs a rock beyond pgmoon:
+
+```sh
+$ sudo luarocks install pgmoon
+```
+
+The `ophal` command-line tool runs under plain `lua5.1` with no cosockets, so a
+PostgreSQL or MySQL site also needs a blocking driver for `ophal migrate`:
+
+```sh
 $ sudo luarocks install luadbi-postgresql PGSQL_INCDIR=/usr/include/postgresql
 ```
+
+### Upgrading from a release before 2026-09-08
+
+SQLite used to go through LuaDBI. It does not any more, and the swap is not
+optional: **LuaDBI reads integer columns with 32-bit precision**, so a
+timestamp breaks in January 2038 and a file over 2 GB reads wrong today. Install
+`lsqlite3complete` and leave `driver = 'sqlite3'` in your settings as it is --
+the name now resolves to the new binding. A site that upgrades without
+installing it stops at boot with a message saying so rather than failing
+somewhere inside its first query.
 
 `examples/Dockerfile` performs this same install against
 `openresty/openresty:bullseye-fat` and is the quickest way to check the list is

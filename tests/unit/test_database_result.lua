@@ -227,50 +227,78 @@ io.write '\n-- the database boundary --\n'
   There is no `db_query()`, no `db_field()` and no `db_set_db_id()`, so no line
   can change which database a later line talks to.
 
-  The DBI handle is mocked rather than a real database, because what is under
-  test here is the boundary -- lazy connection, memoization per request,
-  release -- and not what SQLite does with a statement.
+  The binding is mocked rather than a real database, because what is under test
+  here is the boundary -- lazy connection, memoization per request, release --
+  and not what SQLite does with a statement. What the driver does with the
+  binding is `tests/unit/test_database_driver_lsqlite3.lua`; what a real
+  database does with the driver is `tests/bench/driver_contract.lua`.
 ]]
 do
   local saved_settings = settings
   local saved_log_error = log_error
-  local saved_dbi = package.loaded.DBI
+  local saved_binding = package.loaded.lsqlite3
   local config = require 'includes.database.config'
   local request_state = require 'includes.request_state'
-  local connects, closes, prepared, calls = 0, 0, nil, {}
+  local connects, closes, prepared = 0, 0, nil
 
-  package.loaded.DBI = {
-    Connect = function()
+  package.loaded.lsqlite3 = {
+    ROW = 100,
+    DONE = 101,
+    OK = 0,
+    open = function()
+      local db = {}
+
       connects = connects + 1
 
-      return {
-        id = connects,
-        autocommit = function()
-          calls[#calls + 1] = 'autocommit'
-        end,
-        close = function()
-          closes = closes + 1
-          return true
-        end,
-        prepare = function(_, query)
-          calls[#calls + 1] = query
-          prepared = query
+      function db:busy_timeout() end
 
-          return {
-            execute = function() return true end,
-            close = function() return true end,
-            fetch = function(_, named)
-              -- The journal-mode read is positional and below the layer; the
-              -- application's own reads are named.
-              if query == 'PRAGMA journal_mode' then
-                return {'wal'}
-              end
+      function db:errmsg()
+        return 'stubbed failure'
+      end
 
-              return named and {value = 'wrapped'} or {'wrapped'}
-            end,
-          }
-        end,
-      }
+      function db:close()
+        closes = closes + 1
+        return 0
+      end
+
+      function db:prepare(query)
+        local stmt = {done = false}
+
+        prepared = query
+
+        function stmt:bind_values() return 0 end
+
+        function stmt:step()
+          -- One row for the journal-mode read the driver makes on connect and
+          -- one for the caller's own statement; nothing here is a cursor.
+          if self.done then
+            return 101
+          end
+
+          self.done = true
+
+          return 100
+        end
+
+        function stmt:get_value()
+          return 'wal'
+        end
+
+        function stmt:get_named_values()
+          return {value = 'wrapped'}
+        end
+
+        function stmt:reset()
+          self.done = false
+          return 0
+        end
+
+        function stmt:finalize() return 0 end
+
+        return stmt
+      end
+
+      return db
     end,
   }
 
@@ -308,19 +336,6 @@ do
   assert_eq('query_returns_a_wrapper', getmetatable(rs), db_result.Result)
   assert_eq('query_reads_by_name', rs:fetch(true).value, 'wrapped')
 
-  -- LuaDBI opens a transaction on connect and SQLite refuses to change the
-  -- journal mode from inside one, so the pragmas have to follow autocommit.
-  -- Running them first lost WAL to a logged, non-fatal failure and left the
-  -- file in rollback mode while reporting success.
-  assert_eq('autocommit_precedes_the_pragmas', calls[1], 'autocommit')
-  assert_eq('busy_timeout_is_set', calls[2], 'PRAGMA busy_timeout = 1000')
-
-  -- Already WAL, so the mode is read and not set. Setting it takes an
-  -- exclusive lock even when it would be a no-op, which turned every reader
-  -- into a writer for the length of one pragma.
-  assert_eq('journal_mode_is_read_first', calls[3], 'PRAGMA journal_mode')
-  assert_eq('journal_mode_not_reset_when_current', calls[4], 'SELECT 1')
-
   local second = db:execute 'SELECT 2'
 
   assert_eq('second_query_reuses_the_connection', connects, 1)
@@ -343,7 +358,7 @@ do
 
   settings = saved_settings
   log_error = saved_log_error
-  package.loaded.DBI = saved_dbi
+  package.loaded.lsqlite3 = saved_binding
   config.reset()
   request_state.reset()
 end

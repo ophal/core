@@ -26,7 +26,11 @@ RUN luarocks install dkjson
 RUN luarocks install luafilesystem
 RUN luarocks install luasocket
 RUN luarocks install luuid
-RUN luarocks install luadbi-sqlite3 SQLITE_INCDIR=/usr/include
+# SQLite goes through lsqlite3; `lsqlite3complete` links SQLite statically.
+RUN luarocks install lsqlite3complete
+RUN luarocks install pgmoon
+# Only the `ophal migrate` command line needs a blocking PostgreSQL driver: the
+# worker reaches PostgreSQL through pgmoon on cosockets.
 RUN luarocks install luadbi-postgresql PGSQL_INCDIR=/usr/include/postgresql
 
 RUN git clone --depth=1 https://github.com/ophal/seawolf.git /usr/local/share/lua/5.1/seawolf

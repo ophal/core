@@ -70,7 +70,7 @@ do
 
   assert_eq('documented_shape_default', resolved.default, 'default')
   assert_eq('documented_shape_driver',
-    resolved.connections.default.driver_module, 'luadbi_sqlite3')
+    resolved.connections.default.driver_module, 'lsqlite3')
   assert_eq('second_connection_driver',
     resolved.connections.legacy.driver_module, 'resty_mysql')
   -- The identifier is stamped on the config so a connection failure can name
@@ -112,7 +112,7 @@ io.write '\n-- statement compilation --\n'
 
 do
   local pgmoon = require 'includes.database.driver.pgmoon'
-  local sqlite = require 'includes.database.driver.luadbi_sqlite3'
+  local sqlite = require 'includes.database.driver.lsqlite3'
   local mysql = require 'includes.database.driver.resty_mysql'
 
   registry.define('test.point', {
@@ -173,7 +173,7 @@ io.write '\n-- per-dialect overrides --\n'
 
 do
   local pgmoon = require 'includes.database.driver.pgmoon'
-  local sqlite = require 'includes.database.driver.luadbi_sqlite3'
+  local sqlite = require 'includes.database.driver.lsqlite3'
   local mysql = require 'includes.database.driver.resty_mysql'
 
   require 'includes.database.statements'
@@ -334,7 +334,7 @@ do
   local conn = connection.open()
 
   assert_eq('connection_knows_its_name', conn:name(), 'default')
-  assert_eq('connection_knows_its_driver', conn:driver(), 'luadbi_sqlite3')
+  assert_eq('connection_knows_its_driver', conn:driver(), 'lsqlite3')
   assert_eq('connection_knows_its_dialect', conn:dialect(), 'sqlite3')
 
   --[[ The property the whole design turns on. A connection is bound to one
@@ -352,7 +352,7 @@ do
   assert_eq('second_object_has_its_own_driver', other:driver(), 'luadbi_mysql')
   -- Two connections, two drivers, live at the same time. This is the migration
   -- and integration case, and it is what `db_set_db_id()` could not express.
-  assert_eq('first_object_unchanged', conn:driver(), 'luadbi_sqlite3')
+  assert_eq('first_object_unchanged', conn:driver(), 'lsqlite3')
 end
 
 assert_raises('unknown_identifier_is_not_the_default', 'no connection named',

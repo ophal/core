@@ -116,9 +116,40 @@ end
   free; `Connection:handle()` hands this table to the migration and installer
   paths, which reach `.db` for anything lsqlite3-specific.
 ]]
+--[[ What to say when the binding is not installed.
+
+  Ophal is experimental and the SQLite swap is allowed to break an upgrade, but
+  it has to break it legibly. Without this the failure is
+  `module 'lsqlite3' not found` followed by a page of search paths, raised from
+  inside the first query rather than from the thing that changed.
+
+  LuaDBI being present is what an upgrading site looks like, so it is worth
+  saying out loud: it is not that the install is broken, it is that SQLite moved.
+]]
+local function missing_binding()
+  local message = 'the lsqlite3 binding is not installed'
+
+  if package.loaded.DBI ~= nil or pcall(require, 'DBI') then
+    message = message .. ', and LuaDBI is\n'
+      .. 'installed but is no longer what Ophal uses for SQLite'
+  end
+
+  return message .. '.\n'
+    .. 'LuaDBI reads integer columns with 32-bit precision, so a timestamp\n'
+    .. 'breaks in January 2038 and a file over 2 GB reads wrong today.\n'
+    .. '  luarocks install lsqlite3complete\n'
+    .. 'More: https://github.com/ophal/core'
+end
+
 function M.connect(config)
-  local sqlite3 = require 'lsqlite3'
-  local db, code, message = sqlite3.open(config.database)
+  local loaded, sqlite3 = pcall(require, 'lsqlite3')
+  local db, code, message
+
+  if not loaded then
+    return nil, missing_binding()
+  end
+
+  db, code, message = sqlite3.open(config.database)
 
   ROW, DONE = sqlite3.ROW, sqlite3.DONE
 

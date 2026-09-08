@@ -496,7 +496,7 @@ end
 io.write '\n-- driver claim statements --\n'
 
 do
-  local sqlite = require 'includes.database.driver.luadbi_sqlite3'
+  local sqlite = require 'includes.database.driver.lsqlite3'
   local postgresql = require 'includes.database.driver.luadbi_postgresql'
   local sqlite_sql = registry.compile(sqlite, 'jobs.claim').sql
   local pg_sql = registry.compile(postgresql, 'jobs.claim').sql

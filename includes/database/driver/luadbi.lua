@@ -5,19 +5,24 @@
   lands on its serial figure or below it. Stage 8.3 measured PostgreSQL at
   9,843 serial and 6,784 concurrent.
 
-  It stays for two reasons. SQLite has no socket and can never be non-blocking,
-  so on the dev, CLI, test and low-scale path there is nothing to lose; and the
-  `ophal` CLI runs under `lua5.1` with no cosockets, so a PostgreSQL site still
-  needs a blocking driver for `ophal migrate apply`. That is the whole reason
-  driver and dialect are separate keys.
+  It stays for one reason: the `ophal` CLI runs under `lua5.1` with no
+  cosockets, so a PostgreSQL or MySQL site still needs a blocking driver for
+  `ophal migrate apply`. That is the whole reason driver and dialect are
+  separate keys -- the same statements reach one database through pgmoon in the
+  worker and through LuaDBI on the command line.
 
-  Each of the three has one correctness defect, and it is a different one per
-  dialect. **postgresql and sqlite3 read integers with 32-bit precision** --
-  5000000000 comes back as 705032704 from a real BIGINT column and from a bare
-  literal alike, so the truncation is in LuaDBI's C on the way out and nothing
-  above it can repair it. **mysql destroys NULL**, returning `''` where every
-  call site expects nil. Writes are exact on all three. `tests/bench/`
-  measures LuaSQL and lsqlite3 as free of both.
+  It no longer serves SQLite. **LuaDBI reads integer columns with 32-bit
+  precision** -- 5000000000 comes back as 705032704, from a real BIGINT column
+  and from a bare literal alike, so the truncation is in its C on the way out
+  and nothing above it can repair it. `driver/lsqlite3.lua` replaced it on
+  2026-09-08.
+
+  The defect is still here on `postgresql`, and `mysql` has its own: it returns
+  `''` for a SQL NULL, indistinguishable from a column that holds one. Both are
+  confined to the CLI now, where migrations read no nullable column and no
+  value near 2^31. Retiring them means a blocking PostgreSQL driver the CLI can
+  use -- pgmoon under `socket_type = 'luasocket'` is the candidate and stage 8.6
+  is where it can be verified against a real server's authentication.
 ]]
 
 local base = require 'includes.database.driver'
@@ -57,118 +62,9 @@ local function execute(handle, compiled, ...)
   return sth
 end
 
---[[ SQLite's locking defaults, widened on every connection.
-
-  SQLite permits many processes on one file, so multi-worker OpenResty is safe
-  from corruption. It is not safe from lock contention, and the defaults make
-  that contention loud: `busy_timeout` is 0, so a second writer fails at once
-  with SQLITE_BUSY rather than waiting, and the rollback journal takes an
-  exclusive lock that blocks readers too. Phase 3 made public reads into
-  writers -- a moved projection version rebuilds from inside a GET -- so this is
-  ordinary page traffic, not a corner.
-
-  The timeout is deliberately short: LuaDBI is synchronous, so a worker waiting
-  on a lock is a blocked worker rather than a yielded coroutine, and a long wait
-  trades an error for a stall.
-
-  This was `on_connect()` in `includes/database/sqlite3.lua`, which reached the
-  database through the global `db_query()`. Here it runs on the handle it was
-  given, before that handle is anybody's connection, so it needs no ambient
-  state and cannot recurse into the layer.
-]]
-local DEFAULT_BUSY_TIMEOUT = 1000
-
---[[ Run one pragma and finalize it, returning the first column of its answer.
-
-  Finalizing matters more than the answer does. Every pragma here returns a row
-  -- `busy_timeout` echoes the timeout, `journal_mode` echoes the mode -- and a
-  SQLite statement that has been executed but neither stepped to completion nor
-  finalized holds a read transaction open on the connection. The old
-  `db_connect()` said as much about handles kept across requests; the same rule
-  applies to a statement kept across a pragma.
-
-  Leaving one open here does not merely block later writers. It puts the
-  connection inside an implicit transaction, so the next explicit `BEGIN` nests
-  and the matching `ROLLBACK` unwinds everything the connection has done since
-  it opened -- `tests/bench/driver_contract.lua` caught exactly that: a
-  transaction test rolled back the CREATE TABLE that had set the contract up.
-]]
-local function pragma(handle, statement)
-  local sth, err = handle:prepare(statement)
-  local ok, row
-
-  if sth ~= nil then
-    ok, err = sth:execute()
-
-    if ok then
-      row = sth:fetch()
-      sth:close()
-
-      return row and row[1] or true
-    end
-
-    sth:close()
-  end
-
-  if type(log_error) == 'function' then
-    log_error('sqlite pragma failed', {
-      event = 'database_pragma_failed',
-      error = err,
-      query = statement,
-    })
-  end
-
-  return nil
-end
-
--- The mode the file is already in, or nil if it cannot be read. Journal mode is
--- a property of the file rather than of the connection, so a database switched
--- to WAL once comes back as WAL for every later connection.
-local function current_journal_mode(handle)
-  local mode = pragma(handle, 'PRAGMA journal_mode')
-
-  return type(mode) == 'string' and mode:lower() or nil
-end
-
-local function sqlite_pragmas(handle, config)
-  local timeout = tonumber(config.busy_timeout)
-  local journal_mode = config.journal_mode
-
-  -- `timeout ~= timeout` is the NaN test.
-  if timeout == nil or timeout ~= timeout or timeout < 0 then
-    timeout = DEFAULT_BUSY_TIMEOUT
-  end
-
-  pragma(handle, ('PRAGMA busy_timeout = %d'):format(math.floor(timeout)))
-
-  -- WAL lets readers run while a writer holds the file, which is what stops a
-  -- projection rebuild from failing concurrent page views. It needs shared
-  -- memory and a local filesystem, so a site on a network filesystem sets
-  -- `journal_mode = false` to stay in rollback mode.
-  if journal_mode == false then
-    return
-  end
-
-  if type(journal_mode) ~= 'string' or not journal_mode:match('^%a+$') then
-    journal_mode = 'WAL'
-  end
-
-  -- Setting the mode takes an exclusive lock on the file, and takes it even
-  -- when the requested mode is the one the file is already in. With a
-  -- connection opened per request that turned every reader into a writer for
-  -- the length of one pragma. Reading the mode first makes the common case --
-  -- already WAL -- a shared-lock read that cannot collide.
-  if current_journal_mode(handle) ~= journal_mode:lower() then
-    pragma(handle, ('PRAGMA journal_mode = %s'):format(journal_mode))
-  end
-end
-
-local ON_CONNECT = {sqlite3 = sqlite_pragmas}
-
-local function connect(dbi_driver, dialect)
+local function connect(dbi_driver)
   return function(config)
     local DBI = require 'DBI'
-    local hook = ON_CONNECT[dialect]
     local handle, err = DBI.Connect(
       dbi_driver,
       config.database,
@@ -182,16 +78,10 @@ local function connect(dbi_driver, dialect)
       return nil, err
     end
 
-    -- Autocommit first, and that ordering is load-bearing. LuaDBI opens a
-    -- transaction on connect, and SQLite refuses `PRAGMA journal_mode = WAL`
-    -- from inside one with "cannot change into wal mode from within a
-    -- transaction" -- which the pragma helper logs and continues past, leaving
-    -- the file in rollback mode while reporting success.
+    -- LuaDBI opens a transaction on connect, so this is not optional: without
+    -- it the first explicit `BEGIN` nests and its `ROLLBACK` unwinds everything
+    -- the connection has done.
     handle:autocommit(config.autocommit ~= false)
-
-    if hook ~= nil then
-      hook(handle, config)
-    end
 
     return handle
   end
@@ -210,7 +100,7 @@ function M.build(name, dialect, dbi_driver, quote)
     placeholder = 'question',
     quote_identifier = base.identifier_quoter(quote),
     limit_clause = LIMIT_CLAUSE[dialect],
-    connect = connect(dbi_driver, dialect),
+    connect = connect(dbi_driver),
     execute = execute,
     release = release,
     -- LuaDBI's PostgreSQL and SQLite drivers leave a NULL column absent, which

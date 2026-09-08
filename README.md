@@ -22,7 +22,8 @@ Ophal has the following dependencies:
 - Seawolf (http://github.com/ophal/seawolf)
 - LPEG
 - LuaFilesystem
-- LuaDBI
+- lsqlite3 (SQLite), pgmoon (PostgreSQL), or LuaDBI for the command-line
+  tool on PostgreSQL and MySQL
 - luuid
 - dkjson
 
@@ -39,7 +40,7 @@ sha384 and sha512. Install one only if you set
 ## OpenResty runtime model
 
 Ophal runs correctly inside OpenResty, but `0.2.x` is not a fully nonblocking
-stack. Database access still goes through synchronous `LuaDBI`, and some
+stack. SQLite is synchronous whatever the binding -- it has no socket -- and some
 filesystem work still happens on request paths for templates, asset metadata,
 sessions, and uploads.
 

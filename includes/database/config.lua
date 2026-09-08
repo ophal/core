@@ -18,24 +18,37 @@ local M = {}
 
 --[[ Driver name to the module under `includes/database/driver/`.
 
-  The legacy names are the LuaDBI driver strings that existing settings files
-  carry, and they keep meaning LuaDBI: a site upgrading does not have its driver
-  silently swapped for one it may not have installed.
+  `sqlite3` means lsqlite3. It meant LuaDBI until 2026-09-08, and the swap is
+  deliberate rather than gradual: LuaDBI reads integer columns with 32-bit
+  precision, which nothing above the binding can repair, so a timestamp breaks
+  in January 2038 and a file over 2 GB reads wrong today. Ophal is experimental
+  and a swap is allowed to break an upgrade -- but it has to break it legibly,
+  which is what `driver/lsqlite3.lua` does when the binding is absent.
 
-  `sqlite3` therefore still means LuaDBI, even though `lsqlite3` is the better
-  binding on both correctness and speed and is what a new site should name.
-  LuaDBI reads integer columns with 32-bit precision, so that default is on a
-  clock -- unix seconds cross 2^31 in January 2038 -- and it changes here, in
-  one line, as soon as lsqlite3 is installable from a rock rather than a build.
-  Flipping it before then would break every existing SQLite site on upgrade.
+  The names are what a settings file writes, and they are stable across
+  runtimes: `sqlite3` is lsqlite3 under both OpenResty and the `lua5.1` CLI, and
+  `pgmoon` picks its socket type from whichever it is running under. That is why
+  `driver` and `dialect` are separate keys.
 ]]
 local DRIVERS = {
-  sqlite3 = 'luadbi_sqlite3',
+  sqlite3 = 'lsqlite3',
+  lsqlite3 = 'lsqlite3',
   postgresql = 'luadbi_postgresql',
   mysql = 'luadbi_mysql',
   pgmoon = 'pgmoon',
   ['resty-mysql'] = 'resty_mysql',
-  lsqlite3 = 'lsqlite3',
+}
+
+--[[ Names that used to work, and what to do instead.
+
+  Answered apart from an unknown driver, because "no such driver" is a typo and
+  this is an upgrade. A site that spelled the LuaDBI SQLite binding explicitly
+  gets told what replaced it and why, rather than being told its spelling is
+  wrong.
+]]
+local RETIRED = {
+  ['luadbi-sqlite3'] = 'sqlite3',
+  luadbi_sqlite3 = 'sqlite3',
 }
 
 local DEFAULT_KEY = 'default'
@@ -58,6 +71,14 @@ function M.driver_module(driver)
   end
 
   return DRIVERS[driver:lower()]
+end
+
+function M.retired_driver(driver)
+  if type(driver) ~= 'string' then
+    return nil
+  end
+
+  return RETIRED[driver:lower()]
 end
 
 function M.drivers()
@@ -83,6 +104,17 @@ local function build_connection(name, config)
   -- Checked here rather than at the first query, so a typo fails at boot
   -- instead of on whichever path happens to reach the database first.
   if module_name == nil then
+    local replacement = M.retired_driver(config.driver)
+
+    if replacement ~= nil then
+      fail('connection %q names %q, which Ophal no longer has. SQLite is\n'
+        .. 'lsqlite3 now, because LuaDBI reads integer columns with 32-bit\n'
+        .. "precision. Write driver = '%s' and install the binding:\n"
+        .. '  luarocks install lsqlite3complete\n'
+        .. 'More: https://github.com/ophal/core',
+        name, config.driver, replacement)
+    end
+
     fail('connection %q names unknown driver %q (known: %s)',
       name, config.driver, table.concat(M.drivers(), ', '))
   end

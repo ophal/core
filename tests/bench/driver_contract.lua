@@ -44,14 +44,6 @@ settings = {
       database = os.getenv('OPHAL_BENCH_SQLITE')
         or '/tmp/ophal_contract.sqlite',
     },
-    -- The same file through the other binding, so the two answer the same
-    -- questions side by side and the integer defect is a difference between
-    -- two rows of this report rather than a claim in a comment.
-    lsqlite = {
-      driver = 'lsqlite3',
-      database = (os.getenv('OPHAL_BENCH_SQLITE')
-        or '/tmp/ophal_contract.sqlite') .. '.ls',
-    },
   },
   performance = {query_stats = false},
 }
@@ -105,21 +97,6 @@ end
 -- Reading it back is the only proof that either works.
 local BIG = 123456789012345
 
---[[ LuaDBI's SQLite3 driver reads an integer column with 32-bit precision, so
-  this value comes back as -2045911175 -- and it does so whether it was bound,
-  written as a literal, or never stored at all: `SELECT 123456789012345` alone
-  is enough. The truncation is on the way out, in LuaDBI's C, and it is there
-  today for every `db_query()` in the codebase.
-
-  It is pinned rather than fixed because it is not the layer's to fix. What it
-  costs Ophal is small and dated: unix seconds pass 2^31 in January 2038, and a
-  file larger than 2 GB is the only value in the schema that reaches it sooner.
-  It is one more argument for lsqlite3, which stage 8.3 measured at 1.9x on
-  reads and left for later. If this assertion ever turns red, the binding
-  underneath has been fixed or replaced, and that is worth noticing.
-]]
-local TRUNCATES_INTEGERS = {luadbi_sqlite3 = -2045911175}
-
 local SCHEMA = {
   lsqlite3 = {
     'DROP TABLE IF EXISTS ophal_contract',
@@ -130,6 +107,8 @@ local SCHEMA = {
       big BIGINT
     )]],
   },
+  -- Kept keyed by driver rather than by connection name, so `sqlite3` meaning a
+  -- different binding changes nothing here.
   pgmoon = {
     'DROP TABLE IF EXISTS ophal_contract',
     [[CREATE TABLE ophal_contract(
@@ -147,15 +126,6 @@ local SCHEMA = {
       note VARCHAR(255),
       big BIGINT
     ) ENGINE=InnoDB]],
-  },
-  luadbi_sqlite3 = {
-    'DROP TABLE IF EXISTS ophal_contract',
-    [[CREATE TABLE ophal_contract(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title VARCHAR(255) NOT NULL,
-      note VARCHAR(255),
-      big BIGINT
-    )]],
   },
 }
 
@@ -221,15 +191,16 @@ local function check(name)
   assert_eq(label .. '_row_read_by_name', row.title, 'alpha')
   assert_eq(label .. '_note_column_reads', row.note, 'first')
 
-  -- The whole point of the replacement serializer and the replacement escaper,
-  -- except on the one driver that loses the value after the layer has handed it
-  -- over intact.
-  if TRUNCATES_INTEGERS[label] then
-    assert_eq(label .. '_big_integer_truncated_to_32_bits',
-      tonumber(row.big), TRUNCATES_INTEGERS[label])
-  else
-    assert_eq(label .. '_big_integer_round_trips', tonumber(row.big), BIG)
-  end
+  --[[ Every shipped driver round-trips this, and one of them did not until
+    2026-09-08. LuaDBI reads an integer column with 32-bit precision, so this
+    value came back as -2045911175 -- bound, written as a literal, or never
+    stored at all, since `SELECT 123456789012345` alone is enough. That is why
+    SQLite is lsqlite3 now, and this assertion is what says the replacement
+    kept its promise. It also covers the layer's own escaper and pgmoon's
+    replacement serializer, which exist for the same class of defect one level
+    up: reading the value back is the only proof either works.
+  ]]
+  assert_eq(label .. '_big_integer_round_trips', tonumber(row.big), BIG)
 
   rs = conn:run('contract.point', tonumber(first_id))
   row = rs:fetch(true)
@@ -297,7 +268,7 @@ end
 
 io.write('\nophal driver contract\n')
 
-for _, name in ipairs{'default', 'mysql', 'sqlite', 'lsqlite'} do
+for _, name in ipairs{'default', 'mysql', 'sqlite'} do
   local ran, err = pcall(check, name)
 
   if not ran then

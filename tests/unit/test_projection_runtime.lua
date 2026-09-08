@@ -1156,10 +1156,9 @@ do
   end
 
   content = setup_content_env(state)
-  env.db_query = db_query
-  _G.db_query = db_query
-  env.db_connection = function() return make_db_connection(db_query) end
-  _G.db_connection = env.db_connection
+  -- The wrapper has to reach the connection as well as the free function, or
+  -- half the reads would go round the table this case is making disappear.
+  db_fake.install({sql = db_query}, env, _G)
   content.init()
 
   local entity = content.load(6)

@@ -25,13 +25,27 @@ local registry = require 'includes.database.registry'
 
 require 'includes.database.statements'
 
+--[[ The driver a stand-in compiles for.
+
+  Compiling rather than reading `decl.sql` is what makes the SQL a stub sees the
+  SQL a backend would: `{{limit}}` is expanded, `{ident}` slots are filled, and
+  a declaration that does not compile fails here rather than on the one backend
+  that reaches it. Identifiers are left unquoted, because a stand-in matches on
+  the name in the statement and not on a dialect's quoting.
+]]
+local DRIVER = {
+  name = 'fake',
+  dialect = 'sqlite3',
+  placeholder = 'question',
+  quote_identifier = function(name) return name end,
+  limit_clause = ' LIMIT ?, ?',
+}
+
 function M.connection(dispatch)
   local conn = {}
 
   function conn:run(name, ...)
-    local decl = registry.declaration(name)
-
-    if decl == nil then
+    if registry.declaration(name) == nil then
       error('undeclared statement: ' .. tostring(name), 0)
     end
 
@@ -39,14 +53,14 @@ function M.connection(dispatch)
       return dispatch.statement(name, ...)
     end
 
-    return dispatch.sql(decl.sql, ...)
+    return dispatch.sql(registry.compile(DRIVER, name).sql, ...)
   end
 
   --[[ A statement whose identifiers are fixed.
 
     The real one memoizes a compiled statement per distinct identifier value;
-    this substitutes them into the declared body so a SQL-dispatching stand-in
-    sees the statement the call site actually means.
+    this compiles it the same way, so a SQL-dispatching stand-in sees the
+    statement the call site actually means.
   ]]
   function conn:with(name, ...)
     local decl = registry.declaration(name)
@@ -66,7 +80,8 @@ function M.connection(dispatch)
           return dispatch.statement(name, ...)
         end
 
-        return dispatch.sql(M.substitute(decl, values, conn), ...)
+        return dispatch.sql(
+          registry.compile(DRIVER, name, values, conn).sql, ...)
       end,
     }
   end
@@ -130,25 +145,6 @@ function M.connection(dispatch)
   end
 
   return conn
-end
-
--- The declared body with its `{ident}` slots filled in, unquoted: a stand-in
--- matches on the name it would see in real SQL, not on the dialect's quoting.
-function M.substitute(decl, values, connection)
-  return (decl.sql:gsub('{(%w+)(:?%a*)}', function(key)
-    local resolver = decl.idents and decl.idents[key]
-    local value = values[key]
-
-    if type(resolver) == 'function' then
-      value = resolver(value, connection)
-    end
-
-    if value == nil then
-      error(('%s needs identifier %q'):format(decl.name, key), 0)
-    end
-
-    return tostring(value)
-  end))
 end
 
 --[[ Install one fake as both shapes, on every environment that needs it.

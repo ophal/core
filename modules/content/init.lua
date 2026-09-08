@@ -17,8 +17,8 @@ local module_invoke_all, request_get_body = module_invoke_all, request_get_body
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 local error = error
 local projection = require 'includes.projection'
-local projection_query = projection.query
-local projection_exec = projection.exec
+
+require 'modules.content.statements'
 local projection_touch = projection.touch
 local projection_rebuild_pending = projection.rebuild_pending
 local projection_register_rebuild = projection.register_rebuild
@@ -30,7 +30,30 @@ local set_global = set_global
 
 module 'ophal.modules.content'
 
-local user_mod, db_query, db_limit, db_last_insert_id
+local user_mod, db_connection
+
+--[[ The front page in its two scopes, as statement names rather than a WHERE
+  fragment formatted into one body per request. An anonymous visitor sees
+  published rows; a signed-in one sees every promoted row.
+]]
+local FRONTPAGE = {
+  public_count = {
+    all = 'content.public_count_all',
+    published = 'content.public_count_published',
+  },
+  public_rows = {
+    all = 'content.public_rows_all',
+    published = 'content.public_rows_published',
+  },
+  count = {
+    all = 'content.frontpage_count_all',
+    published = 'content.frontpage_count_published',
+  },
+  rows = {
+    all = 'content.frontpage_rows_all',
+    published = 'content.frontpage_rows_published',
+  },
+}
 local CONTENT_PUBLIC_KEY = 'content_public'
 local CONTENT_SOURCE_KEY = 'content_source'
 
@@ -65,9 +88,9 @@ end
 --[[ Implements hook init().
 ]]
 function init()
-  db_query = env.db_query
-  db_limit = env.db_limit
-  db_last_insert_id = env.db_last_insert_id
+  -- Captured per request, not at load: a connection object belongs to the
+  -- request that asked for it and raises at its next use once released.
+  db_connection = env.db_connection
   user_mod = modules.user
 end
 
@@ -99,10 +122,7 @@ local function load_legacy(id)
 
   id = tonumber(id or 0)
 
-  rs, err = db_query('SELECT * FROM content WHERE id = ?', id)
-  if err then
-    error(err)
-  end
+  rs = db_connection():run('content.load', id)
 
   return rs:fetch(true)
 end
@@ -113,11 +133,7 @@ end
 -- same value are N - 1 statements that change nothing. That is the difference
 -- between a rebuild costing `3N + 3` statements and `N + 3`.
 local function content_projection_insert(entity, updated_at)
-  local ok, err = projection_exec([[
-INSERT INTO content_public(
-  id, user_id, language, title, teaser, body,
-  created, changed, status, promote, route, updated_at
-) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]],
+  local ok, err = db_connection():try('content.public_insert',
     entity.id,
     entity.user_id,
     entity.language,
@@ -164,7 +180,7 @@ local function content_projection_write(entity, version)
     return true
   end
 
-  ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', entity.id)
+  ok, err = db_connection():try('content.public_delete', entity.id)
   if not ok then
     if projection_is_missing_table(err, 'content_public') then
       return true
@@ -189,7 +205,7 @@ local function content_projection_delete(id, version)
     return true
   end
 
-  ok, err = projection_exec('DELETE FROM content_public WHERE id = ?', id)
+  ok, err = db_connection():try('content.public_delete', id)
 
   if not ok then
     if projection_is_missing_table(err, 'content_public') then
@@ -204,7 +220,8 @@ local function content_projection_delete(id, version)
 end
 
 local function content_projection_rebuild_all()
-  local rs, err = db_query('SELECT * FROM content')
+  local db = db_connection()
+  local rs, err = db:run('content.all')
   local row
   local ok
   -- One version for the whole rebuild. Letting each write fall back to its own
@@ -212,7 +229,7 @@ local function content_projection_rebuild_all()
   -- as stale and rebuilds again on the next request.
   local updated_at = time()
 
-  ok, err = projection_exec('DELETE FROM content_public')
+  ok, err = db:try('content.public_clear')
   if not ok then
     if projection_is_missing_table(err, 'content_public') then
       return false
@@ -273,7 +290,7 @@ local function load_projection(id)
     CONTENT_PUBLIC_KEY,
     ('entity:%s'):format(id),
     function()
-      local rs, query_err = projection_query('SELECT * FROM content_public WHERE id = ?', id)
+      local rs, query_err = db_connection():try('content.public_load', id)
       if not rs then
         return nil, query_err
       end
@@ -417,15 +434,14 @@ function save_service()
 end
 
 function create(entity)
-  local rs, err
   local updated_at = time()
 
   if entity.type == nil then entity.type = 'content' end
 
+  local db = db_connection()
+
   if entity.id then
-    rs, err = db_query([[
-INSERT INTO content(id, user_id, title, teaser, body, status, promote, created)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
+    db:run('content.create_with_id',
       entity.id,
       entity.user_id or user_mod.current().id,
       entity.title,
@@ -436,9 +452,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?)]],
       entity.created or time()
     )
   else
-    rs, err = db_query([[
-INSERT INTO content(user_id, title, teaser, body, status, promote, created)
-VALUES(?, ?, ?, ?, ?, ?, ?)]],
+    db:run('content.create',
       entity.user_id or user_mod.current().id,
       entity.title,
       entity.teaser,
@@ -447,38 +461,41 @@ VALUES(?, ?, ?, ?, ?, ?, ?)]],
       entity.promote or false,
       entity.created or time()
     )
-    entity.id = db_last_insert_id('content', 'id')
+    entity.id = db:last_insert_id('content', 'id')
   end
 
-  if not err then
-    content_projection_mark_source(updated_at)
-    module_invoke_all('entity_after_save', entity)
-  end
-  return entity.id, err
+  content_projection_mark_source(updated_at)
+  module_invoke_all('entity_after_save', entity)
+
+  return entity.id
 end
 
 function update(entity)
-  local rs, err
   local updated_at = time()
+  local rs = db_connection():run('content.update',
+    entity.title,
+    entity.teaser,
+    entity.body,
+    entity.status,
+    entity.promote,
+    updated_at,
+    entity.id
+  )
 
-  rs, err = db_query('UPDATE content SET title = ?, teaser = ?, body = ?, status = ?, promote = ?, changed = ? WHERE id = ?', entity.title, entity.teaser, entity.body, entity.status, entity.promote, updated_at, entity.id)
-  if not err then
-    content_projection_mark_source(updated_at)
-    module_invoke_all('entity_after_save', entity)
-  end
-  return rs, err
+  content_projection_mark_source(updated_at)
+  module_invoke_all('entity_after_save', entity)
+
+  return rs
 end
 
 function delete(entity)
-  local rs, err
   local updated_at = time()
+  local rs = db_connection():run('content.delete', entity.id)
 
-  rs, err = db_query('DELETE FROM content WHERE id = ?', entity.id)
-  if not err then
-    content_projection_mark_source(updated_at)
-    module_invoke_all('entity_after_delete', entity)
-  end
-  return rs, err
+  content_projection_mark_source(updated_at)
+  module_invoke_all('entity_after_delete', entity)
+
+  return rs
 end
 
 function router()
@@ -555,22 +572,23 @@ end
 function frontpage()
   local rows = {}
   local entities
-  local rs, err, count, current_page, ipp, num_pages, query
+  local rs, err, count, current_page, ipp, num_pages
   local use_projection = content_projection_ready()
+  -- Which of the two scopes this visitor sees. It picks the statement and it is
+  -- part of the payload cache key, so it is derived once rather than twice.
+  local scope = user_mod.is_logged_in() and 'all' or 'published'
 
   ipp = config.items_per_page or 10
-  query = (user_mod.is_logged_in() and '' or 'AND status = 1')
 
   -- Count rows
   if use_projection then
     count, err = projection_cached_value(
       CONTENT_PUBLIC_KEY,
-      ('frontpage:count:%s'):format(user_mod.is_logged_in() and 'all' or 'published'),
+      ('frontpage:count:%s'):format(scope),
       function()
-        local count_rs, query_err = projection_query(
-          ('SELECT count(*) AS total FROM content_public WHERE promote = 1 %s')
-            :format(query)
-        )
+        local count_rs, query_err =
+          db_connection():try(FRONTPAGE.public_count[scope])
+
         if not count_rs then
           return nil, query_err
         end
@@ -588,13 +606,8 @@ function frontpage()
   end
 
   if not use_projection then
-    rs, err = db_query(
-      ('SELECT count(*) AS total FROM content WHERE promote = 1 %s'):format(query))
-    if err then
-      error(err)
-    else
-      count = (rs:fetch(true) or {}).total
-    end
+    rs = db_connection():run(FRONTPAGE.count[scope])
+    count = (rs:fetch(true) or {}).total
   end
 
   num_pages = ceil(count/ipp)
@@ -607,17 +620,14 @@ function frontpage()
   if use_projection then
     entities, err = projection_cached_value(
       CONTENT_PUBLIC_KEY,
-      ('frontpage:rows:%s:%s:%s'):format(
-        user_mod.is_logged_in() and 'all' or 'published',
-        current_page,
-        ipp
-      ),
+      ('frontpage:rows:%s:%s:%s'):format(scope, current_page, ipp),
       function()
-        local rows_rs, query_err = projection_query(
-          ('SELECT * FROM content_public WHERE promote = 1 %s ORDER BY created DESC' .. db_limit()):format(query),
-          (current_page -1)*ipp,
+        local rows_rs, query_err = db_connection():try(
+          FRONTPAGE.public_rows[scope],
+          (current_page - 1) * ipp,
           ipp
         )
+
         if not rows_rs then
           return nil, query_err
         end
@@ -635,14 +645,11 @@ function frontpage()
   end
 
   if not use_projection then
-    rs, err = db_query(
-      ('SELECT * FROM content WHERE promote = 1 %s ORDER BY created DESC' .. db_limit()):format(query),
-      (current_page -1)*ipp,
+    rs = db_connection():run(
+      FRONTPAGE.rows[scope],
+      (current_page - 1) * ipp,
       ipp
     )
-    if err then
-      error(err)
-    end
   end
 
   if use_projection then

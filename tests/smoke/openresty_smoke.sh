@@ -146,6 +146,12 @@ assert_contains() {
   printf '%s' "$LAST_OUTPUT" | grep -Fq -- "$needle" || fail "missing expected text: $needle"
 }
 
+assert_not_contains() {
+  local needle=$1
+  printf '%s' "$LAST_OUTPUT" | grep -Fq -- "$needle" && fail "unexpected text: $needle"
+  return 0
+}
+
 assert_regex() {
   local pattern=$1
   printf '%s' "$LAST_OUTPUT" | grep -Eqi -- "$pattern" || fail "missing expected pattern: $pattern"
@@ -328,7 +334,7 @@ http {
     }
 
     location / {
-      try_files \$uri /__ophal_index__;
+      try_files \$uri /__ophal_index__\$is_args\$args;
     }
   }
 
@@ -393,7 +399,7 @@ http {
     }
 
     location / {
-      try_files \$uri /__ophal_index__;
+      try_files \$uri /__ophal_index__\$is_args\$args;
     }
   }
 }
@@ -621,7 +627,7 @@ http {
     }
 
     location / {
-      try_files \$uri /__ophal_index__;
+      try_files \$uri /__ophal_index__\$is_args\$args;
     }
   }
 }
@@ -660,13 +666,15 @@ seed_database() {
   SEED_CONTENT_BODY=$(extract_marker 'SEED_CONTENT_BODY')
   SEED_SECOND_TITLE=$(extract_marker 'SEED_SECOND_TITLE')
   SEED_UNPROMOTED_TITLE=$(extract_marker 'SEED_UNPROMOTED_TITLE')
+  SEED_PAGER_TAIL_TITLE=$(extract_marker 'SEED_PAGER_TAIL_TITLE')
   SEED_TAG_NAME=$(extract_marker 'SEED_TAG_NAME')
   SEED_ALIAS=$(extract_marker 'SEED_ALIAS')
   SEED_AUTHOR_NAME=$(extract_marker 'SEED_AUTHOR_NAME')
   SEED_AUTHOR_PASS=$(extract_marker 'SEED_AUTHOR_PASS')
 
   [[ -n "$SEED_CONTENT_TITLE" && -n "$SEED_TAG_NAME" && -n "$SEED_ALIAS" &&
-     -n "$SEED_AUTHOR_NAME" && -n "$SEED_AUTHOR_PASS" ]] ||
+     -n "$SEED_AUTHOR_NAME" && -n "$SEED_AUTHOR_PASS" &&
+     -n "$SEED_PAGER_TAIL_TITLE" ]] ||
     fail 'database seed did not report its fixtures'
 
   LAST_SCENARIO='database_migrate'
@@ -1274,6 +1282,28 @@ assert_contains "$SEED_CONTENT_TITLE"
 # route's is saying.
 assert_query_budget 2 0
 report_ok "db_alias_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# The pager, under `lua_code_cache on`. This is the argument the suite never
+# made: the instance that exercised paging ran with the code cache off, which
+# reloads every module per request and so hides a module that read `?page=`
+# from a table captured when it loaded. Eleven promoted articles are seeded so
+# that a second page exists to ask for.
+run_request db_frontpage_page_two "$DB_URL/?page=2"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_PAGER_TAIL_TITLE"
+assert_not_contains "$SEED_CONTENT_TITLE"
+report_ok db_frontpage_page_two
+
+# And back, so the argument is shown to be read per request rather than
+# remembered. A worker that answered the previous request from page two and
+# this one from page two as well is failing in the other direction.
+run_request db_frontpage_page_one_again "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+assert_not_contains "$SEED_PAGER_TAIL_TITLE"
+report_ok db_frontpage_page_one_again
 
 # ================================================================
 # Authoring profile (same instance, signed in)

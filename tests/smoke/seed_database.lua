@@ -131,6 +131,9 @@ local fixtures = {
   content_body = 'SMOKE_CONTENT_BODY_MARKER',
   second_title = 'Smoke Second Article',
   unpromoted_title = 'Smoke Unpromoted Article',
+  -- The oldest promoted article, and the only one that lands on page two of
+  -- the front page. See the filler rows below.
+  pager_tail_title = 'Smoke Pager Tail Article',
   tag_name = 'SmokeTag',
   alias = 'smoke-article',
   author_name = 'smokeauthor',
@@ -198,6 +201,37 @@ VALUES(2, 1, 'en', ?, 'Second teaser', 'Second body', ?, ?, 1, 0, 0, 1)]],
   {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
 VALUES(3, 1, 'en', ?, 'Hidden teaser', 'Hidden body', ?, ?, 0, 0, 0, 0)]],
     fixtures.unpromoted_title, now - 120, now - 120},
+
+  -- Eight more promoted articles, so that with the two above and the tail
+  -- below the front page has eleven and therefore two pages at the default
+  -- `items_per_page` of 10. Without a second page there is no `?page=2` to
+  -- assert on, and the pager argument reaches `pager_current_page()` through
+  -- request state that no scenario was watching.
+  --
+  -- They are inserted between the seeded articles and the tail in `created`
+  -- order, so page one still holds `content_title` and page two holds only the
+  -- tail.
+  {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
+VALUES(10, 1, 'en', 'Smoke Filler Article 1', 'Filler teaser', 'Filler body', ?, ?, 1, 0, 0, 1)]], now - 200, now - 200},
+  {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
+VALUES(11, 1, 'en', 'Smoke Filler Article 2', 'Filler teaser', 'Filler body', ?, ?, 1, 0, 0, 1)]], now - 300, now - 300},
+  {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
+VALUES(12, 1, 'en', 'Smoke Filler Article 3', 'Filler teaser', 'Filler body', ?, ?, 1, 0, 0, 1)]], now - 400, now - 400},
+  {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
+VALUES(13, 1, 'en', 'Smoke Filler Article 4', 'Filler teaser', 'Filler body', ?, ?, 1, 0, 0, 1)]], now - 500, now - 500},
+  {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
+VALUES(14, 1, 'en', 'Smoke Filler Article 5', 'Filler teaser', 'Filler body', ?, ?, 1, 0, 0, 1)]], now - 600, now - 600},
+  {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
+VALUES(15, 1, 'en', 'Smoke Filler Article 6', 'Filler teaser', 'Filler body', ?, ?, 1, 0, 0, 1)]], now - 700, now - 700},
+  {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
+VALUES(16, 1, 'en', 'Smoke Filler Article 7', 'Filler teaser', 'Filler body', ?, ?, 1, 0, 0, 1)]], now - 800, now - 800},
+  {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
+VALUES(17, 1, 'en', 'Smoke Filler Article 8', 'Filler teaser', 'Filler body', ?, ?, 1, 0, 0, 1)]], now - 900, now - 900},
+
+  -- The eleventh and oldest, alone on page two.
+  {[[INSERT INTO content(id, user_id, language, title, teaser, body, created, changed, status, sticky, comment, promote)
+VALUES(18, 1, 'en', ?, 'Tail teaser', 'Tail body', ?, ?, 1, 0, 0, 1)]],
+    fixtures.pager_tail_title, now - 10000, now - 10000},
 
   {[[INSERT INTO tag(id, user_id, name, created, changed, status) VALUES(1, 1, ?, ?, ?, 1)]],
     fixtures.tag_name, now, now},

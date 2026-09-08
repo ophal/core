@@ -1690,9 +1690,10 @@ measure_fs_request db_media_chunk_one \
   "$DB_URL/__smoke__?scenario=file_upload_chunk&name=$media_name&id=$media_upload_id&index=0"
 assert_status_zero
 assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
-# One open and one write of the chunk itself. This is the cheap half; the
-# expensive half is what the merge then does with what these two wrote.
-assert_fs_budget 1 0 1 0 0 8
+# Two opens because this chunk is the one that finds no file yet: `r+` misses,
+# `w+` creates. Every later chunk costs one. The write goes straight to the
+# chunk's own offset in the assembled file, so nothing will read it back.
+assert_fs_budget 2 0 1 0 0 8
 report_ok "db_media_chunk_one (open=$FS_OPEN write=$FS_WRITE bytes=$FS_BYTES)"
 
 measure_fs_request db_media_chunk_two \
@@ -1702,6 +1703,9 @@ measure_fs_request db_media_chunk_two \
   "$DB_URL/__smoke__?scenario=file_upload_chunk&name=$media_name&id=$media_upload_id&index=1"
 assert_status_zero
 assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
+# One open, because the file the first chunk created is still there. `r+` is
+# what keeps a retried chunk from truncating everything already assembled.
+assert_fs_budget 1 0 1 0 0 3
 report_ok "db_media_chunk_two (open=$FS_OPEN write=$FS_WRITE bytes=$FS_BYTES)"
 
 measure_fs_request db_media_merge \
@@ -1712,18 +1716,64 @@ assert_status_zero
 assert_contains 'SMOKE_MERGE_SUCCESS=true'
 # The bytes have to come back in order, or the reassembly is not reassembly.
 assert_contains 'SMOKE_MERGED_FILE=AAAAAAAABBB'
-# The baseline this phase exists to move, pinned before it moves so the
-# improvement is a measurement rather than an assertion of one. Reassembling an
-# 11-byte file reads 11 bytes back and writes them again -- 22 through Lua here,
-# 33 counting the 11 the chunk requests already wrote, three times the size of
-# the file. `read '*a'` also materialises a whole chunk as a Lua string, so the
-# memory cost tracks the chunk size rather than a buffer.
+# Nothing but a rename. This was `open=3 read=2 write=2 remove=3 bytes=22`
+# before the chunks were written to their offsets -- reassembling an 11-byte
+# file read all 11 bytes back and wrote them again, and `read '*a'` held a whole
+# chunk as a Lua string while doing it. Counting the 11 bytes the chunk requests
+# themselves wrote, an upload moved three times the file's size through Lua; it
+# now moves exactly the file's size, once, and the finalize moves none of it.
 #
-# The three removes are the two `.part` files and the directory holding them,
-# which exist only because the bytes were staged somewhere other than where they
-# were going.
-assert_fs_budget 3 2 2 0 3 22
+# Zero is the assertion that matters here. Any reintroduction of a read-back
+# pass shows up in `read` and `bytes` immediately, whatever shape it takes.
+assert_fs_budget 0 0 0 1 0 0
 report_ok "db_media_merge (open=$FS_OPEN read=$FS_READ write=$FS_WRITE bytes=$FS_BYTES)"
+
+# A partial upload must not be sitting in the directory files are served from.
+# `nginx.ophal.conf` serves several extensions straight off the document root
+# and `files_path` is under it on a real site, so an upload that assembled in
+# place would be publicly readable while it was still growing. It assembles
+# under a dotted staging directory instead and only arrives under its own name
+# at the rename.
+
+partial_id='media-smoke-partial'
+partial_name='media-smoke-partial.txt'
+
+run_request db_media_partial_chunk \
+  -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt" \
+  -X POST -H "X-CSRF-Token: $media_csrf" \
+  --data-binary 'AAAAAAAA' \
+  "$DB_URL/__smoke__?scenario=file_upload_chunk&name=$partial_name&id=$partial_id&index=0"
+assert_status_zero
+assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
+if [[ -e "$SMOKE_ROOT/db-files/$partial_name" ]]; then
+  fail "a partial upload is visible under its own name: $partial_name"
+fi
+# Nor under its upload id: staging anywhere directly inside `files_path` is the
+# same exposure by another name, since what makes a file reachable is the
+# directory it is in, not what it is called.
+if [[ -e "$SMOKE_ROOT/db-files/$partial_id" ]]; then
+  fail "a partial upload is staged in the served directory: $partial_id"
+fi
+if [[ ! -s "$SMOKE_ROOT/db-files/.incoming/$partial_id" ]]; then
+  fail "a partial upload is not staged where it should be: $partial_id"
+fi
+report_ok db_media_partial_chunk
+
+# Finalizing that upload as if it were complete has to fail rather than produce
+# a plausible file. Seeking past the end leaves a hole that reads back as NULs,
+# so an upload missing a chunk would otherwise finalize into something the right
+# size and the wrong contents -- silently, which is the worst version.
+run_request db_media_rejects_short_upload \
+  -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt" \
+  -X POST -H "X-CSRF-Token: $media_csrf" \
+  "$DB_URL/__smoke__?scenario=file_merge_chunks&name=$partial_name&id=$partial_id&size=11&index=2"
+assert_status_zero
+assert_contains 'SMOKE_MERGE_SUCCESS=false'
+assert_contains 'SMOKE_MERGE_ERROR=upload is 8 bytes, expected 11'
+if [[ -e "$SMOKE_ROOT/db-files/$partial_name" ]]; then
+  fail "a short upload was published anyway: $partial_name"
+fi
+report_ok db_media_rejects_short_upload
 
 printf 'all openresty smoke scenarios passed
 '

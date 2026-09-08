@@ -5,7 +5,7 @@ local is_dir, is_file, add_js = seawolf.fs.is_dir, seawolf.fs.is_file, add_js
 local temp_dir, empty = seawolf.behaviour.temp_dir, seawolf.variable.empty
 local request_get_body, io_open, tonumber = request_get_body, io.open, tonumber
 local json, files_path = require 'dkjson', settings.site.files_path
-local os_remove, modules, time = os.remove, ophal.modules, os.time
+local os_remove, os_rename, modules, time = os.remove, os.rename, ophal.modules, os.time
 local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
 local render_attributes, format_size = render_attributes, format_size
 local format_date = format_date
@@ -44,6 +44,27 @@ local user_mod, db_query, db_field, db_last_insert_id
 ]]
 local function query_args()
   return env._GET or {}
+end
+
+local DEFAULT_BYTES_PER_CHUNK = 1024 * 1024
+
+--[[ The chunk size, which is the server's to decide.
+
+  `theme.file` publishes this same value to the browser through `add_js`, so the
+  client slices to whatever is configured here. That is what lets the server
+  compute a chunk's offset from the index the client sends, instead of trusting
+  the client to say where its bytes belong.
+]]
+local function bytes_per_chunk()
+  return tonumber(config.bytes_per_chunk) or DEFAULT_BYTES_PER_CHUNK
+end
+
+-- Where an upload is assembled before it has a name. Dotted, and separate from
+-- the directory files are served out of, so a half-written upload is never
+-- reachable over HTTP -- `nginx.ophal.conf` serves several extensions straight
+-- off the document root, and `files_path` is under it.
+local function staging_path(upload_id)
+  return ('%s/.incoming/%s'):format(files_path, upload_id)
 end
 
 local function upload_index(value)
@@ -178,37 +199,42 @@ function upload_service()
     end
   end
 
-  -- Make sure to have a general uploads directory
-  upload_dir = ('%s/ophal_uploads'):format(temp_dir())
-  status, err = ensure_dir(upload_dir)
+  status, err = ensure_dir(('%s/.incoming'):format(files_path))
   if not status then
     output.error = err
+    return output
   end
 
-  -- Make sure to have a dedicated folder for uploaded file parts
-  if empty(err) then
-    upload_dir = ('%s/%s'):format(upload_dir, upload_id)
-    status, err = ensure_dir(upload_dir)
-    if not status then
-      output.error = err
-    end
-  end
+  -- The chunk goes straight to its final offset in one file, rather than
+  -- becoming `<index>.part` for a later pass to read back and concatenate. That
+  -- pass was the phase's whole cost: it moved every byte through Lua a second
+  -- time and held a chunk of them in a Lua string while it did.
+  --
+  -- `r+` before `w+` so a retried chunk rewrites its own bytes instead of
+  -- truncating everything already assembled. `w+` is only for the chunk that
+  -- finds no file yet, which is whichever one arrives first -- the offset is
+  -- absolute, so chunks may arrive in any order.
+  target = staging_path(upload_id)
+  data = request_get_body()
 
-  -- Write content
-  if empty(err) then
-    target = ('%s/%s.part'):format(upload_dir, index)
-    data = request_get_body()
+  output_fh = io_open(target, 'r+')
+  fs_stats.record('open', nil, target)
+
+  if not output_fh then
     output_fh, err = io_open(target, 'w+')
     fs_stats.record('open', nil, target)
-    if err then
-      output.error = err
-    else
-      output_fh:write(data)
-      fs_stats.record('write', #data, target)
-      output_fh:close()
-      output.success = true
-    end
   end
+
+  if not output_fh then
+    output.error = err or ('cannot open upload: %s'):format(target)
+    return output
+  end
+
+  output_fh:seek('set', index * bytes_per_chunk())
+  output_fh:write(data)
+  fs_stats.record('write', #data, target)
+  output_fh:close()
+  output.success = true
 
   return output
 end
@@ -260,69 +286,61 @@ function merge_service()
     filesize = tonumber(args.size or 0),
   }
 
-  target_fh, err = io_open(file.filepath, 'w+')
-  fs_stats.record('open', nil, file.filepath)
-  if err then
-    output.error = err
-  elseif index > 0 then
-    for i = 1, index do
-      source_path = ('%s/ophal_uploads/%s/%s.part'):format(temp_dir(), upload_id, i - 1)
-      source_fh = io_open(source_path, 'r')
-      fs_stats.record('open', nil, source_path)
-      if not source_fh then
-        output.error = ('missing upload part: %s'):format(source_path)
-        break
-      end
+  -- Finalize. There is nothing to merge any more: the chunks were written to
+  -- their offsets as they arrived, so the assembled file already exists and all
+  -- that is left is to check it is the size the client said and give it its
+  -- name. The rename is one syscall, moves no bytes through Lua, and is atomic
+  -- within a filesystem -- which is also what makes the file appear under
+  -- `files_path` complete or not at all, rather than growing in public while
+  -- the upload runs.
+  local staged = staging_path(upload_id)
+  local staged_size = lfs.attributes(staged, 'size')
 
-      data, err = source_fh:read '*a'
-      fs_stats.record('read', data and #data or 0, source_path)
-      if err then
-        output.error = err
-      else
-        status, err = target_fh:write(data)
-        fs_stats.record('write', #data, file.filepath)
-        if err then
-          output.error = err
-          target_fh:close()
-        end
-      end
-
-      source_fh:close()
-      if not output.error then
-        os_remove(source_path)
-        fs_stats.record('remove', nil, source_path)
-      end
-    end
-    target_fh:close()
-
-    if output.error then
-      return output
-    end
-
-    os_remove(('%s/ophal_uploads/%s'):format(temp_dir(), upload_id))
-    fs_stats.record('remove')
-
-    -- Register the file into the database
-    if config.filedb_storage then
-      local mime = finfo.open(finfo.MIME_TYPE, finfo.NO_CHECK_COMPRESS)
-      local rc = mime:load()
-      if rc ~= 0 then
-        output.error = mime:error()
-      else
-        file.filemime = mime:file(file.filepath)
-        file.status = true
-        file.timestamp = time()
-        data, err = create(file)
-        if empty(err) then
-          output.id = data
-        else
-          output.error = err
-        end
-      end
-    end
-
-    output.success = true
+  if staged_size == nil then
+    output.error = ('no upload to finalize: %s'):format(upload_id)
+    return output
   end
+
+  -- The declared size is checked against what actually landed, because a
+  -- missing chunk is otherwise invisible: a seek past the end leaves a hole
+  -- that reads back as NULs, so an upload short one chunk would finalize into
+  -- a plausible-looking file rather than an error.
+  if file.filesize > 0 and staged_size ~= file.filesize then
+    os_remove(staged)
+    fs_stats.record('remove', nil, staged)
+    output.error = ('upload is %s bytes, expected %s'):format(staged_size, file.filesize)
+    return output
+  end
+
+  status, err = os_rename(staged, file.filepath)
+  fs_stats.record('rename', nil, file.filepath)
+
+  if not status then
+    output.error = err or 'cannot finalize upload'
+    return output
+  end
+
+  -- Register the file into the database
+  if config.filedb_storage then
+    local mime = finfo.open(finfo.MIME_TYPE, finfo.NO_CHECK_COMPRESS)
+    local rc = mime:load()
+    if rc ~= 0 then
+      output.error = mime:error()
+    else
+      file.filemime = mime:file(file.filepath)
+      file.status = true
+      file.timestamp = time()
+      file.filesize = staged_size
+      data, err = create(file)
+      if empty(err) then
+        output.id = data
+      else
+        output.error = err
+      end
+    end
+  end
+
+  output.success = true
 
   return output
 end

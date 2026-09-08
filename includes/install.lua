@@ -27,7 +27,6 @@ local DEFAULT_MODULES = {
   tag = false,
   menu = false,
   file = false,
-  boost = false,
   test = false,
 }
 

@@ -99,17 +99,4 @@ return function(settings, vault)
     }
   ]]
 
-  --[[
-    Boost provides static cache by saving all the output to files.
-
-    Example:
-
-    settings.modules.boost = true
-    settings.boost = {
-      path = 'files/boost/',
-      lifetime = 3600, -- seconds
-      signature = '<!-- Page cached by Boost @ %s, expires @ %s -->',
-      date_format = '!%Y-%m-%d %T UTC',
-    }
-  ]]
 end

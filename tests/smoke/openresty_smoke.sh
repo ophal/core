@@ -567,6 +567,11 @@ http {
     server_name example.com;
     root $SMOKE_DB_DOCROOT;
 
+    # Small on purpose, so a modest test body is enough to make nginx buffer to
+    # disk. That is the state the upload fast path is about: the bytes are
+    # already on the filesystem and only need a name.
+    client_body_buffer_size 1k;
+
     # Shaped like the /cron location in nginx.ophal.conf, allow/deny included,
     # because the drain endpoint's two guards are meant to be tested together.
     # curl reaches it from 127.0.0.1, so the assertions turn on the token.
@@ -1811,6 +1816,87 @@ if [[ -e "$SMOKE_ROOT/db-files/$partial_name" ]]; then
   fail "a short upload was published anyway: $partial_name"
 fi
 report_ok db_media_rejects_short_upload
+
+# A body nginx buffered to disk. `client_body_buffer_size` above is 1k and this
+# is 4k, so nginx has already written the bytes; the upload renames that file
+# into place rather than reading it into a Lua string and writing it again.
+#
+# This is the shape a single-request upload has, which is why it is worth a
+# path of its own: for a file that fits in one chunk, the rename is the entire
+# transfer and Lua never touches the contents.
+
+spill_id='media-smoke-spill'
+spill_name='media-smoke-spill.bin'
+spill_body="$SMOKE_ROOT/spill-body.bin"
+head -c 4096 /dev/zero | tr '\0' 'S' > "$spill_body"
+
+measure_fs_request db_media_spilled_body \
+  -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt" \
+  -X POST -H "X-CSRF-Token: $media_csrf" \
+  --data-binary "@$spill_body" \
+  "$DB_URL/__smoke__?scenario=file_upload_chunk&name=$spill_name&id=$spill_id&index=0"
+assert_status_zero
+assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
+# Zero bytes through Lua for a 4k body, against `open=2 write=1 bytes=4096` on
+# the path a small body still takes. One rename is the whole cost.
+assert_fs_budget 0 0 0 1 0 0
+report_ok "db_media_spilled_body (rename=$FS_RENAME bytes=$FS_BYTES)"
+
+run_request db_media_spilled_finalize \
+  -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt" \
+  -X POST -H "X-CSRF-Token: $media_csrf" \
+  "$DB_URL/__smoke__?scenario=file_merge_chunks&name=$spill_name&id=$spill_id&size=4096&index=1"
+assert_status_zero
+assert_contains 'SMOKE_MERGE_SUCCESS=true'
+report_ok db_media_spilled_finalize
+
+# The bytes have to have survived the rename intact, or "zero bytes through
+# Lua" would be true and useless.
+if [[ "$(wc -c < "$SMOKE_ROOT/db-files/$spill_name")" != '4096' ]]; then
+  fail "renamed upload is not 4096 bytes"
+fi
+if [[ -n "$(tr -d 'S' < "$SMOKE_ROOT/db-files/$spill_name")" ]]; then
+  fail 'renamed upload does not hold the bytes that were sent'
+fi
+report_ok db_media_spilled_contents
+
+# The rename is only safe when there is nothing staged yet. A chunk arriving
+# out of order proves the guard: index 1 lands first and creates the staging
+# file, so the spilled index 0 that follows must write into it rather than
+# rename over it -- a rename there would throw away every chunk already
+# assembled and report success while doing it.
+ordered_id='media-smoke-ordered'
+# Its own name: `filedb_storage` refuses a filename already registered, and the
+# spilled upload above finalized under `$spill_name`.
+ordered_name='media-smoke-ordered.bin'
+
+run_request db_media_ordered_second \
+  -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt" \
+  -X POST -H "X-CSRF-Token: $media_csrf" \
+  --data-binary "@$spill_body" \
+  "$DB_URL/__smoke__?scenario=file_upload_chunk&name=$ordered_name&id=$ordered_id&index=1"
+assert_status_zero
+assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
+report_ok db_media_ordered_second
+
+measure_fs_request db_media_ordered_first \
+  -c "$SMOKE_ROOT/media-cookie.txt" -b "$SMOKE_ROOT/media-cookie.txt" \
+  -X POST -H "X-CSRF-Token: $media_csrf" \
+  --data-binary "@$spill_body" \
+  "$DB_URL/__smoke__?scenario=file_upload_chunk&name=$ordered_name&id=$ordered_id&index=0"
+assert_status_zero
+assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
+# The copy, not the rename, even though the body was spilled and the index is 0.
+assert_fs_budget 1 0 1 0 0 4096
+report_ok "db_media_ordered_first (open=$FS_OPEN write=$FS_WRITE rename=$FS_RENAME bytes=$FS_BYTES)"
+
+# Chunk 1 sat at offset 8, so the assembled file runs past chunk 0's 4096 bytes.
+# If the rename had won, the file would be exactly 4096 and chunk 1 would be
+# gone.
+if [[ "$(wc -c < "$SMOKE_ROOT/db-files/.incoming/$ordered_id")" != '4104' ]]; then
+  fail "out-of-order upload lost a chunk: $(wc -c < "$SMOKE_ROOT/db-files/.incoming/$ordered_id") bytes"
+fi
+report_ok db_media_ordered_kept_both
 
 printf 'all openresty smoke scenarios passed
 '

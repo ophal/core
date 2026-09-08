@@ -173,6 +173,17 @@ function request_get_body()
   return server_get_request().body
 end
 
+--[[ The file nginx buffered this request's body into, or nil.
+
+  For a caller that is only going to move the bytes somewhere else, this is the
+  bytes already on disk -- taking the path and renaming the file skips the copy
+  into a Lua string entirely. Reading `request_get_body()` after this still
+  works and still costs that copy, so a caller takes one or the other.
+]]
+function request_get_body_file()
+  return server_get_request().body_file
+end
+
 function get_cookie_domain()
   return
     (settings.site or {}).cookie_domain or

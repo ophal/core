@@ -187,6 +187,29 @@ the nginx `allow`/`deny` above already covers the default. The warning is what
 makes the gap visible.
 
 
+### Uploads
+
+Two nginx settings decide how much work an upload costs Ophal, and neither is
+required for correctness.
+
+`client_body_buffer_size` is the threshold above which nginx buffers a request
+body to disk instead of holding it in memory. Ophal takes advantage of that: a
+chunk nginx has already written to disk is renamed into place rather than read
+back into Lua and written again, so a body over this threshold costs no copy at
+all. Bodies under it stay in memory and are written normally.
+
+For that rename to work, nginx's `client_body_temp_path` must be on the same
+filesystem as `settings.site.files_path`. A rename cannot cross devices, and
+when it fails Ophal falls back to copying the bytes — correct, and slower, with
+nothing in the response to say so. If uploads are slower than expected, check
+those two paths are on one filesystem first.
+
+`client_max_body_size` bounds a single request and therefore a single chunk. It
+defaults to 1m, and `settings.file.bytes_per_chunk` also defaults to 1MB, so
+the two sit exactly on top of each other; raise the nginx limit if you raise the
+chunk size.
+
+
 ### (Optional) Configure the Content module
 Run the following SQL queries in strict order:
 

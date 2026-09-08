@@ -4,6 +4,7 @@ local tinsert, tconcat, lfs, env = table.insert, table.concat, lfs, env
 local is_dir, is_file, add_js = seawolf.fs.is_dir, seawolf.fs.is_file, add_js
 local temp_dir, empty = seawolf.behaviour.temp_dir, seawolf.variable.empty
 local request_get_body, io_open, tonumber, type = request_get_body, io.open, tonumber, type
+local request_get_body_file = request_get_body_file
 local json, files_path = require 'dkjson', settings.site.files_path
 local os_remove, os_rename, modules, time = os.remove, os.rename, ophal.modules, os.time
 local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
@@ -216,6 +217,35 @@ function upload_service()
   -- finds no file yet, which is whichever one arrives first -- the offset is
   -- absolute, so chunks may arrive in any order.
   target = staging_path(upload_id)
+
+  -- The fast path, and the one that carries the common case: a chunk large
+  -- enough that nginx already buffered it to disk, arriving when there is
+  -- nothing staged yet. The bytes are on the filesystem and their destination
+  -- is the filesystem, so the file is renamed into place and never enters Lua.
+  -- A single-request upload is exactly this case, which is what makes it worth
+  -- having -- it is the whole file.
+  --
+  -- Only when nothing is staged: a rename over a partly assembled upload would
+  -- discard every chunk already written. Everything else falls through to the
+  -- seek-and-write below, including a small body, which nginx keeps in memory
+  -- and which therefore has no file to rename.
+  local body_file = index == 0 and request_get_body_file() or nil
+
+  if body_file and lfs.attributes(target, 'size') == nil then
+    status, err = os_rename(body_file, target)
+    fs_stats.record('rename', nil, target)
+
+    if status then
+      output.success = true
+      return output
+    end
+
+    -- A rename across filesystems fails, which is what happens when nginx's
+    -- `client_body_temp_path` is on a different device from `files_path`. That
+    -- is a configuration a site can have and must not break on, so the copy
+    -- below is still the answer; it is only slower.
+  end
+
   data = request_get_body()
 
   output_fh = io_open(target, 'r+')

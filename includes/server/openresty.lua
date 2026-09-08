@@ -34,6 +34,28 @@ env._SERVER = function (v)
   end
 end
 
+--[[ Where nginx put the request body, when it put it in a file.
+
+  nginx buffers a body larger than `client_body_buffer_size` to disk on its own.
+  Reading it back into a Lua string is then a second full copy of something the
+  kernel has already written, and for an upload that copy is the whole point of
+  the request. A caller that only wants to move the bytes somewhere -- which is
+  exactly what an upload does -- can take this path and rename the file instead.
+
+  nil when the body is small enough to have stayed in memory, which is the
+  ordinary case for every non-upload request, and nil for methods that carry no
+  body at all.
+]]
+local function request_body_file(method)
+  if not request_has_body[method] then
+    return nil
+  end
+
+  ngx_req.read_body()
+
+  return ngx_req.get_body_file()
+end
+
 local function request_body(method)
   local body, file_name, handle
 
@@ -69,8 +91,9 @@ function adapter.request()
   local script_name = env._SERVER('SCRIPT_NAME') or '/index.lua'
   local uri = server_build_request_uri(env._SERVER, script_name, query_string)
   local raw_cookies = headers.Cookie or headers.cookie or ''
+  local request
 
-  return {
+  request = {
     method = method,
     scheme = ngx_var.scheme or 'http',
     host = env._SERVER('HTTP_HOST') or env._SERVER('SERVER_NAME') or 'default',
@@ -80,10 +103,33 @@ function adapter.request()
     query = server_parse_query(query_string),
     headers = headers,
     cookies = server_parse_cookies(raw_cookies),
-    body = request_body(method),
+    body_file = request_body_file(method),
     raw_query = query_string,
     raw_cookies = raw_cookies,
   }
+
+  --[[ `body` is materialised on first read, not here.
+
+    Reading it eagerly meant every spilled body was copied into a Lua string
+    whether anything wanted the string or not -- and the one caller that never
+    does is the upload endpoint, whose whole job is to move those bytes to
+    another file. `request_get_body()` is the only consumer of this field in the
+    codebase, so the laziness is invisible everywhere else; the value is cached
+    on the table by the first read, so it is still read once per request.
+  ]]
+  return setmetatable(request, {
+    __index = function(t, key)
+      if key ~= 'body' then
+        return nil
+      end
+
+      local value = request_body(method)
+
+      rawset(t, 'body', value)
+
+      return value
+    end,
+  })
 end
 
 function adapter.header(name, value, replace)

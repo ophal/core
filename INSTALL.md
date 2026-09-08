@@ -35,6 +35,29 @@ The document root must contain the Ophal tree, including:
 The provided `nginx.ophal.conf` is also responsible for blocking direct access
 to internal Lua source and secret files such as `settings.lua` and `vault.lua`.
 
+Declare the projection version zone in the enclosing `http { }` block:
+
+```nginx
+lua_shared_dict ophal_projection_versions 1m;
+```
+
+This one is easy to skip and expensive to skip. It cannot live in
+`nginx.ophal.conf` itself, because `lua_shared_dict` is an http-level directive
+and that file is a `server { }` block, so it is the one piece of required
+configuration the shipped file cannot carry for you.
+
+It is how a worker tells the others that a projection has changed. Without it
+Ophal does not fail: it falls back to a per-worker table and keeps serving.
+What it stops doing is telling the other workers, so on a site with more than
+one worker a write becomes visible to whichever worker performed it and stays
+invisible to the rest until they happen to restart. The symptom is a page that
+alternates between the old and new version depending on which worker answers,
+which is a hard thing to attribute to a missing line in an unrelated file.
+
+The name has to match; the module resolves `ophal_projection_versions` and
+falls back silently on a typo. If you rename the zone, set
+`settings.performance.projection_shared_dict` to the same name.
+
 Operational note: `0.2.x` runs inside persistent OpenResty workers, but it is
 not yet a fully nonblocking stack. Database access still uses synchronous
 `LuaDBI`, and some filesystem operations still occur on request paths for
@@ -208,6 +231,74 @@ those two paths are on one filesystem first.
 defaults to 1m, and `settings.file.bytes_per_chunk` also defaults to 1MB, so
 the two sit exactly on top of each other; raise the nginx limit if you raise the
 chunk size.
+
+
+### Performance settings
+
+Every key below is optional and has a working default, so a site that sets none
+of them is configured correctly. They are documented because the defaults are
+otherwise only readable in the source, and because two of them are the ones you
+reach for when something is wrong rather than slow.
+
+```Lua
+  settings.performance = {
+    -- Caching
+    projection_payload_cache_size = 512,
+    user_cache_size = 512,
+    projection_version_miss_ttl = 5,
+    projection_shared_dict = 'ophal_projection_versions',
+
+    -- Deferred work
+    projection_rebuild_pending_ttl = 900,
+    jobs = {
+      claim_limit = 20,
+      max_attempts = 5,
+      retry_backoff = 60,
+    },
+
+    -- Measurement. Off in production; the test suite turns them on.
+    query_stats = false,
+    projection_cache_stats = false,
+    fs_stats = false,
+  }
+```
+
+**Caching.** `projection_payload_cache_size` bounds the per-worker cache of
+rendered projection payloads, per projection rather than globally, because
+projection keys come from code and so the number of buckets is fixed.
+`user_cache_size` does the same for the role, permission and user-object caches,
+keyed by user id — that key space grows with accounts, so this is the one to
+lower on a site with many users and little memory. Setting either to `0`
+disables that cache rather than making it unbounded.
+
+`projection_version_miss_ttl` is how long a worker remembers that a projection
+version row was absent. It exists because a nil and a missing key are
+indistinguishable in a Lua table, so without it an untouched key costs one
+query on every request forever. Leave it non-zero unless you are testing.
+
+`projection_shared_dict` only matters if you renamed the `lua_shared_dict` zone
+declared in Section I. The two names must agree; they fail apart silently.
+
+**Deferred work.** `projection_rebuild_pending_ttl` is how long a queued
+projection rebuild is trusted before a request stops waiting for it. If the
+queue has visibly stopped moving — a job older than this is still sitting there
+— the request rebuilds inline instead, which is what stops a site whose cron
+broke from deferring forever. Raising it lengthens the window in which pages
+come from the normalized fallback; setting it to `0` means "defer indefinitely"
+and disables that recovery, because a shared-dictionary entry written with no
+expiry never lapses.
+
+The `jobs` keys bound the drain: how many jobs one `/cron` request claims, how
+many times a failing job is retried before it is left alone, and how long it
+waits between attempts.
+
+**Measurement.** The three counters are off by default and cost one boolean
+test each when off. `query_stats` and `fs_stats` are what the smoke suite's
+query and filesystem budgets are expressed in; `projection_cache_stats` reports
+hits, misses, stale lookups, evictions and occupancy per projection. Turn that
+one on if you suspect the payload cache is too small: absent keys next to
+evictions mean the bucket is undersized, while stale keys mean writes are
+outpacing reads, and only the first is fixed by raising the size.
 
 
 ### (Optional) Configure the Content module

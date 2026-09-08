@@ -98,8 +98,43 @@ local function new_projection_state()
     tag_rows = {},
     field_tag_rows = {},
     tag_listing_index = {},
+    -- Tagged entity types other than `content`, keyed by type then by id. The
+    -- legacy listing unions one arm per type, and a tag on two of them is the
+    -- case that path had never run.
+    entity_rows = {},
     jobs = {},
   }
+end
+
+--[[ The rows one legacy listing arm would return.
+
+  `content` keeps its own table in the state because every other case uses it;
+  anything else comes from `state.entity_rows`, which is how a second tagged
+  entity type is seeded. Each row carries its `type`, the way the arm's literal
+  first column does.
+]]
+local function legacy_tagged_rows(state, entity_type, tag_id)
+  local source = entity_type == 'content'
+    and state.content_rows
+    or (state.entity_rows or {})[entity_type] or {}
+  local rows = {}
+
+  for _, rel in ipairs(state.field_tag_rows) do
+    local row = source[tonumber(rel.entity_id)]
+
+    if rel.entity_type == entity_type and row and row.status == 1
+        and tonumber(rel.tag_id) == tonumber(tag_id) then
+      local copy = {type = entity_type}
+
+      for key, value in pairs(row) do
+        copy[key] = value
+      end
+
+      rows[#rows + 1] = copy
+    end
+  end
+
+  return rows
 end
 
 local function make_db_query(state)
@@ -397,27 +432,46 @@ local function make_db_query(state)
         rows[#rows + 1] = item
       end
       return rows_result(rows)
-    elseif sql:match('^SELECT COUNT%(%*%) AS total FROM content e JOIN field_tag ft') then
-      -- The tag listing's legacy count, one UNION arm per tagged entity type.
-      -- Deferral made this path ordinary traffic rather than a missing-table
-      -- fallback, so the fake has to answer it.
-      local count = 0
-      for _, rel in ipairs(state.field_tag_rows) do
-        local content = state.content_rows[tonumber(rel.entity_id)]
-        if rel.entity_type == 'content' and content and content.status == 1
-            and tonumber(rel.tag_id) == tonumber(args[1]) then
-          count = count + 1
-        end
+    elseif sql:match('^SELECT SUM%(total%) AS total FROM %(') then
+      --[[ The tag listing's legacy count: one `SELECT COUNT(*)` arm per tagged
+        entity type, summed over the arms. Deferral made this path ordinary
+        traffic rather than a missing-table fallback, so the fake answers it --
+        and it answers it per arm, because reading only the first row is the
+        defect the sum replaced.
+      ]]
+      local count, arm = 0, 0
+      for entity_type in sql:gmatch('FROM ([%w_]+) e JOIN field_tag ft') do
+        arm = arm + 1
+        count = count + #legacy_tagged_rows(state, entity_type, args[arm])
       end
       return rows_result({{total = count}})
-    elseif sql:match('^SELECT e%.%*, .content. "type" FROM content e JOIN field_tag ft') then
-      local rows = {}
-      for _, rel in ipairs(state.field_tag_rows) do
-        local content = state.content_rows[tonumber(rel.entity_id)]
-        if rel.entity_type == 'content' and content and content.status == 1
-            and tonumber(rel.tag_id) == tonumber(args[1]) then
-          rows[#rows + 1] = content
+    elseif sql:match("^SELECT '[%w_]+' type, e%.id id,") then
+      -- The rows the count above counted, in the same arm order. Each arm binds
+      -- its own `ft.tag_id = ?`, so the parameters run one per arm and the
+      -- paging pair comes after them.
+      local rows, arm = {}, 0
+      for entity_type in sql:gmatch('FROM ([%w_]+) e JOIN field_tag ft') do
+        arm = arm + 1
+        for _, row in ipairs(legacy_tagged_rows(state, entity_type, args[arm])) do
+          rows[#rows + 1] = row
         end
+      end
+      table.sort(rows, function(a, b)
+        return (a.created or 0) > (b.created or 0)
+      end)
+      -- The paging pair follows the arms, so the fake has to page: whether a
+      -- listing's count and its rows agree is exactly what the multi-arm case
+      -- is here to check.
+      do
+        local offset = tonumber(args[arm + 1]) or 0
+        local limit = tonumber(args[arm + 2]) or #rows
+        local page = {}
+
+        for i = offset + 1, math.min(offset + limit, #rows) do
+          page[#page + 1] = rows[i]
+        end
+
+        rows = page
       end
       return rows_result(rows)
     elseif sql:match('^SELECT count%(%*%) AS total FROM content WHERE') then
@@ -547,7 +601,10 @@ local function setup_tag_env(state, entities)
       state.status = value
     end
   end
-  pager = function() return {} end
+  pager = function(_, pages, current)
+    state.pager = {pages = pages, current = current}
+    return {}
+  end
   l = function(text) return text end
   page_set_title = function() end
   add_js = function() end
@@ -1482,9 +1539,13 @@ do
   assert_eq('tag_deferred_wrote_no_rows', #state.tag_listing_index, 0)
   assert_eq('tag_deferred_version_unmoved', state.versions.tag_listing_index, nil)
   -- Served anyway, from the normalized join the fallback has always used.
+  -- Indexed defensively: a listing that renders nothing should name itself
+  -- rather than crash the file on `rows[1]`, which is how a broken count
+  -- surfaces here.
   assert_eq(
     'tag_deferred_page_rendered',
-    state.rendered_tag_page and state.rendered_tag_page.rows[1].title,
+    state.rendered_tag_page
+      and (state.rendered_tag_page.rows[1] or {}).title,
     'Projected tagged content'
   )
 
@@ -1942,7 +2003,93 @@ do
   assert_eq('tag_listing_rows_fallback_builds_arms',
     query_count(state, '^SELECT entity_type FROM field_tag'), 1)
   assert_eq('tag_listing_rows_fallback_union_query',
-    query_count(state, '^SELECT e%.%*'), 1)
+    query_count(state, "^SELECT '[%w_]+' type, e%.id id,"), 1)
+end
+
+--[[ A tag on two entity types, served from the normalized fallback.
+
+  This path had never run with more than one arm, and it could not have: `e.*`
+  on two different tables gives two different column counts, so the UNION was a
+  syntax error rather than a wrong answer; each arm binds its own
+  `ft.tag_id = ?`, and the call sites passed one parameter however many arms
+  there were; and the count read the first row of a UNION, so a tag on two types
+  reported one of the two counts -- which decides how many pages the listing
+  has.
+
+  Only `content` is a tagged entity type in the measured profile, which is why
+  none of that showed up anywhere.
+]]
+do
+  local state = new_projection_state()
+  local tag_mod
+  local count_query
+
+  state.tag_rows[1] = {id = 1, name = 'alpha', description = 'Alpha'}
+  state.content_rows[5] = {
+    id = 5,
+    user_id = 1,
+    title = 'Tagged content',
+    teaser = 'Content teaser',
+    body = 'Content body',
+    status = 1,
+    promote = 1,
+    created = 20,
+  }
+  state.entity_rows.page = {
+    [7] = {
+      id = 7,
+      user_id = 1,
+      title = 'Tagged page',
+      teaser = 'Page teaser',
+      body = 'Page body',
+      status = 1,
+      promote = 1,
+      created = 30,
+    },
+  }
+  state.field_tag_rows = {
+    {entity_type = 'content', entity_id = 5, tag_id = 1},
+    {entity_type = 'page', entity_id = 7, tag_id = 1},
+  }
+
+  -- No listing projection at all, so the fallback is the only path. One item
+  -- per page, so the count decides the page count and a count that read one
+  -- arm instead of both is visible in it.
+  tag_mod = setup_tag_env(state, {content = true, page = true})
+  settings.tag.items_per_page = 1
+  state.fail_query = 'tag_listing_index'
+  tag_mod.entity_page()()
+
+  for _, entry in ipairs(state.queries) do
+    if entry.sql:match('^SELECT SUM%(total%) AS total FROM %(') then
+      count_query = entry
+    end
+  end
+
+  assert_eq('tag_two_types_count_query_issued', count_query ~= nil, true)
+  -- One bind parameter per arm. With one, the second arm had no value.
+  assert_eq('tag_two_types_count_binds_one_id_per_arm',
+    count_query and #count_query.params, 2)
+  assert_eq('tag_two_types_count_binds_the_tag_id',
+    count_query and count_query.params[2], 1)
+  -- Two entities at one per page. Reading the first row of the union gave one.
+  assert_eq('tag_two_types_count_sums_the_arms',
+    state.pager and state.pager.pages, 2)
+  assert_eq('tag_two_types_union_is_all',
+    count_query and count_query.sql:find('UNION ALL', 1, true) ~= nil, true)
+
+  -- Page one holds the newest row, and it comes from the second arm.
+  assert_eq('tag_two_types_rows_rendered',
+    state.rendered_tag_page and #state.rendered_tag_page.rows, 1)
+  assert_eq('tag_two_types_first_row_is_newest',
+    state.rendered_tag_page and state.rendered_tag_page.rows[1].title,
+    'Tagged page')
+  assert_eq('tag_two_types_first_row_type',
+    state.rendered_tag_page and state.rendered_tag_page.rows[1].type, 'page')
+  -- The projection carries `route`; the fallback builds the same value, so the
+  -- two branches hand the page one shape.
+  assert_eq('tag_two_types_route_filled',
+    state.rendered_tag_page and state.rendered_tag_page.rows[1].route, 'page/7')
 end
 
 io.write '\n-- deferred rebuild markers --\n'

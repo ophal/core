@@ -14,7 +14,7 @@ local add_js, route_arg, trim, header = add_js, route_arg, seawolf.text.trim, he
 local page_set_title, json, time = page_set_title, require 'dkjson', os.time
 local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
 local tonumber, ceil = tonumber, math.ceil
-local floor, ipairs = math.floor, ipairs
+local floor, ipairs, unpack = math.floor, ipairs, unpack
 local pager, print_t, request_get_body = pager, print_t, request_get_body
 local pager_current_page = pager_current_page
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
@@ -622,23 +622,32 @@ end
 
 --[[ Implements endpoint callback: save.
 ]]
+--[[ Create, update or delete a tag over JSON.
+
+  Existence is checked before access, for the reason `modules/content`'s version
+  records: the update and delete arms of `entity_access()` compare
+  `entity.user_id` against the account, and `load()` answers nil for an id that
+  is not there.
+
+  This one never raised on that, and that is worse rather than better. It seeded
+  `entity` as `{id = ..., type = 'tag'}` and replaced it only when `load()` found
+  something, so `empty(entity)` was false for an id that does not exist and the
+  404 below it was dead code -- the request got 401 instead, from a comparison
+  of `nil` against the account id. A caller could not tell "not yours" from
+  "not there", and the branch that says which had never run.
+]]
 function _M.save_service()
-  local input, parsed, pos, err, entity_id, output, target_fp
-
-  local input, data, pos, err, account, action
+  local input, data, pos, err, action, entity, rs
   local output = {success = false}
-  local entity = {id = tonumber(route_arg(2)), type = 'tag'}
+  local id = tonumber(route_arg(2))
 
-  if entity.type ~= _M.entity_type then
-    header('status', 401)
-    output.error = 'Entity type invalid for this handler.'
-  else
-    action = empty(entity.id) and 'create' or 'update'
-    do
-      local _ = _M.load(entity.id)
-      if not empty(_) then
-        entity = _
-      end
+  do
+    action = empty(id) and 'create' or 'update'
+
+    -- Only an update or a delete has an entity to load, and
+    -- `entity_access(entity, 'create')` never looks at one.
+    if action == 'update' then
+      entity = _M.load(id)
     end
 
     input = request_get_body()
@@ -653,13 +662,13 @@ function _M.save_service()
         action = 'delete'
       end
 
-      if not _M.entity_access(entity, action) then
-        header('status', 401)
-      elseif action == 'update' and empty(entity) then
+      if action ~= 'create' and empty(entity) then
         header('status', 404)
-        output.error = 'No such entity.'
+        output.error = 'No such tag.'
+      elseif not _M.entity_access(entity, action) then
+        header('status', 401)
       elseif 'table' == type(data) and not empty(data) then
-        data.id = entity.id
+        data.id = id
         data.type = _M.entity_type
 
         if type(data.status) == 'boolean' then
@@ -750,21 +759,67 @@ end
 -- Either the count step or the rows step can be the one that finds the
 -- projection unusable, so building the arms has to be callable from both rather
 -- than living inline in the count branch.
+--[[ The listing's normalized fallback, one UNION arm per tagged entity type.
+
+  A listing row is what `tag_listing_index` holds, so the arms select that
+  column list rather than `e.*`. Three reasons, and the first two are why this
+  path could never have run for a tag with more than one entity type:
+
+  - `e.*` on two different tables yields two different column counts, and a
+    UNION of arms that disagree on arity is a syntax error, not a wrong answer.
+  - Each arm binds `ft.tag_id = ?`, so N arms need N parameters. The call sites
+    passed one, whatever N was.
+  - The projection branch and this one now hand the page the same shape. They
+    did not before: `e.*` carries `content`'s `sticky` and `comment`, which the
+    projection has never had, and omits `route`, which it has.
+
+  `route` is the one column with no SQL to read it from -- the projection's is
+  written by `tag_projection_insert()` from the entity type and id -- so it is
+  filled the same way, in Lua, where the rows are consumed.
+
+  `UNION ALL`, not `UNION`: the arms are disjoint by construction (each names
+  its own entity type), so deduplicating them can only remove a row that should
+  have been there, and it pays for a sort to do it.
+]]
+local LEGACY_ROW_COLUMNS =
+  'e.id id, e.user_id, e.language, e.title, e.teaser, e.body, ' ..
+  'e.created, e.changed, e.status, e.promote'
+
 local function tag_legacy_source_queries(tag_id)
   local rs = db_connection():run('tag.entity_types', tag_id)
-  local count_query, query = {}, {}
+  local count_query, query, params = {}, {}, {}
 
   for v in rs:rows(true) do
-    tinsert(count_query, 'SELECT COUNT(*) AS total FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
-    tinsert(query, 'SELECT e.*, ' .. "'" .. v.entity_type .. "'" .. ' "type" FROM ' .. v.entity_type .. " e JOIN field_tag ft ON '" .. v.entity_type .. "' = ft.entity_type AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?")
+    local entity_type = v.entity_type
+    local source
+
+    -- The type is a table name and a string literal in the same statement, and
+    -- it arrives from a `field_tag` row rather than from code. Held to the same
+    -- shape the query layer holds an identifier to, for the same reason: a name
+    -- that matches this cannot carry a quote, a comment or a semicolon.
+    if type(entity_type) ~= 'string'
+        or entity_type:match('^[%a_][%w_]*$') == nil then
+      error(('tag listing: %q is not an entity type'):format(
+        tostring(entity_type)), 0)
+    end
+
+    source = ("%s e JOIN field_tag ft ON '%s' = ft.entity_type"):format(
+      entity_type, entity_type)
+      .. ' AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?'
+
+    tinsert(count_query, 'SELECT COUNT(*) AS total FROM ' .. source)
+    tinsert(query, ("SELECT '%s' type, %s FROM %s"):format(
+      entity_type, LEGACY_ROW_COLUMNS, source))
+    tinsert(params, tag_id)
   end
 
-  return count_query, query
+  return count_query, query, params
 end
 
 function _M.entity_page()
   local rs, err, tag, current_page, ipp, num_pages, entity, attr, pagination, sql
   local count, count_query, query, tags, output = 0, {}, {}, {}, {}
+  local params = {}
   local entities
   local use_projection = tag_projection_ready()
 
@@ -811,7 +866,7 @@ function _M.entity_page()
     count = tonumber(count) or 0
 
     if not use_projection then
-      count_query, query = tag_legacy_source_queries(tag.id)
+      count_query, query, params = tag_legacy_source_queries(tag.id)
 
       -- Count rows
       if not empty(count_query) then
@@ -820,9 +875,17 @@ function _M.entity_page()
           declared statement has a fixed number of placeholders by construction.
           `tag_legacy_source_queries()` builds the arms; the entity type in each
           comes from `field_tag`, never from request input.
+
+          Summed over the arms rather than read from the first row of them. One
+          arm per entity type means one *row* per entity type, and taking
+          `fetch()` gave whichever came back first -- so a tag on two types
+          reported one of the two counts, and `UNION` deduplicated equal counts
+          into a single row on top of that. The count divides `ipp` a few lines
+          down, so it decided how many pages the listing had.
         ]]
-        sql = tconcat(count_query, ' UNION ')
-        rs = db_connection():execute(sql, tag.id)
+        sql = 'SELECT SUM(total) AS total FROM ('
+          .. tconcat(count_query, ' UNION ALL ') .. ') arms'
+        rs = db_connection():execute(sql, unpack(params))
         count = tonumber((rs:fetch(true) or {}).total) or 0
       end
     end
@@ -867,7 +930,7 @@ function _M.entity_page()
         -- projection and nothing has built them yet. Without this the concat
         -- below yields a bare ' ORDER BY ...' and the query is a syntax error.
         if empty(query) then
-          count_query, query = tag_legacy_source_queries(tag.id)
+          count_query, query, params = tag_legacy_source_queries(tag.id)
         end
 
         if empty(query) then
@@ -877,8 +940,17 @@ function _M.entity_page()
           -- dialect fragment and it means the same thing here as in a
           -- declaration, so the LIMIT spelling still comes from the driver
           -- rather than from a free function at the call site.
-          sql = tconcat(query, ' UNION ') .. ' ORDER BY created DESC{{limit}}'
-          rs = db_connection():execute(sql, tag.id, (current_page - 1) * ipp, ipp)
+          local args = {}
+
+          for i = 1, #params do
+            args[i] = params[i]
+          end
+
+          args[#args + 1] = (current_page - 1) * ipp
+          args[#args + 1] = ipp
+
+          sql = tconcat(query, ' UNION ALL ') .. ' ORDER BY created DESC{{limit}}'
+          rs = db_connection():execute(sql, unpack(args))
         end
       end
 
@@ -886,6 +958,11 @@ function _M.entity_page()
         output = copy_rows(entities or {})
       elseif rs then
         for entity in rs:rows(true) do
+          -- The one column the arms cannot select: the projection's `route` is
+          -- written by `tag_projection_insert()` from the type and the id, so
+          -- the fallback builds it the same way rather than leaving the two
+          -- branches handing the page different shapes.
+          entity.route = ('%s/%s'):format(entity.type, entity.id)
           tinsert(output, entity)
         end
       end

@@ -1582,6 +1582,21 @@ assert_regex '^HTTP/1\.[01] 200'
 assert_regex '"success" *: *true'
 report_ok db_tag_create
 
+# The tag module's own missing-entity answer. It seeded an entity table before
+# loading, so `empty(entity)` was never true and the 404 below the access check
+# was dead code: an update of an id that does not exist answered 401, from a
+# comparison of `nil` against the account id, and a caller could not tell "not
+# yours" from "not there".
+run_request db_tag_save_missing -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  --data-binary "{\"action\":\"update\",\"name\":\"Nope\",\"csrf_token\":\"$author_csrf\"}" \
+  "$DB_URL/tag/service/9999"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+assert_regex '"success" *: *false'
+assert_contains 'No such tag.'
+report_ok db_tag_save_missing
+
 measure_request db_content_page_after_update "$DB_URL/content/$authored_id"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'

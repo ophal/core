@@ -554,20 +554,51 @@ do
           for text that is not known until it runs, and attribution falls back
           to the tokenizer for it.
 
-          The values interpolated are role ids read out of `user_role` a few
-          lines above, never request input, and this runs once per role set per
-          worker: `test_user_permissions.lua` pins the cold cost at four
-          queries and the warm at zero.
+          **The values are bound, not formatted in.** They were interpolated
+          until 2026-09-08, and the argument for it was that role ids come from
+          `user_role` rather than from a request. That was true and it was the
+          wrong thing to rest on: it was the only place left in the codebase
+          where a *value* reached SQL as text, and the admin UI for roles
+          that this anticipates would make it reachable.
+          `tests/bench/injection_probe.lua` runs this exact shape both ways
+          against all three backends -- concatenated, one hostile id returns a
+          row from a WHERE clause written to match nothing, on every one of
+          them.
+
+          Every value is bound, gathered with `pairs` rather than over the
+          array part. `roles:concat()` is seawolf's `table_concat`, which walks
+          `pairs` and not `ipairs` -- so it read the `anonymous` and
+          `authenticated` markers, which are string *keys*, alongside the
+          numeric role ids, and `role_permission` holds rows for both. Binding
+          `1 .. #roles` instead silently drops the markers and every
+          role-derived permission with them, which is what
+          `perm_granted` catches.
+
+          Runs once per role set per worker: `test_user_permissions.lua` pins
+          the cold cost at four queries and the warm at zero.
         ]]
-        local rs = db_connection():execute(([[
+        local marks, values = {}, {}
+
+        for _, role_id in pairs(roles) do
+          values[#values + 1] = role_id
+          marks[#marks + 1] = '?'
+        end
+
+        -- No roles means no rows to match, and `IN ()` is a syntax error on
+        -- every backend where the old `IN ('')` was merely a query that found
+        -- nothing. `get_user_roles()` always returns at least one marker, so
+        -- this is a guard against a future shape rather than a live branch.
+        if #marks > 0 then
+          local rs = db_connection():execute(([[
 SELECT permission
 FROM role_permission
-WHERE role_id IN ('%s')
+WHERE role_id IN (%s)
 GROUP BY permission
-ORDER BY permission]]):format(roles:concat("', '")))
-        for row in rs:rows(true) do
-          if nil == permissions[row.permission] then
-            permissions[row.permission] = true
+ORDER BY permission]]):format(tconcat(marks, ', ')), unpack(values))
+          for row in rs:rows(true) do
+            if nil == permissions[row.permission] then
+              permissions[row.permission] = true
+            end
           end
         end
       end

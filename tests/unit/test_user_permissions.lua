@@ -101,9 +101,19 @@ local function make_db_query(state)
       end
       return rows_result(rows)
     elseif sql:match('^SELECT permission') then
-      local seen, rows = {}, {}
+      -- Matched against the *bound arguments*, not against the SQL text. This
+      -- read `sql:find("'" .. role_id .. "'")` while the module formatted its
+      -- IN list into the statement, so the stub only worked because the values
+      -- were interpolated -- a test that would have gone on passing had the
+      -- injection never been fixed, and one that fails loudly if it comes back.
+      local seen, rows, wanted = {}, {}, {}
+
+      for i = 1, select('#', ...) do
+        wanted[tostring((select(i, ...)))] = true
+      end
+
       for _, grant in ipairs(state.role_permissions) do
-        if sql:find("'" .. grant.role_id .. "'", 1, true) and not seen[grant.permission] then
+        if wanted[tostring(grant.role_id)] and not seen[grant.permission] then
           seen[grant.permission] = true
           rows[#rows + 1] = {permission = grant.permission}
         end
@@ -185,6 +195,39 @@ do
   -- delivery was already cache-first before this phase, which is why the work
   -- here is bounding and correctness rather than removing queries.
   assert_eq('perm_cold_queries', #state.queries, 4)
+
+  --[[ The permission read binds its role ids; it does not format them in.
+
+    This was `WHERE role_id IN ('%s')` over a seawolf concat until 2026-09-08,
+    and the argument for leaving it was that role ids come from `user_role`
+    rather than from a request. It was still the only place in the codebase
+    where a value reached SQL as text, and the admin UI for roles that this
+    anticipates is what would make it reachable.
+    `tests/bench/injection_probe.lua` runs the same shape against all three
+    backends and shows one hostile id returning a row from a WHERE clause
+    written to match nothing.
+
+    Pinned on both halves: a placeholder per role, and the role id present as a
+    bound parameter rather than anywhere in the statement.
+  ]]
+  do
+    local perm_query
+
+    for _, q in ipairs(state.queries) do
+      if q.sql:match('^SELECT permission') then perm_query = q end
+    end
+
+    -- One placeholder per role, whatever the arity: this account carries the
+    -- `authenticated` marker as well as `editor`, so the list is two wide.
+    assert_eq('perm_query_binds_placeholder',
+      perm_query ~= nil and perm_query.sql:find('IN %(%?') ~= nil, true)
+    assert_eq('perm_query_binds_every_role',
+      perm_query ~= nil and #perm_query.params, 2)
+    assert_eq('perm_query_omits_value_from_sql',
+      perm_query ~= nil and perm_query.sql:find('editor', 1, true) == nil, true)
+    assert_eq('perm_query_passes_value_as_parameter',
+      perm_query ~= nil and perm_query.params[1], 'editor')
+  end
 
   mark = #state.queries
   user_mod.access('edit own content')

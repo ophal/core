@@ -780,10 +780,30 @@ run_request() {
   set -e
 }
 
+#[[ Every scenario that passes is counted, and the total is pinned below.
+
+# Without this the suite reports success for whatever it happened to run. A
+# deleted `run_request` and its assertions, a block dropped in a bad merge, or a
+# scenario made unreachable by an early branch all shrink coverage in a way that
+# looks exactly like a clean run -- the whole output is `ok` lines and a final
+# "all scenarios passed", and nothing in it says how many there should have
+# been. Stage 8.7 adds a PostgreSQL and a MySQL profile beside the SQLite one,
+# which is three lists that have to stay in step, so the count is worth having
+# before they exist rather than after they drift.
 report_ok() {
+  SCENARIO_COUNT=$((SCENARIO_COUNT + 1))
   printf 'ok %s
 ' "$1"
 }
+
+#[[ The number of scenarios this suite is expected to run.
+
+# It goes up when a scenario is added, which is a deliberate edit visible in the
+# diff -- that is the point, not an inconvenience. It should never go down
+# without the reason being recorded alongside it, the same as a query budget
+# moving.
+EXPECTED_SCENARIOS=102
+SCENARIO_COUNT=0
 
 check_dependencies
 check_openresty
@@ -2167,5 +2187,9 @@ if [[ "$(wc -c < "$SMOKE_ROOT/db-files/.incoming/$ordered_id")" != '4104' ]]; th
 fi
 report_ok db_media_ordered_kept_both
 
-printf 'all openresty smoke scenarios passed
-'
+if [[ "$SCENARIO_COUNT" -ne "$EXPECTED_SCENARIOS" ]]; then
+  fail "ran $SCENARIO_COUNT scenarios, expected $EXPECTED_SCENARIOS -- a scenario was added or lost; update EXPECTED_SCENARIOS deliberately"
+fi
+
+printf 'all %d openresty smoke scenarios passed
+' "$SCENARIO_COUNT"

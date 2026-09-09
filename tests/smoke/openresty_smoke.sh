@@ -68,6 +68,11 @@ BACKEND_PG_PORT="${OPHAL_SMOKE_PG_PORT:-15432}"
 BACKEND_PG_USER="${OPHAL_SMOKE_PG_USER:-ophal}"
 BACKEND_PG_PASS="${OPHAL_SMOKE_PG_PASS:-ophal}"
 BACKEND_PG_DATABASE="${OPHAL_SMOKE_PG_DATABASE:-ophal_smoke}"
+BACKEND_MY_HOST="${OPHAL_SMOKE_MY_HOST:-127.0.0.1}"
+BACKEND_MY_PORT="${OPHAL_SMOKE_MY_PORT:-13306}"
+BACKEND_MY_USER="${OPHAL_SMOKE_MY_USER:-ophal}"
+BACKEND_MY_PASS="${OPHAL_SMOKE_MY_PASS:-ophal}"
+BACKEND_MY_DATABASE="${OPHAL_SMOKE_MY_DATABASE:-ophal_smoke}"
 
 LAST_OUTPUT=''
 LAST_STATUS=0
@@ -475,6 +480,9 @@ db_profile_begin() {
   SMOKE_DB_ENV_PORT=''
   SMOKE_DB_ENV_USER=''
   SMOKE_DB_ENV_PASS=''
+  # `lua5.1` unless the backend's driver has no blocking mode; see the mysql
+  # case below.
+  SMOKE_DB_CLI=lua5.1
 
   case "$backend" in
     sqlite3)
@@ -487,6 +495,22 @@ db_profile_begin() {
       SMOKE_DB_ENV_USER=$BACKEND_PG_USER
       SMOKE_DB_ENV_PASS=$BACKEND_PG_PASS
       ;;
+    mysql)
+      SMOKE_DB_ENV_DATABASE=$BACKEND_MY_DATABASE
+      SMOKE_DB_ENV_HOST=$BACKEND_MY_HOST
+      SMOKE_DB_ENV_PORT=$BACKEND_MY_PORT
+      SMOKE_DB_ENV_USER=$BACKEND_MY_USER
+      SMOKE_DB_ENV_PASS=$BACKEND_MY_PASS
+      # MySQL has no command line.
+      #
+      # `lua-resty-mysql` has no blocking mode, so the seeder and
+      # `ophal migrate apply` cannot run under the `lua5.1` the `ophal` script
+      # names -- they run under `resty`, which has cosockets. That is a real
+      # limitation of the backend rather than a harness convenience, and it is
+      # the reason MySQL was left undecided through stage 8.6; running it here
+      # is what turns "cannot" into "under resty, like this".
+      SMOKE_DB_CLI=resty
+      ;;
     *)
       fail "no database profile is defined for the $backend backend"
       ;;
@@ -494,6 +518,33 @@ db_profile_begin() {
 
   PROFILE_COUNT=0
   PROFILE_LABEL="$backend"
+}
+
+# Runs a Lua program with this profile's environment, under whichever
+# interpreter the backend's driver needs. `resty` is not `env -i`-safe -- it
+# shells out to nginx -- so the variables are added to the environment rather
+# than replacing it, and every LUA_* one is set explicitly so an ambient value
+# cannot decide which modules are loaded.
+db_run_cli() {
+  local -a cli_env
+  local line
+
+  cli_env=(
+    "LUA_PATH=$VENDOR_LUA_PATH"
+    "LUA_CPATH=$VENDOR_LUA_CPATH"
+  )
+  if [[ -n "$VENDOR_LD_LIB_DIR" ]]; then
+    cli_env+=("LD_LIBRARY_PATH=$VENDOR_LD_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}")
+  fi
+  while IFS= read -r line; do
+    cli_env+=("$line")
+  done < <(db_profile_env)
+
+  if [[ "$SMOKE_DB_CLI" == 'resty' ]]; then
+    (cd "$SMOKE_DB_DOCROOT" && env "${cli_env[@]}" resty -c 512 "$@" 2>&1)
+  else
+    (cd "$SMOKE_DB_DOCROOT" && env "${cli_env[@]}" lua5.1 "$@" 2>&1)
+  fi
 }
 
 # The environment both the seeder and the profile's OpenResty instance read.
@@ -785,24 +836,11 @@ EOF
 # migration CLI, so the harness installs the site the way the documentation
 # says to rather than carrying a second copy of the schema.
 seed_database() {
-  local output status line
-  local -a seed_env
-
-  seed_env=(
-    "LUA_PATH=$VENDOR_LUA_PATH"
-    "LUA_CPATH=$VENDOR_LUA_CPATH"
-  )
-  while IFS= read -r line; do
-    seed_env+=("$line")
-  done < <(db_profile_env)
-  if [[ -n "$VENDOR_LD_LIB_DIR" ]]; then
-    seed_env=("LD_LIBRARY_PATH=$VENDOR_LD_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "${seed_env[@]}")
-  fi
+  local output status
 
   LAST_SCENARIO='database_seed'
   set +e
-  output=$(cd "$SMOKE_DB_DOCROOT" && env -i "${seed_env[@]}" \
-    lua5.1 "$ROOT/tests/smoke/seed_database.lua" 2>&1)
+  output=$(db_run_cli "$ROOT/tests/smoke/seed_database.lua")
   status=$?
   set -e
   LAST_OUTPUT=$output
@@ -826,8 +864,7 @@ seed_database() {
 
   LAST_SCENARIO='database_migrate'
   set +e
-  output=$(cd "$SMOKE_DB_DOCROOT" && env -i "${seed_env[@]}" \
-    lua5.1 "$ROOT/ophal" migrate apply 2>&1)
+  output=$(db_run_cli "$ROOT/ophal" migrate apply)
   status=$?
   set -e
   LAST_OUTPUT=$output
@@ -1523,6 +1560,9 @@ db_backend_available() {
     postgresql)
       port_ready "$BACKEND_PG_PORT"
       ;;
+    mysql)
+      port_ready "$BACKEND_MY_PORT"
+      ;;
     *)
       return 1
       ;;
@@ -1531,7 +1571,19 @@ db_backend_available() {
 
 db_backend_skip() {
   local backend=$1
-  local detail="no server is listening on ${BACKEND_PG_HOST}:${BACKEND_PG_PORT}"
+  local detail
+
+  case "$backend" in
+    postgresql)
+      detail="no server is listening on ${BACKEND_PG_HOST}:${BACKEND_PG_PORT}"
+      ;;
+    mysql)
+      detail="no server is listening on ${BACKEND_MY_HOST}:${BACKEND_MY_PORT}"
+      ;;
+    *)
+      detail='it is not available'
+      ;;
+  esac
 
   if [[ -n "${OPHAL_SMOKE_REQUIRE_BACKENDS:-}" ]]; then
     fail "the $backend backend is required but $detail"
@@ -1558,7 +1610,7 @@ db_profile_end() {
   DB_PROFILES_RAN="${DB_PROFILES_RAN}${DB_PROFILES_RAN:+, }$backend"
 }
 
-for db_backend in sqlite3 postgresql; do
+for db_backend in sqlite3 postgresql mysql; do
   if ! db_backend_available "$db_backend"; then
     db_backend_skip "$db_backend"
     continue

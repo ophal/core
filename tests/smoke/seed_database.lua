@@ -74,7 +74,12 @@ settings = {
 if driver ~= 'sqlite3' then
   settings.db.maintenance = {
     driver = driver,
-    database = driver == 'postgresql' and 'postgres' or 'mysql',
+    -- The database that is always there and always readable: `postgres` on
+    -- PostgreSQL, and `information_schema` on MySQL, where the connection has
+    -- to name one and the system database may well be closed to this account.
+    -- A `CREATE DATABASE` is not scoped to the connection's own database on
+    -- either, so which one it is does not matter beyond being reachable.
+    database = driver == 'postgresql' and 'postgres' or 'information_schema',
     host = host,
     port = port,
     username = username,
@@ -127,6 +132,13 @@ registry.define('smoke.sequence_reset', {
   (SELECT MAX({field}) FROM {table})) AS value]],
   idents = {table = registry.trusted, field = registry.trusted},
   order = {'table', 'field'},
+  tables = {},
+})
+
+registry.define('smoke.auto_increment_reset', {
+  sql = 'ALTER TABLE {table} AUTO_INCREMENT = 1',
+  idents = {table = registry.trusted},
+  order = {'table'},
   tables = {},
 })
 
@@ -405,9 +417,145 @@ local postgresql_schema = {
   [[CREATE INDEX idx_file_filename ON file USING btree (filename)]],
 }
 
+--[[ The MySQL half, which INSTALL.md did not have until this ran.
+
+  Written from the pair above rather than transcribed, because there was
+  nothing to transcribe: `ophal migrate` had no MySQL branch and the document
+  said so. The order is the same, the columns are the same, and the types are
+  the MySQL spellings of what the other two use -- `BIGINT` for a unix second,
+  `SMALLINT` for a flag, `VARCHAR`/`TEXT` for the rest.
+
+  Indexes are declared inside `CREATE TABLE` rather than after it. MySQL 8 has
+  no `CREATE INDEX IF NOT EXISTS` (MariaDB does), and a schema that installs on
+  one of them and not the other is worse than one that installs on neither;
+  inside the table there is nothing to be idempotent about.
+
+  `AUTO_INCREMENT` is what `db:last_insert_id()` reads back through
+  `LAST_INSERT_ID()`, so the seeded rows have to leave it past their own ids --
+  see the sequence note above, which is the same problem with a different name
+  and the same fix.
+]]
+local mysql_schema = {
+  -- Content module.
+  [[CREATE TABLE content(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  language VARCHAR(12),
+  title VARCHAR(255),
+  teaser TEXT,
+  body TEXT,
+  created BIGINT,
+  changed BIGINT,
+  status SMALLINT,
+  sticky SMALLINT,
+  comment SMALLINT,
+  promote SMALLINT,
+  KEY idx_content_created (created DESC),
+  KEY idx_content_changed (changed DESC),
+  KEY idx_content_frontpage (promote, status, sticky, created DESC),
+  KEY idx_content_title (title),
+  KEY idx_content_user (user_id)
+)]],
+
+  -- User module.
+  [[CREATE TABLE users(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255),
+  mail VARCHAR(255),
+  pass VARCHAR(255),
+  active SMALLINT,
+  created BIGINT,
+  UNIQUE KEY unq_idx_user_name (name),
+  KEY idx_user_created (created),
+  KEY idx_user_mail (mail)
+)]],
+  [[CREATE TABLE role(
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  name VARCHAR(255),
+  active SMALLINT,
+  weight INT,
+  UNIQUE KEY unq_idx_role_name (name),
+  KEY idx_role_weight (weight)
+)]],
+  [[CREATE TABLE user_role(
+  user_id INT NOT NULL,
+  role_id VARCHAR(255) NOT NULL,
+  PRIMARY KEY (user_id, role_id)
+)]],
+  [[CREATE TABLE role_permission(
+  role_id VARCHAR(255) NOT NULL,
+  permission VARCHAR(255) NOT NULL,
+  module VARCHAR(255),
+  PRIMARY KEY (role_id, permission),
+  KEY idx_role_permission_perm (permission)
+)]],
+
+  -- Tag module.
+  [[CREATE TABLE field_tag(
+  entity_type VARCHAR(255) NOT NULL,
+  entity_id INT NOT NULL,
+  tag_id INT NOT NULL,
+  PRIMARY KEY(entity_type, entity_id, tag_id)
+)]],
+  [[CREATE TABLE tag(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  name VARCHAR(255),
+  description TEXT,
+  created BIGINT,
+  changed BIGINT,
+  status SMALLINT,
+  KEY idx_tag_name (name),
+  KEY idx_tag_created (created DESC),
+  KEY idx_tag_changed (changed DESC),
+  KEY idx_tag_user (user_id)
+)]],
+
+  -- Route alias storage.
+  [[CREATE TABLE route_alias(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  source VARCHAR(255),
+  alias VARCHAR(255),
+  language VARCHAR(12),
+  KEY idx_route_alias_alias_language_id (alias, language, id),
+  KEY idx_route_alias_source_language_id (source, language, id)
+)]],
+
+  -- File storage.
+  [[CREATE TABLE file(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  filename VARCHAR(255),
+  filepath VARCHAR(255),
+  filemime VARCHAR(255),
+  filesize BIGINT,
+  status SMALLINT,
+  timestamp BIGINT,
+  KEY idx_file_timestamp (timestamp DESC),
+  KEY idx_file_user (user_id),
+  KEY idx_file_filename (filename)
+)]],
+
+  -- Comments.
+  [[CREATE TABLE comment(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  entity_id INT,
+  parent_id INT,
+  user_id INT,
+  language VARCHAR(12),
+  body TEXT,
+  created BIGINT,
+  changed BIGINT,
+  status SMALLINT,
+  sticky SMALLINT,
+  KEY idx_comment_entity (entity_id, created)
+)]],
+}
+
 local schema = {
   sqlite3 = sqlite_schema,
   postgresql = postgresql_schema,
+  mysql = mysql_schema,
 }
 
 -- Every seeded string a smoke assertion greps for is spelled once, here, so a
@@ -581,17 +729,25 @@ for _, row in ipairs(rows) do
   db:execute(unpack(row))
 end
 
--- Every seeded id is written out, so the sequences are behind the rows.
-if dialect == 'postgresql' then
-  local sequences = {
-    {'users', 'id'},
-    {'content', 'id'},
-    {'tag', 'id'},
-    {'route_alias', 'id'},
-  }
+-- Every seeded id is written out, so the counters are behind the rows.
+local sequences = {
+  {'users', 'id'},
+  {'content', 'id'},
+  {'tag', 'id'},
+  {'route_alias', 'id'},
+}
 
+if dialect == 'postgresql' then
   for _, pair in ipairs(sequences) do
     db:with('smoke.sequence_reset', pair[1], pair[2]):run()
+  end
+elseif dialect == 'mysql' then
+  -- MySQL advances `AUTO_INCREMENT` past an explicit id on its own, but only
+  -- while the table stays open; `ALTER TABLE ... AUTO_INCREMENT` states it, and
+  -- an `AUTO_INCREMENT` lower than the rows present is raised to fit rather
+  -- than refused, so this cannot make the counter wrong.
+  for _, pair in ipairs(sequences) do
+    db:with('smoke.auto_increment_reset', pair[1]):run()
   end
 end
 

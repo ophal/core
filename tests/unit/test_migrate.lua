@@ -367,7 +367,7 @@ do
 
   assert_eq('core_registry_count', #registry, 5)
 
-  for _, driver in ipairs({'sqlite3', 'postgresql'}) do
+  for _, driver in ipairs({'sqlite3', 'postgresql', 'mysql'}) do
     for _, migration in ipairs(registry) do
       local statements = {}
       local ok, err = pcall(migration.up, {
@@ -389,6 +389,63 @@ do
       )
     end
   end
+end
+
+io.write '\n-- the ledger is per dialect --\n'
+
+--[[ `ophal_migrations` has its own DDL per dialect, and the MySQL one landed in
+  stage 8.7 with nothing in the unit suite naming it -- every `apply` and
+  `status` test above runs on sqlite3. It executed for real in the MySQL smoke
+  profile, which is why the gap did not show, but "it ran once" is not the same
+  claim as "it emits MySQL".
+
+  So each dialect is checked against the *other* dialects' spellings, the way
+  `test_jobs.lua` checks the five migrations: `UNSIGNED BIG INT` is SQLite's
+  alone and `character varying` is PostgreSQL's alone, so a branch that fell
+  through to another dialect fails by name rather than passing because it ran.
+]]
+do
+  local ledger = {}
+
+  for _, driver in ipairs({'sqlite3', 'postgresql', 'mysql'}) do
+    local state = new_db_state()
+
+    -- Not `assert`: a dialect with no branch answers nil, and a raise here
+    -- would take the other dialects' assertions with it instead of naming the
+    -- one that is missing.
+    migrate.status({
+      driver = driver,
+      db_query = db_query_stub(state),
+      module_names = {},
+      core_migrations = {},
+      module_migrations = {},
+    })
+
+    ledger[driver] = state.queries[1] and state.queries[1].query or ''
+    assert_eq(('ledger_ensured_%s'):format(driver), state.ensured, true)
+  end
+
+  assert_match('ledger_sqlite3_spelling', ledger.sqlite3, 'UNSIGNED BIG INT')
+  assert_match('ledger_postgresql_spelling', ledger.postgresql, 'character varying')
+  assert_match('ledger_mysql_spelling', ledger.mysql, 'VARCHAR%(255%) NOT NULL PRIMARY KEY')
+  assert_eq('ledger_mysql_is_not_sqlite3',
+    ledger.mysql:match('UNSIGNED BIG INT'), nil)
+  assert_eq('ledger_mysql_is_not_postgresql',
+    ledger.mysql:match('character varying'), nil)
+end
+
+do
+  local state = new_db_state()
+  local result, err = migrate.status({
+    driver = 'oracle',
+    db_query = db_query_stub(state),
+    module_names = {},
+    core_migrations = {},
+    module_migrations = {},
+  })
+
+  assert_eq('ledger_unsupported_driver_refused', result, nil)
+  assert_match('ledger_unsupported_driver_named', err, 'oracle')
 end
 
 io.write '\n-- migration driver resolution --\n'

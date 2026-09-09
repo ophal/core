@@ -24,6 +24,11 @@ local m = {
     Ophal automatically connects on bootstrap to a database if a the key
     'db' is set with connection settings.
 
+    `driver` is one of 'PostgreSQL', 'MySQL' or 'SQLite3'. The first two take
+    credentials and a host; SQLite is a file and takes neither. On MySQL the
+    `ophal` command line runs under `resty`, because that driver has no
+    blocking mode -- see INSTALL.md.
+
     Example:
 
     settings.db = {
@@ -34,6 +39,17 @@ local m = {
         password = 'password',
         host = 'localhost',
         port = '5432',
+      }
+    }
+
+    settings.db = {
+      default = {
+        driver = 'MySQL',
+        database = 'database',
+        username = 'username',
+        password = 'password',
+        host = 'localhost',
+        port = '3306',
       }
     }
   ]]

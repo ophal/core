@@ -6,7 +6,15 @@ local print, exit, config = print, exit, settings.user or {}
 local error, empty, header, l = error, seawolf.variable.empty, header, l
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
 local type, env, uuid, time, go_to, pairs, tostring = type, env, uuid, os.time, go_to, pairs, tostring
+-- `session_regenerate` beside `session_destroy`, and for the reason the block
+-- above spells out: `module()` replaces this file's environment, so a bare
+-- global here is nil. It was written as a bare call first and the guard around
+-- it -- `type(session_regenerate) == 'function'` -- turned that into a silent
+-- skip rather than an error, so sign-in kept the id it arrived with and every
+-- unit assertion still passed. `db_author_session_rotated_on_login` is what
+-- caught it.
 local session_destroy, module_invoke_all = session_destroy, module_invoke_all
+local session_regenerate = session_regenerate
 local request_get_body, ophal, pcall = request_get_body, ophal, pcall
 local route_execute_callback = route_execute_callback
 local _SERVER = _SERVER

@@ -1404,6 +1404,16 @@ AUTHORED_UPDATED_BODY='SMOKE_AUTHORED_REVISED_MARKER'
 
 author_cookie="$SMOKE_ROOT/db-author-cookie.txt"
 
+# An anonymous request first, so the jar holds a session id that was issued
+# before any credential was presented. That id is what a fixation attempt
+# plants, and the assertion after the sign-in is that it does not survive it.
+run_request db_author_pre_login_session -c "$author_cookie" -b "$author_cookie" \
+  "$DB_URL/"
+assert_status_zero
+pre_login_session=$(awk '$6 == "session-id" {print $7}' "$author_cookie" | tail -1)
+[[ -n "$pre_login_session" ]] || fail 'anonymous request issued no session id'
+report_ok db_author_pre_login_session
+
 # Signing in is deliberately not measured. It is the cold pass for this
 # account's role, permission and user caches, and it also rewrites the seeded
 # legacy password hash in the current format, so what it costs describes a
@@ -1416,6 +1426,20 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_regex '"authenticated" *: *true'
 report_ok db_author_login
+
+#[[ The session id must not survive the privilege change.
+#
+# `session_init()` accepts any well-formed id the cookie presents, so an id
+# planted on a visitor's browser before they sign in would otherwise be an
+# authenticated session afterwards -- textbook fixation. `session_regenerate()`
+# in the auth service is what rotates it, and this is the end-to-end proof:
+# removing that call leaves the two ids equal and turns this red.
+post_login_session=$(awk '$6 == "session-id" {print $7}' "$author_cookie" | tail -1)
+[[ -n "$post_login_session" ]] || fail 'sign-in left no session id in the jar'
+if [[ "$post_login_session" == "$pre_login_session" ]]; then
+  fail "session id survived sign-in (fixation): $post_login_session"
+fi
+report_ok db_author_session_rotated_on_login
 
 # The save service validates a CSRF token, and the token belongs to the session
 # the cookie jar now carries. Reading it through the runner rather than parsing

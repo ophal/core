@@ -100,6 +100,37 @@ function M.connection(dispatch)
     }
   end
 
+  --[[ A declared statement whose arms the caller decides.
+
+    Compiled with the arm values the call passes, so a SQL-dispatching stand-in
+    sees the whole `UNION ALL` a backend would -- the arms joined, the entity
+    types resolved and quoted, and the placeholders numbered across the
+    composition rather than restarting at each arm.
+  ]]
+  function conn:composed(name, values)
+    local decl = registry.declaration(name)
+
+    if decl == nil then
+      error('undeclared statement: ' .. tostring(name), 0)
+    end
+
+    if type(values) ~= 'table' then
+      error('db:composed takes a list of arm values', 0)
+    end
+
+    return {
+      run = function(_, ...)
+        if dispatch.statement then
+          return dispatch.statement(name, ...)
+        end
+
+        return dispatch.sql(
+          normalize(registry.compile(DRIVER, name, nil, conn, nil, values).sql),
+          ...)
+      end,
+    }
+  end
+
   --[[ A declared statement whose width the caller decides.
 
     Compiled at the arity the call passes, so a SQL-dispatching stand-in sees

@@ -321,6 +321,54 @@ function M.define(name, decl)
     end
   end
 
+  --[[ A composition is checked at load, and the arm has to exist by then.
+
+    That makes declaration order inside a statements file meaningful -- arms
+    before the statement that composes them -- which is a small price for the
+    failure landing on the line that got it wrong rather than on whichever
+    request first reaches the listing fallback.
+
+    The identifiers belong to the arm, not to the wrapper: the wrapper's text is
+    the same whatever it is composing, and the arm is what varies per entity
+    type. Declaring both would give two places to look for one guard.
+  ]]
+  if decl.compose ~= nil then
+    local compose, arm = decl.compose, nil
+
+    if type(compose) ~= 'table' or type(compose.arm) ~= 'string' then
+      fail('%s declares a composition with no arm', name)
+    end
+
+    if type(compose.separator) ~= 'string' then
+      fail('%s composes %q with no separator', name, compose.arm)
+    end
+
+    if not decl.sql:find('{{arms}}', 1, true) then
+      fail('%s composes %q and has no {{arms}} in its body', name, compose.arm)
+    end
+
+    if decl.idents ~= nil then
+      fail('%s composes arms and declares identifiers of its own; they belong '
+        .. 'to the arm', name)
+    end
+
+    arm = statements[compose.arm]
+
+    if arm == nil then
+      fail('%s composes %q, which is not defined -- declare the arm above it',
+        name, compose.arm)
+    end
+
+    if arm.order == nil or #arm.order ~= 1 then
+      fail('%s composes %q, which must declare exactly one identifier: the '
+        .. 'thing there is one arm per', name, compose.arm)
+    end
+
+    if arm.compose ~= nil then
+      fail('%s composes %q, which is itself a composition', name, compose.arm)
+    end
+  end
+
   --[[ A variadic body is detected once, at load, rather than searched for on
     every compile. Every dialect override is checked too: a statement that is a
     list on one backend and not on another would take `db:list()` on one and
@@ -394,13 +442,77 @@ local function expand_macros(body, driver)
   end))
 end
 
-local function build(decl, driver, values, connection, arity)
+--[[ Render one arm per identifier value and join them.
+
+  The tag listing is the case: its normalized fallback is a `UNION ALL` with one
+  arm per entity type the tag is attached to, so neither its text nor its
+  placeholder count is known until it runs. That is why it was the last
+  `db:execute()` in application code -- a declaration fixes its placeholders at
+  load, and this one cannot.
+
+  The arms are composed as *body text*, before placeholders are split. That is
+  the whole trick, and it is why this is eleven lines rather than a renumbering
+  pass: each arm still carries plain `?` when it is joined, so the composed body
+  goes through `split_placeholders()` and `render()` exactly as a declared one
+  does, and pgmoon's `$1..$n` come out numbered across the whole statement
+  rather than restarting at each arm.
+
+  Attribution is the union of the arms' tables, so a listing over `content` and
+  `page` counts as two normalized reads and not as the literal `{type}`.
+]]
+local function compose_arms(decl, driver, connection, arms, body)
+  local arm = statements[decl.compose.arm]
+  local key = arm.order[1]
+  local rendered, tables, seen = {}, {}, {}
+
+  for i, value in ipairs(arms) do
+    local arm_body = arm.sql
+    local override = driver.dialect and arm[driver.dialect]
+    local values = {[key] = value}
+
+    if type(override) == 'table' and type(override.sql) == 'string' then
+      arm_body = override.sql
+    end
+
+    rendered[i] = substitute(
+      arm_body, arm, values, driver.quote_identifier, connection)
+
+    for _, name in ipairs(arm.tables or {}) do
+      local resolved = substitute(name, arm, values, nil, connection):lower()
+
+      if not seen[resolved] then
+        seen[resolved] = true
+        tables[#tables + 1] = resolved
+      end
+    end
+  end
+
+  -- A function replacement rather than a string one: `gsub` reads `%` in a
+  -- replacement string as a capture reference, and an arm is free to contain a
+  -- literal `%` -- `LIKE '%draft%'` is ordinary SQL.
+  return (gsub(body, '{{arms}}', function()
+    return table.concat(rendered, decl.compose.separator)
+  end)), tables
+end
+
+local function build(decl, driver, values, connection, arity, arms)
   local body = decl.sql
   local override = driver.dialect and decl[driver.dialect]
   local tables, pieces, count, sql, chunks, template
+  local arm_tables
 
   if type(override) == 'table' and type(override.sql) == 'string' then
     body = override.sql
+  end
+
+  --[[ Arms before macros, and that ordering is load-bearing rather than
+    incidental: `expand_macros()` refuses a `{{name}}` the driver does not
+    define, so an `{{arms}}` that reached it would raise there instead of
+    silently shipping to a backend. Composition is the only macro whose value
+    comes from the call rather than from the driver.
+  ]]
+  if decl.compose then
+    body, arm_tables = compose_arms(decl, driver, connection, arms, body)
   end
 
   if body:find('{{', 1, true) then
@@ -414,9 +526,9 @@ local function build(decl, driver, values, connection, arity)
   pieces, count = split_placeholders(body, arity)
   sql, chunks, template = render(driver, pieces, count)
 
-  tables = {}
+  tables = arm_tables or {}
 
-  for i, name in ipairs(decl.tables or {}) do
+  for _, name in ipairs(decl.tables or {}) do
     if decl.idents then
       -- A statement whose table is an identifier attributes to the table it was
       -- actually compiled for, not to the literal `{table}`. Unquoted, because
@@ -425,7 +537,7 @@ local function build(decl, driver, values, connection, arity)
       name = substitute(name, decl, values, nil, connection)
     end
 
-    tables[i] = name:lower()
+    tables[#tables + 1] = name:lower()
   end
 
   return {
@@ -447,7 +559,7 @@ end
   Identifier values are part of the key. Lookup walks one nested table per
   identifier and allocates nothing.
 ]]
-function M.compile(driver, name, values, connection, arity)
+function M.compile(driver, name, values, connection, arity, arms)
   local decl = statements[name]
   local per_driver = compiled[driver.name]
   local node
@@ -475,6 +587,29 @@ function M.compile(driver, name, values, connection, arity)
     backend, and the empty case is a question about the caller's intent -- no
     roles means no permissions, which is a branch, not a query.
   ]]
+  --[[ Arms are a compile key in both directions, for the reason arity is.
+
+    A composed statement reached through `run()` would ship `{{arms}}` to
+    `expand_macros()`, which refuses it -- an error, but one naming a macro
+    rather than the call that was wrong. The reverse says the caller believes a
+    statement composes and it does not.
+
+    An empty list is refused rather than rendered, the same as a variadic's
+    zero: a tag attached to no entity type has no arms, `SELECT SUM(total) FROM
+    () arms` is a syntax error on every backend, and "this tag has nothing"
+    is a branch at the call site rather than a query.
+  ]]
+  if decl.compose then
+    if arms == nil then
+      fail('%s composes arms; reach it with db:composed(%q, values)', name, name)
+    elseif #arms < 1 then
+      fail('%s was given no arms; a tag attached to nothing is a branch at the '
+        .. 'call site rather than a query', name)
+    end
+  elseif arms ~= nil then
+    fail('%s composes nothing; reach it with db:run(%q, ...)', name, name)
+  end
+
   if decl.variadic then
     if arity == nil then
       fail('%s takes a list; reach it with db:list(%q, values)', name, name)
@@ -493,7 +628,7 @@ function M.compile(driver, name, values, connection, arity)
 
   node = per_driver[name]
 
-  if decl.idents == nil and not decl.variadic then
+  if decl.idents == nil and not decl.variadic and decl.compose == nil then
     if node == nil then
       node = build(decl, driver, nil, connection)
       per_driver[name] = node
@@ -521,6 +656,23 @@ function M.compile(driver, name, values, connection, arity)
     node = next_node
   end
 
+  -- The arm tuple is a level per arm, in order, so `{'content'}` and
+  -- `{'content', 'page'}` are distinct keys and neither is a prefix hit for the
+  -- other -- the compiled SQL differs by an entire UNION arm.
+  if arms ~= nil then
+    for i = 1, #arms do
+      local value = arms[i]
+      local next_node = node[value]
+
+      if next_node == nil then
+        next_node = {}
+        node[value] = next_node
+      end
+
+      node = next_node
+    end
+  end
+
   -- Arity is the last level, so a statement that is both variadic and
   -- identifier-bearing keys on the identifiers first and the width beneath
   -- them, which is the order `with()` already walks.
@@ -536,7 +688,7 @@ function M.compile(driver, name, values, connection, arity)
   end
 
   if node.compiled == nil then
-    node.compiled = build(decl, driver, values, connection, arity)
+    node.compiled = build(decl, driver, values, connection, arity, arms)
   end
 
   return node.compiled

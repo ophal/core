@@ -93,6 +93,10 @@ local IDENT_PAYLOADS = {
   ident_comment   = 'id--',
   ident_paren     = 'id) OR (1=1',
   ident_empty     = '',
+  -- The payload for `'{ident:bare}'`: a double quote cannot close a single
+  -- quoted literal, and every other entry above is aimed at an identifier
+  -- position rather than at a literal one.
+  ident_single    = "x' OR '1'='1",
 }
 
 local SCHEMA = {
@@ -146,6 +150,35 @@ registry.define('canary.bare_ident', {
   idents = {field = registry.trusted},
   order = {'field'},
   tables = {'ophal_canary'},
+})
+
+--[[ The composed surface, shaped exactly like `tag.legacy_arm`.
+
+  This is the one new way an identifier reaches SQL as of stage 8.6b, and it is
+  the sharpest of them: the value is rendered *inside a string literal* of the
+  statement's own -- `'{type:bare}'` -- so a value carrying a single quote would
+  not merely name the wrong table, it would close the literal and continue in
+  SQL. The registry's shape check is what says it cannot, and this is what makes
+  that a measurement rather than a claim.
+
+  The arm also names the value as a table, so both renderings of one identifier
+  are under attack at once.
+]]
+registry.define('canary.composed_arm', {
+  -- The table is fixed and only the literal varies, deliberately. Naming the
+  -- value as the table too -- which is what `tag.legacy_arm` does -- makes a
+  -- hostile value fail as a table that does not exist, and that refusal masks
+  -- whatever the literal did. Isolating it here is what lets the mutation
+  -- below say which guard is holding.
+  sql = "SELECT '{type:bare}' AS kind, id FROM ophal_canary WHERE id = ?",
+  idents = {type = registry.trusted},
+  order = {'type'},
+  tables = {'ophal_canary'},
+})
+
+registry.define('canary.composed', {
+  compose = {arm = 'canary.composed_arm', separator = ' UNION ALL '},
+  sql = '{{arms}}',
 })
 
 local function canary_intact(db)
@@ -239,6 +272,34 @@ local function probe(label, name)
   end
 
   assert_eq(('%s_canary_survives_identifiers'):format(driver), count(name), 1)
+
+  --[[ 3b. The composed path: an arm identifier rendered into a string literal.
+
+    `registry.trusted` is the weakest guard the layer has -- it validates
+    nothing beyond the shape check -- so running every identifier payload
+    through it here is the strongest statement available about that shape check
+    on its own. A payload that escaped the literal would return the canary from
+    a WHERE clause written to match nothing.
+  ]]
+  for pname, payload in pairs(IDENT_PAYLOADS) do
+    local sent = with_connection(name, function(db)
+      return db:composed('canary.composed', {'ophal_canary', payload})
+        :run(1, 1):fetch(true)
+    end)
+    assert_eq(('%s_composed_%s_refused'):format(driver, pname), sent, false)
+  end
+
+  -- And the composition works at all, so the assertions above are not passing
+  -- because every composed statement fails.
+  local composed_rows
+  with_connection(name, function(db)
+    composed_rows = db:composed('canary.composed', {'ophal_canary', 'ophal_canary'})
+      :run(1, 1):all(true)
+  end)
+  assert_eq(('%s_composed_arms_both_return'):format(driver),
+    type(composed_rows) == 'table' and #composed_rows, 2)
+
+  assert_eq(('%s_canary_survives_composition'):format(driver), count(name), 1)
 
   -- 4. Second order: stored as data, then read back and used as an identifier.
   local stored

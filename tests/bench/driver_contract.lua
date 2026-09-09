@@ -159,6 +159,31 @@ registry.define('contract.delete', {
   tables = {'{table:bare}'},
 })
 
+--[[ The composed shape, which no other statement here sends.
+
+  `db:composed()` builds a `UNION ALL` with one arm per value and then puts the
+  wrapper's `ORDER BY` and `{{limit}}` outside it. That is three dialect
+  questions at once -- whether ORDER BY after a UNION may name an output column,
+  whether the driver's LIMIT spelling still lands correctly outside the
+  parentheses, and whether placeholders numbered across the arms bind in the
+  order they are written -- and none of them can be answered by reading the SQL.
+
+  Both arms name the same table on purpose. A second table would test nothing
+  further at the SQL level, and what is under test here is the composition
+  rather than the schema.
+]]
+registry.define('contract.union_arm', {
+  sql = 'SELECT id, title FROM {table} WHERE title <> ?',
+  idents = {table = function(value, conn) return conn:table(value) end},
+  order = {'table'},
+  tables = {'{table}'},
+})
+
+registry.define('contract.union', {
+  compose = {arm = 'contract.union_arm', separator = ' UNION ALL '},
+  sql = '{{arms}} ORDER BY title{{limit}}',
+})
+
 local function check(name)
   local conn = connection.open(name)
   local label = conn:driver()
@@ -242,6 +267,34 @@ local function check(name)
   assert_eq(label .. '_table_rejects_an_absent_table',
     conn:table('ophal_nonexistent'), nil)
 
+  --[[ Composition, executed rather than inspected.
+
+    Two arms over the two rows, each excluding a different title, so between
+    them the union returns both -- and it returns them only if the two bind
+    values reach the arms in the order they were written. Arms compiled apart
+    and concatenated would each restart at `$1` on PostgreSQL, which is a legal
+    *reuse* of the first parameter rather than an error: both arms would exclude
+    `alpha` and the answer would come back as two copies of `beta`, silently.
+    Reading the titles is what catches that; counting the rows alone would not.
+  ]]
+  do
+    local stmt = conn:composed('contract.union',
+      {'ophal_contract', 'ophal_contract'})
+    local composed_rows = stmt:run('alpha', 'beta', 0, 10):all(true)
+
+    assert_eq(label .. '_composed_unions_both_arms', #composed_rows, 2)
+    assert_eq(label .. '_composed_binds_arms_in_order',
+      composed_rows[1].title, 'alpha')
+    assert_eq(label .. '_composed_orders_across_the_union',
+      composed_rows[2].title, 'beta')
+
+    -- The wrapper's ORDER BY and LIMIT apply to the whole union rather than to
+    -- its last arm, which is a question about each dialect's grammar and not
+    -- about the layer.
+    assert_eq(label .. '_composed_limit_applies_to_the_union',
+      #stmt:run('alpha', 'beta', 0, 1):all(true), 1)
+  end
+
   -- An identifier is a compile key, so this is the `'DELETE FROM ' .. type`
   -- shape with the concatenation done once and the name validated.
   conn:with('contract.delete', 'ophal_contract'):run(tonumber(first_id))
@@ -253,6 +306,7 @@ local function check(name)
   -- is the only thing that knows.
   assert_raises(label .. '_identifier_absent_table_refused', 'rejected identifier',
     function() return conn:with('contract.delete', 'ophal_nonexistent') end)
+
 
   --[[ A statement with no result set *of any kind* -- no rows and no affected
     count. pgmoon answers those with `true` rather than with a table, so this is

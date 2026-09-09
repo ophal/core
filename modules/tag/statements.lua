@@ -199,4 +199,77 @@ WHERE c.status = 1 AND ft.tag_id = ?]],
   tables = {'content', 'field_tag', 'tag'},
 })
 
+
+--[[ The listing's normalized fallback, composed one arm per entity type.
+
+  This is what `modules/tag` used to build with `..` and run through
+  `db:execute()`, and it was the last SQL text in application code. Its shape is
+  genuinely not known at load -- one `UNION ALL` arm per entity type the tag is
+  attached to, read from `field_tag` -- which is why a declaration could not
+  hold it before `db:composed()` existed.
+
+  The entity type appears three ways in one arm, and each is guarded for what it
+  is. As a table it is `{type}`, quoted for the dialect. As the string literal
+  the ON clause compares against and the constant column the SELECT returns, it
+  is `{type:bare}` inside quotes of the statement's own -- the same shape as
+  PostgreSQL's `CURRVAL('{table:bare}_{field:bare}_seq')`, and safe for the same
+  reason: the value has already been held to `^[%a_][%w_]*$`, so it cannot carry
+  a quote out of the literal it sits in.
+
+  It could not be a bound parameter in either literal position. `SELECT ? type`
+  gives PostgreSQL no way to infer the parameter's type and it refuses the
+  statement; the ON clause could bind, but splitting one value across two
+  mechanisms in one arm would be harder to read than it is worth.
+
+  The type comes from a `field_tag` row -- data, not a declaration -- so its
+  guard is the schema, the same as `entity.delete`. `modules/tag` used to run a
+  hand-rolled `^[%a_][%w_]*$` on it at the call site; that copy is deleted
+  rather than left to drift from the registry's.
+
+  `UNION ALL`, not `UNION`: the arms are disjoint by construction, so
+  deduplicating them can only drop a row that belongs and pays for a sort to do
+  it.
+]]
+local function an_entity_table(value, connection)
+  return connection:table(value)
+end
+
+define('tag.legacy_arm', {
+  sql = [[SELECT '{type:bare}' type, e.id id, e.user_id, e.language, e.title,
+e.teaser, e.body, e.created, e.changed, e.status, e.promote
+FROM {type} e
+JOIN field_tag ft ON ft.entity_type = '{type:bare}' AND e.id = ft.entity_id
+WHERE e.status = 1 AND ft.tag_id = ?]],
+  idents = {type = an_entity_table},
+  order = {'type'},
+  tables = {'{type}', 'field_tag'},
+})
+
+define('tag.legacy_count_arm', {
+  sql = [[SELECT COUNT(*) AS total
+FROM {type} e
+JOIN field_tag ft ON ft.entity_type = '{type:bare}' AND e.id = ft.entity_id
+WHERE e.status = 1 AND ft.tag_id = ?]],
+  idents = {type = an_entity_table},
+  order = {'type'},
+  tables = {'{type}', 'field_tag'},
+})
+
+define('tag.legacy_rows', {
+  compose = {arm = 'tag.legacy_arm', separator = ' UNION ALL '},
+  sql = '{{arms}} ORDER BY created DESC{{limit}}',
+})
+
+--[[ Summed over the arms, never read from the first of them.
+
+  One arm per entity type means one *row* per entity type, so `fetch()` returned
+  whichever came back first: a tag on two types reported one of the two counts,
+  and plain `UNION` deduplicated two equal counts into a single row on top of
+  that. The count decides how many pages the listing has.
+]]
+define('tag.legacy_count', {
+  compose = {arm = 'tag.legacy_count_arm', separator = ' UNION ALL '},
+  sql = 'SELECT SUM(total) AS total FROM ({{arms}}) arms',
+})
+
 return true

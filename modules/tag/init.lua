@@ -757,69 +757,75 @@ end
 
 -- The pre-projection listing renders from one UNION arm per tagged entity type.
 -- Either the count step or the rows step can be the one that finds the
--- projection unusable, so building the arms has to be callable from both rather
+-- projection unusable, so reading the types has to be callable from both rather
 -- than living inline in the count branch.
---[[ The listing's normalized fallback, one UNION arm per tagged entity type.
+--[[ Which entity types this tag is attached to, in arm order.
 
-  A listing row is what `tag_listing_index` holds, so the arms select that
-  column list rather than `e.*`. Three reasons, and the first two are why this
-  path could never have run for a tag with more than one entity type:
+  All that is left here. The SQL that used to be built from this list -- a
+  `UNION ALL` with one arm per type, and a `SUM(total)` wrapper over the same
+  arms for the count -- is declared in `modules/tag/statements.lua` now and
+  composed by the layer, so this returns a list of names rather than three
+  parallel tables of SQL fragments and bind values.
 
-  - `e.*` on two different tables yields two different column counts, and a
-    UNION of arms that disagree on arity is a syntax error, not a wrong answer.
-  - Each arm binds `ft.tag_id = ?`, so N arms need N parameters. The call sites
-    passed one, whatever N was.
-  - The projection branch and this one now hand the page the same shape. They
-    did not before: `e.*` carries `content`'s `sticky` and `comment`, which the
-    projection has never had, and omits `route`, which it has.
+  What went with it is worth naming, because both were real:
+
+  - the hand-rolled `^[%a_][%w_]*$` on the entity type. The registry holds every
+    identifier to exactly that pattern, so keeping a copy here meant one guard
+    written twice and free to drift. It is the declaration's resolver now, and
+    that resolver is stricter than the check it replaces: the type has to be a
+    table this database actually has, not merely a name shaped like one.
+  - the two `db:execute()` calls, which were the last SQL text in application
+    code.
+
+  The column list moved into the arm declaration for the same reason. A listing
+  row is what `tag_listing_index` holds, so the arms select that column list
+  rather than `e.*` -- and `e.*` on two different tables yields two different
+  column counts, which is a UNION syntax error rather than a wrong answer. That
+  is the defect this path carried for as long as it existed.
 
   `route` is the one column with no SQL to read it from -- the projection's is
   written by `tag_projection_insert()` from the entity type and id -- so it is
-  filled the same way, in Lua, where the rows are consumed.
-
-  `UNION ALL`, not `UNION`: the arms are disjoint by construction (each names
-  its own entity type), so deduplicating them can only remove a row that should
-  have been there, and it pays for a sort to do it.
+  still filled the same way, in Lua, where the rows are consumed.
 ]]
-local LEGACY_ROW_COLUMNS =
-  'e.id id, e.user_id, e.language, e.title, e.teaser, e.body, ' ..
-  'e.created, e.changed, e.status, e.promote'
-
-local function tag_legacy_source_queries(tag_id)
+local function tag_legacy_entity_types(tag_id)
   local rs = db_connection():run('tag.entity_types', tag_id)
-  local count_query, query, params = {}, {}, {}
+  local types = {}
 
   for v in rs:rows(true) do
-    local entity_type = v.entity_type
-    local source
-
-    -- The type is a table name and a string literal in the same statement, and
-    -- it arrives from a `field_tag` row rather than from code. Held to the same
-    -- shape the query layer holds an identifier to, for the same reason: a name
-    -- that matches this cannot carry a quote, a comment or a semicolon.
-    if type(entity_type) ~= 'string'
-        or entity_type:match('^[%a_][%w_]*$') == nil then
-      error(('tag listing: %q is not an entity type'):format(
-        tostring(entity_type)), 0)
-    end
-
-    source = ("%s e JOIN field_tag ft ON '%s' = ft.entity_type"):format(
-      entity_type, entity_type)
-      .. ' AND e.id = ft.entity_id WHERE e.status = 1 AND ft.tag_id = ?'
-
-    tinsert(count_query, 'SELECT COUNT(*) AS total FROM ' .. source)
-    tinsert(query, ("SELECT '%s' type, %s FROM %s"):format(
-      entity_type, LEGACY_ROW_COLUMNS, source))
-    tinsert(params, tag_id)
+    types[#types + 1] = v.entity_type
   end
 
-  return count_query, query, params
+  return types
+end
+
+--[[ One `tag_id` per arm, then whatever the wrapper itself takes.
+
+  Every arm binds its own `ft.tag_id = ?`, so N arms need N copies of the same
+  id. Passing one, whatever N was, is what the call sites used to do.
+]]
+local function tag_legacy_args(types, tag_id, offset, count)
+  local args = {}
+
+  for i = 1, #types do
+    args[i] = tag_id
+  end
+
+  -- The rows statement ends in `{{limit}}` and the count statement does not, so
+  -- the pair is present or absent together. Spelled out rather than taken as
+  -- varargs because this file calls `module()`: `select` is not among the
+  -- load-time captures above, and reaching for it would be the fourth instance
+  -- of that bug this project has paid for.
+  if offset ~= nil then
+    args[#args + 1] = offset
+    args[#args + 1] = count
+  end
+
+  return args, #args
 end
 
 function _M.entity_page()
   local rs, err, tag, current_page, ipp, num_pages, entity, attr, pagination, sql
-  local count, count_query, query, tags, output = 0, {}, {}, {}, {}
-  local params = {}
+  local count, types, tags, output = 0, {}, {}, {}
   local entities
   local use_projection = tag_projection_ready()
 
@@ -866,26 +872,21 @@ function _M.entity_page()
     count = tonumber(count) or 0
 
     if not use_projection then
-      count_query, query, params = tag_legacy_source_queries(tag.id)
+      types = tag_legacy_entity_types(tag.id)
 
       -- Count rows
-      if not empty(count_query) then
-        --[[ Ad-hoc, and it has to be: the UNION has one arm per entity type
-          this tag is attached to, so its arity is not known until it runs and a
-          declared statement has a fixed number of placeholders by construction.
-          `tag_legacy_source_queries()` builds the arms; the entity type in each
-          comes from `field_tag`, never from request input.
-
-          Summed over the arms rather than read from the first row of them. One
-          arm per entity type means one *row* per entity type, and taking
-          `fetch()` gave whichever came back first -- so a tag on two types
-          reported one of the two counts, and `UNION` deduplicated equal counts
-          into a single row on top of that. The count divides `ipp` a few lines
-          down, so it decided how many pages the listing had.
+      if not empty(types) then
+        --[[ Declared and composed, where this used to concatenate its arms and
+          go through `db:execute()`. The shape is still not known until it runs
+          -- one arm per entity type this tag is attached to -- but that is the
+          layer's job now: `db:composed()` renders the arms from one declaration
+          and joins them, so the entity type is a compile key resolved against
+          the schema instead of a name interpolated into text.
         ]]
-        sql = 'SELECT SUM(total) AS total FROM ('
-          .. tconcat(count_query, ' UNION ALL ') .. ') arms'
-        rs = db_connection():execute(sql, unpack(params))
+        local args, n = tag_legacy_args(types, tag.id)
+
+        rs = db_connection():composed('tag.legacy_count', types):run(
+          unpack(args, 1, n))
         count = tonumber((rs:fetch(true) or {}).total) or 0
       end
     end
@@ -925,32 +926,27 @@ function _M.entity_page()
       end
 
       if not use_projection then
-        -- Render list. Arriving here with no arms means the rows step is what
+        -- Render list. Arriving here with no types means the rows step is what
         -- found the projection unusable, so the count above came from the
-        -- projection and nothing has built them yet. Without this the concat
-        -- below yields a bare ' ORDER BY ...' and the query is a syntax error.
-        if empty(query) then
-          count_query, query, params = tag_legacy_source_queries(tag.id)
+        -- projection and nothing has read them yet. `db:composed()` refuses an
+        -- empty arm list rather than rendering `SELECT ... FROM () arms`, so
+        -- this branch has to answer the empty case itself.
+        if empty(types) then
+          types = tag_legacy_entity_types(tag.id)
         end
 
-        if empty(query) then
+        if empty(types) then
           rs = nil
         else
-          -- Ad-hoc for the same reason as the count above. `{{limit}}` is the
-          -- dialect fragment and it means the same thing here as in a
-          -- declaration, so the LIMIT spelling still comes from the driver
-          -- rather than from a free function at the call site.
-          local args = {}
+          -- `{{limit}}` lives in the declaration and means what it means
+          -- everywhere else, so the LIMIT spelling still comes from the driver.
+          -- Its two parameters follow the arms', which falls out of composing
+          -- the body before placeholders are split.
+          local args, n = tag_legacy_args(
+            types, tag.id, (current_page - 1) * ipp, ipp)
 
-          for i = 1, #params do
-            args[i] = params[i]
-          end
-
-          args[#args + 1] = (current_page - 1) * ipp
-          args[#args + 1] = ipp
-
-          sql = tconcat(query, ' UNION ALL ') .. ' ORDER BY created DESC{{limit}}'
-          rs = db_connection():execute(sql, unpack(args))
+          rs = db_connection():composed('tag.legacy_rows', types):run(
+            unpack(args, 1, n))
         end
       end
 

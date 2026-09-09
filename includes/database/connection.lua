@@ -312,6 +312,75 @@ function Connection:with(name, ...)
   return stmt
 end
 
+--[[ A statement built from one arm per value, joined by its declaration.
+
+  The tag listing's normalized fallback:
+
+    db:composed('tag.legacy_rows', {'content', 'page'})
+      :run(tag_id, tag_id, offset, count)
+
+  It is the third and last shape whose SQL is not fully known at load. `run()`
+  covers a fixed statement, `list()` a fixed statement of varying width, and
+  this one a statement of varying *structure* -- a UNION with one arm per entity
+  type a tag is attached to. Between them there is nothing left that needs
+  `execute()`, which is the point of the exercise rather than a side effect: the
+  ability to pass SQL text from application code is what the injection surface
+  was made of.
+
+  Parameters stay positional and stay in reading order -- one per arm, in arm
+  order, then the wrapper's own. That falls out of composing the body before
+  placeholders are split rather than being arranged for.
+
+  Memoized per value tuple per connection, the way `with()` memoizes per
+  identifier, so a listing over the same two types compiles once per worker.
+]]
+function Connection:composed(name, values)
+  local s = own(self)
+  local decl = registry.declaration(name)
+  local node, stmt
+
+  if decl == nil then
+    fail('%s is not defined', tostring(name))
+  end
+
+  if type(values) ~= 'table' then
+    fail('%s takes a list of arm values, got %s', name, type(values))
+  end
+
+  node = s.composed[name]
+
+  if node == nil then
+    node = {}
+    s.composed[name] = node
+  end
+
+  for i = 1, #values do
+    local child = node[values[i]]
+
+    if child == nil then
+      child = {}
+      node[values[i]] = child
+    end
+
+    node = child
+  end
+
+  stmt = node.statement
+
+  if stmt == nil then
+    stmt = setmetatable({}, Statement)
+    -- The connection's state, never the connection: see `run_compiled()`.
+    state[stmt] = {
+      owner = s,
+      compiled = registry.compile(s.driver, name, nil, self, nil, values),
+    }
+
+    node.statement = stmt
+  end
+
+  return stmt
+end
+
 function Statement:run(...)
   local s = own(self)
 
@@ -554,6 +623,7 @@ function M.open(name)
     with = {},
     -- Compiled forms keyed by name and then by width, for `list()`.
     lists = {},
+    composed = {},
     schema = {},
   }
 

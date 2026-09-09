@@ -674,6 +674,182 @@ do
     {table = 'content', parent = 'users'}, fake)
 end
 
+io.write '\n-- composed statements --\n'
+
+--[[ A statement whose *structure* is decided by the caller.
+
+  `run()` covers a fixed statement and `list()` a fixed one of varying width.
+  This is the third and last shape: a UNION with one arm per entity type a tag
+  is attached to, which is why `modules/tag` was the last holder of SQL text in
+  application code.
+
+  The property everything else rests on is that arms are composed as body text
+  *before* placeholders are split, so numbering runs across the whole statement
+  instead of restarting at each arm. `composed_numbers_across_the_arms` is the
+  assertion that says so, and it is the one that would fail if someone
+  "simplified" this into joining compiled arms.
+]]
+do
+  local pgmoon = require 'includes.database.driver.pgmoon'
+  local lsqlite = require 'includes.database.driver.lsqlite3'
+  local fake = {}
+
+  function fake:table(name)
+    return (name == 'content' or name == 'page') and name or nil
+  end
+
+  registry.define('test.arm', {
+    sql = "SELECT '{type:bare}' type, e.id FROM {type} e WHERE e.tag_id = ?",
+    idents = {type = function(value, conn) return conn:table(value) end},
+    order = {'type'},
+    tables = {'{type}', 'field_tag'},
+  })
+
+  registry.define('test.union', {
+    compose = {arm = 'test.arm', separator = ' UNION ALL '},
+    sql = '{{arms}} ORDER BY id{{limit}}',
+  })
+
+  local two = registry.compile(pgmoon, 'test.union', nil, fake, nil,
+    {'content', 'page'})
+
+  assert_truthy('composed_joins_the_arms', two.sql:find('UNION ALL', 1, true))
+  assert_truthy('composed_quotes_each_arm_table', two.sql:find('"page"', 1, true))
+  assert_truthy('composed_renders_the_bare_literal',
+    two.sql:find("'page' type", 1, true))
+
+  --[[ Numbering across the arms, not within them.
+
+    Two arms and a `{{limit}}` is four parameters: `$1` and `$2` are the arms'
+    tag ids and `$3`/`$4` the offset and count. Arms compiled separately and
+    concatenated would each start at `$1`, which PostgreSQL accepts as a
+    *reuse* of the first parameter -- so this would not error, it would return
+    the wrong rows.
+  ]]
+  assert_eq('composed_numbers_across_the_arms', two.nparams, 4)
+  assert_truthy('composed_first_arm_is_dollar_one', two.sql:find('$1', 1, true))
+  assert_truthy('composed_second_arm_is_dollar_two', two.sql:find('$2', 1, true))
+  assert_truthy('composed_limit_params_follow_the_arms',
+    two.sql:find('OFFSET $3 LIMIT $4', 1, true))
+
+  -- The wrapper's macro is still the driver's, so the dialect fragment does not
+  -- leak into the composition.
+  assert_truthy('composed_limit_is_the_dialect_spelling',
+    registry.compile(lsqlite, 'test.union', nil, fake, nil, {'content'})
+      .sql:find('LIMIT ?, ?', 1, true))
+
+  -- Attribution is the union of the arms' tables, so a listing over two types
+  -- counts as two normalized reads rather than as the literal `{type}`.
+  assert_eq('composed_attribution_unions_arm_tables', #two.tables, 3)
+  assert_eq('composed_attribution_bucket', two.bucket, 'normalized')
+
+  -- The arm tuple is the cache key, so a different tuple is a different
+  -- statement rather than a prefix hit on the first.
+  assert_eq('composed_one_arm_is_a_distinct_compile',
+    registry.compile(pgmoon, 'test.union', nil, fake, nil, {'content'}).nparams,
+    3)
+
+  -- The arm's resolver still runs: the entity type comes from a `field_tag`
+  -- row, so the schema is what says whether it may name a table.
+  assert_raises('composed_arm_resolver_refuses_an_absent_table',
+    'rejected identifier', registry.compile, pgmoon, 'test.union', nil, fake,
+    nil, {'content', 'users'})
+end
+
+--[[ Reaching a composed statement the wrong way, in both directions. ]]
+do
+  local pgmoon = require 'includes.database.driver.pgmoon'
+  local fake = {}
+
+  function fake:table(name) return name end
+
+  assert_raises('composed_via_run_is_refused', 'db:composed',
+    registry.compile, pgmoon, 'test.union', nil, fake)
+
+  --[[ An empty arm list is refused rather than rendered.
+
+    `SELECT ... FROM () arms` is a syntax error on every backend, and a tag
+    attached to no entity type is a branch at the call site rather than a query
+    -- the same decision `list()` makes about an empty `IN ()`.
+  ]]
+  assert_raises('composed_refuses_an_empty_arm_list', 'no arms',
+    registry.compile, pgmoon, 'test.union', nil, fake, nil, {})
+
+  assert_raises('arms_passed_to_a_plain_statement_refused', 'composes nothing',
+    registry.compile, pgmoon, 'test.delete', {table = 'content'}, fake, nil,
+    {'content'})
+end
+
+--[[ What `define()` refuses at load, so a broken composition is a load error
+  rather than a failure on whichever request first reaches the fallback. ]]
+do
+  assert_raises('compose_needs_an_arm', 'composition with no arm',
+    registry.define, 'test.c1', {sql = '{{arms}}', compose = {}})
+
+  assert_raises('compose_needs_a_separator', 'no separator', registry.define,
+    'test.c2', {sql = '{{arms}}', compose = {arm = 'test.arm'}})
+
+  assert_raises('compose_needs_the_arms_macro', 'no {{arms}}', registry.define,
+    'test.c3', {sql = 'SELECT 1', compose = {arm = 'test.arm', separator = ','}})
+
+  assert_raises('compose_arm_must_be_defined', 'declare the arm above it',
+    registry.define, 'test.c4',
+    {sql = '{{arms}}', compose = {arm = 'test.nope', separator = ','}})
+
+  -- The identifiers belong to the arm. Declaring them on the wrapper too would
+  -- give two places to look for one guard.
+  assert_raises('compose_refuses_its_own_idents', 'they belong', registry.define,
+    'test.c5', {
+      sql = '{{arms}} WHERE x = {col}',
+      compose = {arm = 'test.arm', separator = ','},
+      idents = {col = registry.trusted},
+      order = {'col'},
+    })
+
+  registry.define('test.two_idents', {
+    sql = 'SELECT 1 FROM {a} JOIN {b} ON 1 = 1',
+    idents = {a = registry.trusted, b = registry.trusted},
+    order = {'a', 'b'},
+    tables = {'{a}'},
+  })
+
+  assert_raises('compose_arm_takes_exactly_one_identifier', 'exactly one',
+    registry.define, 'test.c6',
+    {sql = '{{arms}}', compose = {arm = 'test.two_idents', separator = ','}})
+end
+
+--[[ A literal `%` in an arm survives the join.
+
+  `gsub` reads `%` in a *replacement string* as a capture reference, so joining
+  the arms with a string replacement would turn `LIKE '%draft%'` into an error
+  or into different SQL. Nothing in the codebase composes a LIKE today, which is
+  exactly why this is pinned rather than left to be discovered.
+]]
+do
+  local pgmoon = require 'includes.database.driver.pgmoon'
+  local fake = {}
+
+  function fake:table(name) return name end
+
+  registry.define('test.like_arm', {
+    sql = "SELECT id FROM {type} WHERE title LIKE '%draft%' AND tag_id = ?",
+    idents = {type = registry.trusted},
+    order = {'type'},
+    tables = {'{type}'},
+  })
+
+  registry.define('test.like_union', {
+    compose = {arm = 'test.like_arm', separator = ' UNION ALL '},
+    sql = '{{arms}}',
+  })
+
+  local composed = registry.compile(pgmoon, 'test.like_union', nil, fake, nil,
+    {'content', 'page'})
+
+  assert_eq('composed_keeps_a_literal_percent',
+    select(2, composed.sql:gsub("LIKE '%%draft%%'", '')), 2)
+end
+
 io.write(('\n%d passed, %d failed\n'):format(passed, failed))
 
 if failed > 0 then

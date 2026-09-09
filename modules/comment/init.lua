@@ -185,19 +185,36 @@ function save_service()
   elseif not csrf_validate_request(parsed) then
     csrf_denied(output)
   else
-    -- `local`, and it was not. Inside `module()` an unqualified assignment
-    -- becomes a field on the module table, so one request's comment stayed
-    -- there for the worker's lifetime and was readable by the next -- the same
-    -- class as `modules/file`'s `load_by_field` in stage 8.5. Nothing here read
-    -- it before assigning, so it leaked data rather than decisions; a later
-    -- reader placed above this line would have inherited an access answer.
-    local comment = load(id)
+    --[[ Loaded only for an update, and its existence checked before access.
 
-    if not comment_access(comment, action) then
-      header('status', 401)
-    elseif action == 'update' and empty(comment) then
+      `local`, and it was not: inside `module()` an unqualified assignment
+      becomes a field on the module table, so one request's comment stayed there
+      for the worker's lifetime and was readable by the next -- the same class
+      as `modules/file`'s `load_by_field` in stage 8.5.
+
+      The order was wrong too, and worse than the 401 it looked like.
+      `comment_access(entity, 'update')` reads `entity.user_id`, and `load()`
+      answers nil for an id that is not there, so `comment/save/999999` *raised*
+      on that index and the module dispatcher turned the raise into a 200 whose
+      JSON body carried the file and line of the error. Existence first, the way
+      `modules/content` and `modules/tag` already do it.
+
+      Only a caller holding `edit own comments` reached it: `administer
+      comments` returns true before the comparison, and without the permission
+      the `and` short-circuits before it. That is why a module with no test
+      profile kept it this long.
+    ]]
+    local comment
+
+    if action == 'update' then
+      comment = load(id)
+    end
+
+    if action == 'update' and empty(comment) then
       header('status', 404)
       output.error = 'No such comment.'
+    elseif not comment_access(comment, action) then
+      header('status', 401)
     elseif
       'table' == type(parsed) and
       not empty(parsed) and

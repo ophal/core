@@ -123,6 +123,29 @@ local schema = {
 )]],
   [[CREATE INDEX idx_file_timestamp ON file (timestamp DESC)]],
   [[CREATE INDEX idx_file_user ON file (user_id)]],
+
+  --[[ Comments.
+
+    The comment module was in no test profile at all until 2026-09-09, which is
+    why `save_service()` could answer 401 for a comment that does not exist and
+    nothing noticed. This is INSTALL.md's comment schema after its 2026-09-08
+    correction -- `parent_id`, `language` and `sticky` are columns the module
+    writes, and the `entity_type` and `title` the document used to name are
+    columns nothing touches.
+  ]]
+  [[CREATE TABLE comment(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_id UNSIGNED BIG INT,
+  parent_id UNSIGNED BIG INT,
+  user_id UNSIGNED BIG INT,
+  language VARCHAR(12),
+  body TEXT,
+  created UNSIGNED BIG INT,
+  changed UNSIGNED BIG INT,
+  status BOOLEAN,
+  sticky BOOLEAN
+)]],
+  [[CREATE INDEX idx_comment_entity ON comment (entity_id, created)]],
 }
 
 -- Every seeded string a smoke assertion greps for is spelled once, here, so a
@@ -191,6 +214,19 @@ VALUES('authenticated', 'edit own content', 'content')]]},
   -- both of the module's INSERT statements named one.
   {[[INSERT INTO role_permission(role_id, permission, module)
 VALUES('authenticated', 'create tags', 'tag')]]},
+
+  -- What `comment_access()` asks for. `access comments` is anonymous because
+  -- the fetch service is an anonymous JSON read -- it is the request that was
+  -- a projection candidate on argument only, and having it in a profile at
+  -- all is what turns that argument into a number.
+  {[[INSERT INTO role_permission(role_id, permission, module)
+VALUES('anonymous', 'access comments', 'comment')]]},
+  {[[INSERT INTO role_permission(role_id, permission, module)
+VALUES('authenticated', 'access comments', 'comment')]]},
+  {[[INSERT INTO role_permission(role_id, permission, module)
+VALUES('authenticated', 'post comments', 'comment')]]},
+  {[[INSERT INTO role_permission(role_id, permission, module)
+VALUES('authenticated', 'edit own comments', 'comment')]]},
 
   {[[INSERT INTO user_role(user_id, role_id) VALUES(1, 'authenticated')]]},
   {[[INSERT INTO user_role(user_id, role_id) VALUES(2, 'authenticated')]]},

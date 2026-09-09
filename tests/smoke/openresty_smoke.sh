@@ -471,6 +471,23 @@ return function(settings, vault)
     user = true,
     tag = true,
     file = true,
+    comment = true,
+  }
+
+  --[[ Comments are enabled here as of 2026-09-09, and the reason is coverage
+    rather than features.
+
+    The module was in no profile at all, which is how `save_service()` came to
+    answer 401 for a comment that does not exist -- the same defect `modules/tag`
+    had fixed in stage 8.5, sitting untested. It is also the projection
+    candidate that rested on argument alone: the fetch service is an anonymous
+    JSON read that walks normalized `comment` and then an account per row, and
+    nothing had ever measured it.
+  ]]
+  settings.comment = {
+    entities = {
+      content = true,
+    },
   }
 
   -- The media path is measured here rather than on the module-less instance
@@ -1401,6 +1418,7 @@ AUTHORED_TITLE='Smoke Authored Article'
 AUTHORED_BODY='SMOKE_AUTHORED_BODY_MARKER'
 AUTHORED_UPDATED_TITLE='Smoke Authored Article Revised'
 AUTHORED_UPDATED_BODY='SMOKE_AUTHORED_REVISED_MARKER'
+COMMENT_BODY='SMOKE_COMMENT_BODY_MARKER'
 
 author_cookie="$SMOKE_ROOT/db-author-cookie.txt"
 
@@ -1620,6 +1638,61 @@ assert_regex '^HTTP/1\.[01] 404'
 assert_regex '"success" *: *false'
 assert_contains 'No such tag.'
 report_ok db_tag_save_missing
+
+# ================================================================
+# Comments
+#
+# The comment module had no test profile until 2026-09-09, and these are the
+# assertions that gap was hiding. `comment/save` and `comment/fetch` both run
+# against a real database here for the first time.
+# ================================================================
+
+# A create, through the same CSRF token the authoring path uses. `entity_id`
+# points at the seeded article, which is what the fetch below reads back.
+run_request db_comment_create -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  --data-binary "{\"entity_id\":1,\"body\":\"$COMMENT_BODY\",\"csrf_token\":\"$author_csrf\"}" \
+  "$DB_URL/comment/save"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"success" *: *true'
+comment_id=$(printf '%s' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9]*\).*/\1/p' | head -1)
+[[ -n "$comment_id" ]] || fail 'comment create returned no id'
+report_ok db_comment_create
+
+# The fetch service is anonymous, which is the whole reason it is a projection
+# candidate: it reads normalized `comment` and then an account per row. This is
+# the first measurement of it, so the budget is recorded rather than argued.
+measure_request db_comment_fetch "$DB_URL/comment/fetch/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$COMMENT_BODY"
+report_ok "db_comment_fetch (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# 404 rather than 401, and this is the assertion the module was missing. It
+# checked access before existence, so `comment_access(nil, 'update')` compared
+# `nil.user_id` against the account and answered "not yours" for a comment that
+# is not there -- the same defect `modules/tag` had fixed in stage 8.5, left
+# standing because nothing ran this module.
+run_request db_comment_save_missing -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  --data-binary "{\"entity_id\":1,\"body\":\"nope\",\"csrf_token\":\"$author_csrf\"}" \
+  "$DB_URL/comment/save/999999"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+assert_contains 'No such comment.'
+report_ok db_comment_save_missing
+
+# An anonymous caller has `access comments` and not `post comments`, so a create
+# without the cookie jar is refused. Without this the 404 above could be reached
+# by removing the access check altogether.
+run_request db_comment_create_anonymous \
+  -H 'Content-Type: application/json' \
+  --data-binary "{\"entity_id\":1,\"body\":\"nope\"}" \
+  "$DB_URL/comment/save"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 401'
+report_ok db_comment_create_anonymous
 
 measure_request db_content_page_after_update "$DB_URL/content/$authored_id"
 assert_status_zero

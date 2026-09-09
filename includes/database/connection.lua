@@ -383,7 +383,7 @@ end
   uses this to decide whether it may. A name the real schema does not have
   returns nil, so a whitelist cannot drift from the database.
 ]]
-function Connection:field(table_name, field_name)
+local function schema_of(self, table_name)
   local cache = own(self).schema
   local columns = cache[table_name]
 
@@ -396,10 +396,44 @@ function Connection:field(table_name, field_name)
       columns[row.field_name] = row.field_name
     end
 
+    -- A table that does not exist caches as an empty set rather than as a
+    -- miss, so a name that is not there is read once per worker instead of on
+    -- every call. That matters here more than for a real table: the names that
+    -- do not exist are the hostile ones.
     cache[table_name] = columns
   end
 
-  return columns[field_name]
+  return columns
+end
+
+function Connection:field(table_name, field_name)
+  return schema_of(self, table_name)[field_name]
+end
+
+--[[ Whether this connection's database has a table by this name.
+
+  The table counterpart of `field()` above, and the resolver a declaration
+  reaches for when a `{table}` identifier's value comes from data rather than
+  from the framework's own source. `modules/entity` is that case: an entity type
+  arrives in the URL, `entity/delete/<type>/<id>`, and becomes the table a
+  DELETE names.
+
+  It rests on the same argument `field()` does, which is why it is here rather
+  than being a list somewhere: the answer comes from `core.table_schema`,
+  scoped to this connection's own schema, so the whitelist is the database and
+  cannot drift from it. A list of allowed tables would be a second copy of the
+  schema, maintained by hand, and wrong the first time a table was added.
+
+  It costs no query `field()` would not: the schema read is per table and
+  cached, so a `{table}` and a `{field}` on the same table share one. A table
+  with no columns is one that does not exist -- `information_schema` has nothing
+  to say about a table that was never created.
+
+  It answers the name rather than true so that it can be used as a resolver
+  directly, which return nil for "no" the way every other resolver does.
+]]
+function Connection:table(table_name)
+  return next(schema_of(self, table_name)) ~= nil and table_name or nil
 end
 
 function Connection:schema_cache_clear()

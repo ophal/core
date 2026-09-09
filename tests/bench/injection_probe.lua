@@ -133,11 +133,17 @@ registry.define('canary.by_field', {
   order = {'field'},
   tables = {'ophal_canary'},
 })
--- The unresolved identifier surface: no whitelist, only the registry's own
--- shape check. This is what `entity.delete` relies on.
+-- The single-guard identifier surface: `registry.trusted` asserts the value is
+-- written in a declaration rather than arriving from data, and validates
+-- nothing, so all that stands here is the registry's own shape check. What
+-- relies on it today is `core.last_insert_id`, whose table and column every
+-- caller names itself. `entity.delete` used to be here too and no longer is:
+-- its value comes from the URL, so it resolves through `connection:table()`.
+--
+-- The assertions below are what say the remaining single guard actually holds.
 registry.define('canary.bare_ident', {
   sql = 'SELECT id FROM ophal_canary WHERE {field:bare} = ?',
-  idents = {field = true},
+  idents = {field = registry.trusted},
   order = {'field'},
   tables = {'ophal_canary'},
 })

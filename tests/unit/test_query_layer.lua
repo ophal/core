@@ -249,7 +249,10 @@ do
 
   registry.define('test.delete', {
     sql = 'DELETE FROM {table} WHERE id = ?',
-    idents = {table = true},
+    -- The values below are written in this test, so `trusted` is the honest
+    -- guard: what these assertions are about is the shape check and the
+    -- quoting, which every identifier gets whatever resolved it.
+    idents = {table = registry.trusted},
     order = {'table'},
     tables = {'{table:bare}'},
   })
@@ -531,6 +534,144 @@ do
       postgresql = {sql = 'SELECT 1 FROM t WHERE a = ?'},
       tables = {'t'},
     })
+end
+
+io.write '\n-- every identifier names its guard --\n'
+
+--[[ `idents = {table = true}` used to mean "the shape check alone".
+
+  It read identically to a resolved identifier, so whether a given declaration
+  had one guard or two could only be answered by reading all six of them. Three
+  did: `load_by_field` in `modules/user`, `modules/file` and `modules/comment`
+  resolve a column through `connection:field()`. Three did not.
+
+  The rule is what closes that, rather than the three fixes: a non-function
+  entry is refused at load, so every identifier in the codebase names the guard
+  it rests on, and `grep trusted` enumerates the single-guard ones for good.
+]]
+do
+  local pgmoon = require 'includes.database.driver.pgmoon'
+
+  assert_raises('idents_true_is_refused', 'needs a resolver', registry.define,
+    'test.guardless', {
+      sql = 'DELETE FROM {table} WHERE id = ?',
+      idents = {table = true},
+      order = {'table'},
+      tables = {'{table}'},
+    })
+
+  -- Not only `true`: anything that cannot be called is refused, so a plausible
+  -- looking table of allowed names is not a way around it either.
+  assert_raises('idents_table_is_refused', 'needs a resolver', registry.define,
+    'test.guardless_list', {
+      sql = 'DELETE FROM {table} WHERE id = ?',
+      idents = {table = {'content', 'page'}},
+      order = {'table'},
+      tables = {'{table}'},
+    })
+
+  -- The message has to say what to write instead, because the reader hitting it
+  -- is adding a declaration and the choice between the two kinds is the whole
+  -- decision being forced.
+  assert_raises('resolver_message_names_the_schema_lookup', 'connection:table()',
+    registry.define, 'test.guardless_message', {
+      sql = 'DELETE FROM {table} WHERE id = ?',
+      idents = {table = true},
+      order = {'table'},
+      tables = {'{table}'},
+    })
+  assert_raises('resolver_message_names_trusted', 'registry.trusted',
+    registry.define, 'test.guardless_message_two', {
+      sql = 'DELETE FROM {table} WHERE id = ?',
+      idents = {table = true},
+      order = {'table'},
+      tables = {'{table}'},
+    })
+
+  --[[ `trusted` asserts provenance and validates nothing, so the shape check
+    behind it has to still be the thing that stops a hostile value. If this ever
+    goes green-by-omission, `trusted` has quietly become a bypass.
+  ]]
+  assert_raises('trusted_still_takes_the_shape_check', 'is not an identifier',
+    registry.compile, pgmoon, 'test.delete', {table = 'users; DROP TABLE x'})
+end
+
+--[[ The resolver path itself, which had no unit coverage at all.
+
+  Everything above pins what the registry does with an identifier once it has
+  one. What was never asserted is that the declared resolver is consulted, gets
+  the connection to answer from, and that its refusal stops the compile -- which
+  is the entire security property of the three `load_by_field` declarations.
+]]
+do
+  local pgmoon = require 'includes.database.driver.pgmoon'
+  local seen_value, seen_connection
+  local fake = {}
+
+  function fake:table(name)
+    return name == 'content' and name or nil
+  end
+
+  registry.define('test.resolved', {
+    sql = 'DELETE FROM {table} WHERE id = ?',
+    idents = {
+      table = function(value, conn)
+        seen_value, seen_connection = value, conn
+        return conn:table(value)
+      end,
+    },
+    order = {'table'},
+    tables = {'{table}'},
+  })
+
+  assert_eq('resolver_accepts_a_table_the_schema_has',
+    registry.compile(pgmoon, 'test.resolved', {table = 'content'}, fake).sql,
+    'DELETE FROM "content" WHERE id = $1')
+  assert_eq('resolver_receives_the_value', seen_value, 'content')
+  assert_eq('resolver_receives_the_connection', seen_connection, fake)
+
+  -- The absent table is the case that matters: a name passing `^[%a_][%w_]*$`
+  -- is not thereby a table, and the schema is the only thing that knows.
+  assert_raises('resolver_refusal_stops_the_compile', 'rejected identifier',
+    registry.compile, pgmoon, 'test.resolved', {table = 'pg_shadow'}, fake)
+  assert_raises('resolver_refusal_names_the_value', 'pg_shadow',
+    registry.compile, pgmoon, 'test.resolved', {table = 'pg_shadow'}, fake)
+end
+
+--[[ The two declarations this rule was written for, driven directly.
+
+  `entity.delete` and `entity.delete_relation` take their table from
+  `entity/delete/<type>/<id>` in the URL. `modules/entity` checks it against the
+  registered entity types before calling, and that check is correctly the
+  module's -- but the declaration could not see it, so it now states its own.
+]]
+do
+  local pgmoon = require 'includes.database.driver.pgmoon'
+  local fake = {}
+
+  require 'modules.entity.statements'
+
+  function fake:table(name)
+    return (name == 'content' or name == 'tag') and name or nil
+  end
+
+  assert_eq('entity_delete_accepts_a_real_table',
+    registry.compile(pgmoon, 'entity.delete', {table = 'content'}, fake).sql,
+    'DELETE FROM "content" WHERE id = $1')
+
+  assert_raises('entity_delete_rejects_an_absent_table', 'rejected identifier',
+    registry.compile, pgmoon, 'entity.delete', {table = 'users'}, fake)
+
+  -- The bare path is the one with no quoting behind it, so it is the one whose
+  -- guard has to hold on its own.
+  assert_eq('entity_delete_relation_composes_the_name',
+    registry.compile(pgmoon, 'entity.delete_relation',
+      {table = 'content', parent = 'tag'}, fake).sql,
+    'DELETE FROM rel_content_tag WHERE content_id = $1')
+
+  assert_raises('entity_delete_relation_rejects_an_absent_parent',
+    'rejected identifier', registry.compile, pgmoon, 'entity.delete_relation',
+    {table = 'content', parent = 'users'}, fake)
 end
 
 io.write(('\n%d passed, %d failed\n'):format(passed, failed))

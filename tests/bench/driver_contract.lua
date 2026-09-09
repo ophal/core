@@ -149,9 +149,12 @@ registry.define('contract.count', {
   tables = {'ophal_contract'},
 })
 
+-- Shaped exactly like `entity.delete`, down to its guard: the table is
+-- resolved against the live schema through `connection:table()`, which is the
+-- only thing standing between a name from the URL and a DELETE.
 registry.define('contract.delete', {
   sql = 'DELETE FROM {table} WHERE id = ?',
-  idents = {table = true},
+  idents = {table = function(value, conn) return conn:table(value) end},
   order = {'table'},
   tables = {'{table:bare}'},
 })
@@ -225,11 +228,31 @@ local function check(name)
   assert_eq(label .. '_field_rejects_an_absent_column',
     conn:field('ophal_contract', 'nonexistent'), nil)
 
+  --[[ The table oracle, which is the resolver `entity.delete` now rests on.
+
+    It has to be exercised against a real `information_schema` on each backend
+    rather than against a stub, because what it actually asks is dialect
+    specific -- `information_schema` scoped to `CURRENT_SCHEMA()` on PostgreSQL
+    and `DATABASE()` on MySQL, and `pragma_table_info` on SQLite -- and "a table
+    with no columns is a table that does not exist" is an assumption about all
+    three that is worth having a row for.
+  ]]
+  assert_eq(label .. '_table_finds_a_table',
+    conn:table('ophal_contract'), 'ophal_contract')
+  assert_eq(label .. '_table_rejects_an_absent_table',
+    conn:table('ophal_nonexistent'), nil)
+
   -- An identifier is a compile key, so this is the `'DELETE FROM ' .. type`
   -- shape with the concatenation done once and the name validated.
   conn:with('contract.delete', 'ophal_contract'):run(tonumber(first_id))
   assert_eq(label .. '_identifier_statement_ran',
     tonumber(conn:run('contract.count'):fetch(true).total), 1)
+
+  -- And the refusal, which is the half that matters. A name passing
+  -- `^[%a_][%w_]*$` is not thereby a table, and on a real database the schema
+  -- is the only thing that knows.
+  assert_raises(label .. '_identifier_absent_table_refused', 'rejected identifier',
+    function() return conn:with('contract.delete', 'ophal_nonexistent') end)
 
   --[[ A statement with no result set *of any kind* -- no rows and no affected
     count. pgmoon answers those with `true` rather than with a table, so this is

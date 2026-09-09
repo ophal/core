@@ -39,6 +39,32 @@ local function is_identifier(value)
   return type(value) == 'string' and value:match('^[%a_][%w_]*$') ~= nil
 end
 
+--[[ The resolver for an identifier that comes from a declaration, not from data.
+
+  Every `idents` entry is a function, so a declaration cannot quietly have no
+  guard at all. Two kinds exist. A schema lookup -- `connection:field()` for a
+  column, `connection:table()` for a table -- answers from the live database, so
+  the whitelist cannot drift from what is actually there; that is the one to
+  reach for whenever the value arrives from data. This is the other kind, and it
+  validates nothing beyond the `^[%a_][%w_]*$` shape every identifier gets.
+
+  Validating nothing is the point. It is a claim about *provenance* rather than
+  a check: the value is written in Ophal's own source and never reaches the
+  layer from a request. `db:with('core.last_insert_id', 'content', 'id')` is the
+  honest case -- the framework names that table and that column itself.
+
+  So it is deliberately a named function rather than the `true` that used to sit
+  in these slots. `true` and a real resolver read identically at a glance, which
+  meant the difference between one guard and two was only discoverable by
+  reading all six declarations; this is greppable, and the grep is the audit.
+
+  Do not reach for it to quiet the check on a value that came from a request.
+  Such a value wants a schema resolver, which is one guard more.
+]]
+function M.trusted(value)
+  return value
+end
+
 --[[ Split a body at its bind placeholders.
 
   Returns the literal pieces and the placeholder count, so `#pieces` is always
@@ -176,7 +202,10 @@ local function substitute(text, decl, values, quote, connection)
       fail('%s needs identifier %q', decl.name, key)
     end
 
-    if type(resolver) == 'function' then
+    do
+      -- Unconditional: `define()` refuses an `idents` entry that is not a
+      -- function, so there is no declaration whose identifiers reach the shape
+      -- check below without a resolver having spoken first.
       local resolved, err = resolver(value, connection)
 
       if resolved == nil then
@@ -226,8 +255,9 @@ end
   `sql` is the portable body. A key named for a dialect -- `sqlite3`,
   `postgresql`, `mysql` -- overrides it there, which is how `claim_jobs_sql()`
   stops being a special case. `tables` names what the statement touches, so
-  attribution is a field rather than a parse. `idents` declares `{slot}` names
-  with an optional resolver.
+  attribution is a field rather than a parse. `idents` declares `{slot}` names,
+  each with the resolver that guards it -- a schema lookup, or `M.trusted` for a
+  value the framework writes itself.
 ]]
 function M.define(name, decl)
   if type(name) ~= 'string' or name == '' then
@@ -270,6 +300,23 @@ function M.define(name, decl)
       if not seen[key] then
         fail('%s declares identifier %q and leaves it out of its order',
           name, key)
+      end
+
+      --[[ Every identifier names the guard it rests on, and `true` is not a
+        guard -- it was the spelling for "the shape check alone", which reads
+        exactly like a resolved identifier and is one layer rather than two.
+
+        Refused at load, so the question "which identifiers in this codebase
+        have a single guard?" is answered by grepping for `trusted` instead of
+        by reading every declaration. A new one cannot be added silently, which
+        is the whole difference between having audited this once and it being
+        closed.
+      ]]
+      if type(decl.idents[key]) ~= 'function' then
+        fail('%s identifier %q needs a resolver: a schema lookup such as '
+          .. 'connection:table() or connection:field() when the value comes '
+          .. 'from data, or registry.trusted when it is written in a '
+          .. 'declaration', name, key)
       end
     end
   end

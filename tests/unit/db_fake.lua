@@ -161,6 +161,20 @@ function M.connection(dispatch)
     return field_name
   end
 
+  --[[ `db:table()` is the whitelist for an identifier naming a table.
+
+    Same shape as `field` above: a test supplies `table` to drive a rejection,
+    and the default accepts, which is what a schema that really has the table
+    would do.
+  ]]
+  function conn:table(table_name)
+    if dispatch.table then
+      return dispatch.table(table_name)
+    end
+
+    return table_name
+  end
+
   function conn:last_insert_id(table_name, field_name)
     if dispatch.last_insert_id then
       return dispatch.last_insert_id(table_name, field_name)

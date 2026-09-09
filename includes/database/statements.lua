@@ -65,12 +65,20 @@ FROM pragma_table_info(?)]],
 
   All three alias the value as `id`. Without that, reading it means taking the
   first column positionally, which a hash-row driver cannot do.
+
+  Both identifiers are `registry.trusted`: they name the table a caller has just
+  inserted into and its primary key, and every caller writes both itself --
+  `db:last_insert_id('content', 'id')`. Nothing here comes from a request, which
+  is the claim `trusted` exists to make in a place a reader and a grep can both
+  find. A schema resolver would be the wrong guard rather than a stricter one:
+  the sequence name it builds is not a table, so there is nothing for
+  `connection:table()` to answer about.
 ]]
 define('core.last_insert_id', {
   sql = 'SELECT last_insert_rowid() AS id',
   postgresql = {sql = "SELECT CURRVAL('{table:bare}_{field:bare}_seq') AS id"},
   mysql = {sql = 'SELECT LAST_INSERT_ID() AS id'},
-  idents = {table = true, field = true},
+  idents = {table = registry.trusted, field = registry.trusted},
   order = {'table', 'field'},
   tables = {},
 })

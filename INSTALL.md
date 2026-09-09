@@ -203,9 +203,12 @@ This will verify runtime dependencies and scaffold:
 - the files directory
 - `.htaccess` inside the files directory
 
-`install init` now scaffolds a PostgreSQL-backed configuration by default. Use
-`--db-driver SQLite3` only when you explicitly want the compatibility or
-development path.
+`install init` scaffolds a PostgreSQL-backed configuration by default.
+`--db-driver` takes `PostgreSQL`, `MySQL` or `SQLite3`; any other name is
+refused, and a name that used to work is told what replaced it. Use `SQLite3`
+only when you explicitly want the compatibility or development path, and note
+that a MySQL site has to run the `ophal` command line under `resty`, as the
+next section describes.
 
 Review the generated configuration, make any desired changes, and set
 appropriate filesystem permissions before starting OpenResty.

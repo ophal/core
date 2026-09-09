@@ -232,6 +232,116 @@ do
   assert_match('check_sqlite_warning', result.runtime_warning or '', 'PostgreSQL is the required production backend')
 end
 
+io.write '\n-- database drivers --\n'
+
+--[[ The installer used to answer PostgreSQL for every name it did not know.
+
+  So `--db-driver mysql` wrote a PostgreSQL vault and `install check` reported a
+  MySQL site as PostgreSQL, silently, for the whole stage in which MySQL became
+  a supported backend. The names come from `includes/database/config.lua` now,
+  which is the same list the connection layer refuses an unknown driver against.
+]]
+do
+  local mysql_vault = install.render_vault({
+    site_hash = 'hash-456',
+    db_driver = 'mysql',
+  })
+  local unknown_vault, unknown_err = install.render_vault({
+    site_hash = 'hash-567',
+    db_driver = 'nonsense',
+  })
+  local retired_vault, retired_err = install.render_vault({
+    site_hash = 'hash-678',
+    db_driver = 'luadbi-postgresql',
+  })
+
+  assert_match('render_vault_mysql_driver', mysql_vault, 'driver = "MySQL"')
+  assert_match('render_vault_mysql_port', mysql_vault, 'port = "3306"')
+  -- The credential block used to be written for the literal name PostgreSQL,
+  -- so a MySQL vault would have carried a database and no way to reach it.
+  assert_match('render_vault_mysql_credentials', mysql_vault, 'username = "ophal"')
+  assert_eq('render_vault_unknown_driver_refused', unknown_vault, nil)
+  assert_match('render_vault_unknown_driver_lists_known', unknown_err or '',
+    'known: MySQL, PostgreSQL, SQLite3')
+  assert_eq('render_vault_retired_driver_refused', retired_vault, nil)
+  assert_match('render_vault_retired_driver_names_replacement', retired_err or '',
+    'postgresql')
+end
+
+do
+  local tmp = make_temp_dir()
+  local result, err = install.init({
+    output_dir = tmp,
+    site_hash = 'shared-hash-7',
+    db_driver = 'nonsense',
+  })
+
+  assert_eq('init_unknown_driver_refused', result, nil)
+  assert_match('init_unknown_driver_message', err or '', 'unknown database driver')
+  assert_eq('init_unknown_driver_wrote_nothing',
+    lfs.attributes(tmp .. '/settings.lua', 'mode'), nil)
+end
+
+do
+  local tmp = make_temp_dir()
+  assert(install.init({
+    output_dir = tmp,
+    site_hash = 'shared-hash-8',
+    db_driver = 'mysql',
+  }))
+
+  local result = install.check({
+    output_dir = tmp,
+    require_module = function()
+      return {}
+    end,
+    lfs = lfs,
+  })
+
+  assert_eq('check_mysql_driver', result.database_driver, 'MySQL')
+  assert_eq('check_mysql_ok', result.ok, true)
+  -- The operational difference stage 8.7 landed: no blocking mode, so the
+  -- command line runs under resty.
+  assert_match('check_mysql_warning', result.runtime_warning or '', 'under resty')
+end
+
+--[[ A vault naming a driver no binding answers to.
+
+  `install.init()` refuses to write one, so this is hand-written -- which is
+  also how it happens in life: a settings file carried across an upgrade.
+  Reported here rather than left to raise from the site's first query, which is
+  what `install check` is for.
+]]
+do
+  local tmp = make_temp_dir()
+  local vault_path = tmp .. '/vault.lua'
+  local handle, contents
+
+  assert(install.init({
+    output_dir = tmp,
+    site_hash = 'shared-hash-9',
+    db_driver = 'SQLite3',
+  }))
+
+  contents = read_file(vault_path):gsub('driver = "SQLite3"', 'driver = "luadbi-sqlite3"')
+  handle = assert(io.open(vault_path, 'w'))
+  handle:write(contents)
+  handle:close()
+
+  local result = install.check({
+    output_dir = tmp,
+    require_module = function()
+      return {}
+    end,
+    lfs = lfs,
+  })
+
+  assert_eq('check_unknown_driver_not_ok', result.ok, false)
+  assert_eq('check_unknown_driver_unnamed', result.database_driver, nil)
+  assert_match('check_unknown_driver_names_replacement',
+    result.database_error or '', 'sqlite3')
+end
+
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then
   os.exit(1)

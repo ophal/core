@@ -664,6 +664,10 @@ function M.run(argv, options)
         output(stdout, ('database driver: %s\n'):format(result.database_driver))
       end
 
+      if result.database_error then
+        output(stdout, ('database driver error: %s\n'):format(result.database_error))
+      end
+
       if result.files_dir then
         if result.files_error then
           output(stdout, ('files directory: error: %s\n'):format(result.files_error))

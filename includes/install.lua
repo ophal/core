@@ -1,3 +1,5 @@
+local db_config = require 'includes.database.config'
+
 local M = {}
 
 local HTACCESS_CONTENT = [[SetHandler Ophal_Security_Do_Not_Remove
@@ -171,42 +173,100 @@ local function load_settings(path, vault, options)
   return settings
 end
 
-local function normalize_driver_name(driver)
-  local value = tostring(driver or 'PostgreSQL')
-  local lower = value:lower()
+--[[ The installer's driver names are the query layer's.
 
-  if lower == 'sqlite' or lower == 'sqlite3' then
-    return 'SQLite3'
+  `includes/database/config.lua` decides whether a name resolves to a binding,
+  so asking it is what stops this file from keeping a second list that drifts
+  from that one. It had already drifted: this function used to be
+  `if sqlite then SQLite3 else PostgreSQL`, so every name it did not recognize
+  became PostgreSQL. MySQL was a supported backend for a whole stage before the
+  installer learned the word -- `ophal install init --db-driver mysql` wrote a
+  PostgreSQL vault and `install check` reported a MySQL site as PostgreSQL,
+  both silently rather than refusing.
+
+  An absent driver is still PostgreSQL, because that is the documented default
+  for an install that names none. An unrecognized one is an error now.
+]]
+local DRIVER_NAMES = {
+  lsqlite3 = 'SQLite3',
+  pgmoon = 'PostgreSQL',
+  resty_mysql = 'MySQL',
+}
+
+local function normalize_driver_name(driver)
+  if driver == nil or driver == '' then
+    return 'PostgreSQL'
   end
 
-  return 'PostgreSQL'
+  return DRIVER_NAMES[db_config.driver_module(tostring(driver)) or '']
+end
+
+local function known_driver_names()
+  local names = {}
+
+  for _, name in pairs(DRIVER_NAMES) do
+    names[#names + 1] = name
+  end
+
+  table.sort(names)
+
+  return table.concat(names, ', ')
+end
+
+-- The answer `includes/database/config.lua` gives a settings file that still
+-- names a LuaDBI binding, given here at the point the name is typed rather
+-- than at the first query of a site that has already been installed.
+local function unknown_driver_error(driver)
+  local replacement = db_config.retired_driver(tostring(driver))
+
+  if replacement ~= nil then
+    return ('database driver %q is gone; Ophal spells that backend %q now')
+      :format(tostring(driver), replacement)
+  end
+
+  return ('unknown database driver %q (known: %s)')
+    :format(tostring(driver), known_driver_names())
 end
 
 local function driver_defaults(driver, config)
-  driver = normalize_driver_name(driver)
+  local name = normalize_driver_name(driver)
 
-  if driver == 'PostgreSQL' then
+  if name == nil then
+    return nil, unknown_driver_error(driver)
+  end
+
+  -- SQLite is a file and has no credentials. The two server backends differ
+  -- only in the port they default to.
+  if name == 'SQLite3' then
     return {
-      driver = 'PostgreSQL',
-      database = config.db_database or 'ophal',
-      username = config.db_username or 'ophal',
-      password = config.db_password or 'ophal',
-      host = config.db_host or 'localhost',
-      port = config.db_port or '5432',
+      driver = 'SQLite3',
+      database = config.db_database or 'ophal.sqlite3',
     }
   end
 
   return {
-    driver = 'SQLite3',
-    database = config.db_database or 'ophal.sqlite3',
+    driver = name,
+    database = config.db_database or 'ophal',
+    username = config.db_username or 'ophal',
+    password = config.db_password or 'ophal',
+    host = config.db_host or 'localhost',
+    port = config.db_port or (name == 'MySQL' and '3306' or '5432'),
   }
 end
 
 local function runtime_warning_for_driver(driver)
-  driver = normalize_driver_name(driver)
+  local name = normalize_driver_name(driver)
 
-  if driver == 'SQLite3' then
+  if name == 'SQLite3' then
     return 'SQLite3 is supported for development, CLI, tests, and low-scale compatibility. PostgreSQL is the required production backend for the performance architecture.'
+  end
+
+  -- The one operational difference a MySQL site has, said where somebody
+  -- choosing MySQL will read it: `lua-resty-mysql` is a cosocket driver with no
+  -- blocking mode, so the command line cannot run under the `lua5.1` the
+  -- `ophal` script names.
+  if name == 'MySQL' then
+    return 'MySQL is supported, but lua-resty-mysql has no blocking mode: run the ophal command line under resty, as in "resty -c 512 ./ophal migrate apply". A BIGINT column also reads back as a string, so compare one with tonumber.'
   end
 end
 
@@ -239,7 +299,7 @@ local function build_config(options)
   local modules = copy_table(DEFAULT_MODULES)
   local enabled = options.modules_enabled or {}
   local disabled = options.modules_disabled or {}
-  local db
+  local db, db_err
 
   for _, name in ipairs(enabled) do
     modules[name] = true
@@ -249,7 +309,11 @@ local function build_config(options)
     modules[name] = false
   end
 
-  db = driver_defaults(options.db_driver, options)
+  db, db_err = driver_defaults(options.db_driver, options)
+
+  if not db then
+    return nil, db_err
+  end
 
   return {
     site_name = options.site_name or 'Ophal',
@@ -273,9 +337,28 @@ local function sorted_keys(tbl)
   return keys
 end
 
+-- `init()` builds the config once and hands the same table to both renderers,
+-- so building it here is the standalone case -- and the one that can fail,
+-- because that is where the driver name is read.
+local function config_for(options)
+  options = options or {}
+
+  if options.config then
+    return options.config
+  end
+
+  return build_config(options)
+end
+
 function M.render_settings(options)
-  local config = (options or {}).config or build_config(options or {})
-  local lines = {
+  local config, config_err = config_for(options)
+  local lines
+
+  if not config then
+    return nil, config_err
+  end
+
+  lines = {
     'return function(settings, vault)',
     "  settings.language = 'en'",
     "  settings.language_dir = 'ltr'",
@@ -321,9 +404,15 @@ function M.render_settings(options)
 end
 
 function M.render_vault(options)
-  local config = (options or {}).config or build_config(options or {})
-  local db = config.db
-  local lines = {
+  local config, config_err = config_for(options)
+  local db, lines
+
+  if not config then
+    return nil, config_err
+  end
+
+  db = config.db
+  lines = {
     'local m = {',
     '  site = {',
     ("    hash = %q,"):format(config.site_hash),
@@ -334,7 +423,10 @@ function M.render_vault(options)
     ("      database = %q,"):format(db.database),
   }
 
-  if db.driver == 'PostgreSQL' then
+  -- Written for whatever backend carries credentials rather than for one
+  -- named backend: SQLite has a file and nothing else, and MySQL needs exactly
+  -- what PostgreSQL needs.
+  if db.username ~= nil then
     lines[#lines + 1] = ("      username = %q,"):format(db.username)
     lines[#lines + 1] = ("      password = %q,"):format(db.password)
     lines[#lines + 1] = ("      host = %q,"):format(db.host)
@@ -402,11 +494,18 @@ function M.check(options)
       return results
     end
 
-    results.database_driver = normalize_driver_name(
-      (((vault or {}).db or {}).default or {}).driver
-        or (((settings or {}).db or {}).default or {}).driver
-    )
-    results.runtime_warning = runtime_warning_for_driver(results.database_driver)
+    local declared_driver = (((vault or {}).db or {}).default or {}).driver
+      or (((settings or {}).db or {}).default or {}).driver
+
+    results.database_driver = normalize_driver_name(declared_driver)
+    results.runtime_warning = runtime_warning_for_driver(declared_driver)
+
+    -- A name no binding answers to is reported here rather than left to fail
+    -- at the site's first query. `check` exists to be run before that query.
+    if results.database_driver == nil then
+      results.ok = false
+      results.database_error = unknown_driver_error(declared_driver)
+    end
 
     files_path = settings.site and settings.site.files_path
     results.files_path = files_path
@@ -457,9 +556,15 @@ function M.init(options)
   local root_dir = options.output_dir or '.'
   local settings_path = join_path(root_dir, 'settings.lua')
   local vault_path = join_path(root_dir, 'vault.lua')
-  local config = build_config(options)
-  local files_dir = config.files_path:sub(1, 1) == '/' and config.files_path or join_path(root_dir, config.files_path)
-  local htaccess_path = join_path(files_dir, '.htaccess')
+  local config, config_err = build_config(options)
+  local files_dir, htaccess_path
+
+  if not config then
+    return nil, config_err
+  end
+
+  files_dir = config.files_path:sub(1, 1) == '/' and config.files_path or join_path(root_dir, config.files_path)
+  htaccess_path = join_path(files_dir, '.htaccess')
 
   if not options.force then
     if file_exists(settings_path, options) then

@@ -158,8 +158,21 @@ do
     add_js 'libraries/jquery.min.js'
     add_js 'libraries/ophal.js'
     add_js {type = 'settings', {base = base}}
+    --[[ Registered here, minted in `get_js()`.
+
+      `csrf_token()` writes into `_SESSION` when the session has no token yet,
+      and `init_js()` runs on every request -- so calling it here gave every
+      anonymous visitor a session file, a lock file and a `Set-Cookie` for a
+      value most pages never emit. Note the line below this block: `init_js()`
+      ends by setting `load_ophal_js` back to false, so a page that adds no
+      script of its own returns '' from `get_js()`. The token was minted,
+      written to disk and thrown away unread.
+
+      The guard stays exactly where it was -- `includes/security.lua` is
+      required after this file in bootstrap phase 9 -- and only the value moves.
+    ]]
     if type(csrf_token) == 'function' then
-      add_js {type = 'settings', {csrf_token = csrf_token()}}
+      add_js {type = 'settings', csrf = true, {}}
     end
     add_js {type = 'settings', namespace = 'locale', settings.locale}
     js.load_ophal_js = false
@@ -185,6 +198,12 @@ do
         local options = javascript[scope][j]
         local asset_url
         if options ~= nil and options.type == 'settings' then
+          -- Deferred by `init_js()`: this is the first point at which the token
+          -- is certain to be rendered, so it is the first point at which a
+          -- session has to exist to hold it.
+          if options.csrf and type(csrf_token) == 'function' then
+            j.csrf_token = csrf_token()
+          end
           output[scope][#output[scope] + 1] = ([=[<script type="text/javascript">
 <!--//--><![CDATA[//><!--
 (function ($) {

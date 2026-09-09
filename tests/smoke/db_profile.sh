@@ -125,7 +125,10 @@ assert_regex '^HTTP/1\.[01] 200'
 sessions_after=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
 sessions_created=$((sessions_after - sessions_before))
 assert_fs_budget 0 0 0 0 0 0
-assert_session_fs_budget 1 1 1 1 112
+# 112 bytes until the CSRF token stopped being minted in `init_js()`. The front
+# page emits no script of its own, so `get_js()` returned '' and the token was
+# written to disk and thrown away unread; what is left is an empty table.
+assert_session_fs_budget 1 1 1 1 27
 [[ "$sessions_created" -eq 1 ]] ||
   fail "expected the anonymous request to leave 1 session file; left $sessions_created"
 report_ok "db_anonymous_session_cost (open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"

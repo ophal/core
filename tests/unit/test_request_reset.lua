@@ -277,6 +277,66 @@ do
   assert_nil('title_cleared', ophal.title)
 end
 
+--[[ The CSRF token is minted where it is rendered, not where it is registered.
+
+  `init_js()` runs on every request and `csrf_token()` writes into `_SESSION`
+  when the session has no token yet, so registering the resolved value gave
+  every anonymous visitor a session file, a lock file and a `Set-Cookie` for a
+  value most pages never emit -- `init_js()` sets `load_ophal_js` false on its
+  last line, so a page that adds no script of its own returns '' from
+  `get_js()`. Measured on the smoke suite's anonymous front page: 112 session
+  bytes written to disk and thrown away unread, now 27.
+
+  Both halves are asserted. A deferral that never resolves would be a silent
+  CSRF failure on every form in the codebase, which is worse than the waste it
+  replaced.
+]]
+do
+  local minted = 0
+
+  setup_common_env()
+  _G.csrf_token = function()
+    minted = minted + 1
+    return 'token-from-the-session'
+  end
+
+  -- The shared stub encodes every table as `{}`, which is enough for the
+  -- namespace assertions above and would let a token that never reaches the
+  -- page pass here. This one echoes the fields.
+  package.loaded['dkjson'] = {
+    encode = function(value)
+      local parts = {}
+
+      for key, field in pairs(value or {}) do
+        parts[#parts + 1] = ('"%s":"%s"'):format(tostring(key), tostring(field))
+      end
+
+      return '{' .. table.concat(parts, ',') .. '}'
+    end,
+    decode = function() return {} end,
+  }
+
+  dofile('includes/common.lua')
+
+  common_reset_request()
+  assert_eq('init_js_mints_no_csrf_token', minted, 0)
+
+  -- Nothing has added a script, so nothing is emitted and nothing is minted.
+  assert_eq('empty_page_emits_no_js', get_js(), '')
+  assert_eq('empty_page_mints_no_csrf_token', minted, 0)
+
+  -- A module adds one line of script, and now the settings block renders.
+  add_js {type = 'inline', 'console.log(1)'}
+  local rendered = get_js()
+  local header = rendered and rendered.header or ''
+
+  assert_eq('rendered_page_mints_the_csrf_token', minted, 1)
+  assert_truthy('rendered_page_carries_the_csrf_token',
+    header:find('token%-from%-the%-session'))
+
+  _G.csrf_token = nil
+end
+
 -- ================================================================
 io.write '\n-- ophal_request_reset --\n'
 -- ================================================================

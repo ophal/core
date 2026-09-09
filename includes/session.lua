@@ -54,23 +54,95 @@ if settings.sessionapi then
   end
 end
 
--- Initialize session for the current request.
--- Moved from module-level so that persistent runtimes re-read
--- the session cookie on every request instead of only once.
+--[[ Initialize session for the current request.
+
+  Moved from module-level so that persistent runtimes re-read the session cookie
+  on every request instead of only once.
+
+  **A visitor who presents no session cookie is given no session here.** This
+  used to mint an id and set the cookie unconditionally, and `session_start()`
+  then opened a file for it, so every anonymous request created a session file
+  and a lock file, wrote an empty table into one and removed the other -- about
+  ten `open()` calls, measured in `tests/unit/test_session.lua`, on a request
+  whose SQL budget is zero since stage 8.5. The file was left behind, so a
+  crawler that never sends a cookie left one per request until cron's sweep
+  reached them.
+
+  The `Set-Cookie` was the more expensive half. A response carrying a
+  per-visitor cookie can never be shared by a downstream cache whatever
+  `Cache-Control` says, so this one line stood between the projection stack and
+  every cache in front of it. That is why Phase 9 depends on Phase 7.
+
+  Nothing is lost by waiting: a session that holds nothing is indistinguishable
+  from no session. The id is minted at the first *write* into `_SESSION`, which
+  is where a session starts meaning something.
+]]
 function session_init()
-  -- Look for session cookie
   local session_id = ophal.cookies['session-id'] or ''
-  -- if session ID is not valid then set a new ID
-  if not uuid.isvalid(session_id) then
-    session_id = random.uuid()
-    -- Delegate cookie header to ophal.header
-    cookie_set('session-id', session_id, 3*60*60, base.route, get_cookie_domain())
-  end
-  -- init session table
+  local resumed = uuid.isvalid(session_id)
+
   ophal.session = {
-    id = session_id,
+    id = resumed and session_id or nil,
+    resumed = resumed,
     file = {},
   }
+end
+
+--[[ Give this request's session an id, a cookie and a file, now that it holds
+  something.
+
+  Called from the `__newindex` `session_start()` puts on an empty `_SESSION`, so
+  the first assignment into the table pays for the session and every one after
+  it is an ordinary rawset -- the metatable is dropped here rather than kept for
+  the life of the request.
+
+  A *read* deliberately does not reach this. `modules/user` asks every request
+  for `_SESSION.user_id` and an anonymous visitor's answer is nil either way, so
+  materializing on read would create a session for every visitor again and call
+  it lazy.
+]]
+local function session_materialize()
+  local session = current_session()
+  local fh, sign, err
+
+  if session == nil or session.open then
+    return
+  end
+
+  if session.id == nil then
+    session.id = random.uuid()
+    cookie_set('session-id', session.id, 3*60*60, base.route, get_cookie_domain())
+  end
+
+  session.file.name = format('%s/%s.ophal', sessions_path(), session.id)
+  fh, sign, err = safe_open(session.file.name)
+  fs_stats.record('open', nil, session.file.name, 'session')
+
+  if not fh then
+    error(format('session: cannot open session data: %s', tostring(err)))
+  end
+
+  fh:close()
+
+  session.file.sign = sign
+  session.open = true
+
+  if getmetatable(_SESSION) ~= nil then
+    setmetatable(_SESSION, nil)
+  end
+
+  session.data = _SESSION
+end
+
+-- An empty session table that pays for itself on first write. Reads see an
+-- ordinary empty table, which is what an anonymous visitor's session is.
+local function lazy_session_table()
+  return setmetatable({}, {
+    __newindex = function(t, key, value)
+      session_materialize()
+      rawset(t, key, value)
+    end,
+  })
 end
 
 -- Seed session state on module load; persistent runtimes reset it per request.
@@ -93,12 +165,27 @@ function session_start()
   -- On first boot the module-level call above handles it.
   local session = current_session()
 
-  if not session or not session.id then
+  if not session then
     session_init()
     session = current_session()
   end
 
   local fh, sign, err, data, data_function, parsed
+
+  --[[ No cookie, so there is nothing to resume, nothing to lock and nothing to
+    read. The table exists so that every reader keeps working -- `_SESSION` is
+    an ordinary empty table to anyone who looks -- and the first write into it
+    is what buys the id, the cookie and the file.
+
+    The test was `not session.id` above, which is why this could not simply be
+    left to fall through: a session with no id used to be impossible, and now it
+    is the ordinary anonymous case.
+  ]]
+  if not session.resumed and not session.open then
+    _SESSION = lazy_session_table()
+    session.data = _SESSION
+    return
+  end
 
   if not session.open then
     -- Compute session filename
@@ -140,6 +227,16 @@ end
 local function session_close()
   local session = current_session()
 
+  -- A session that was never materialized has no file and no lock, and
+  -- `safe_close` would compose its lock name out of a nil.
+  if not session or not session.open or session.file.name == nil then
+    if session then
+      session.open = false
+    end
+    _SESSION = nil
+    return
+  end
+
   safe_close(session.file.name, session.file.sign)
   fs_stats.record('remove', nil, session.file.name, 'session')
   session.open = false
@@ -173,8 +270,12 @@ function session_destroy()
   local session = current_session()
 
   session_close()
-  os.remove(session.file.name)
-  fs_stats.record('remove', nil, session.file.name, 'session')
+
+  if session.file.name ~= nil then
+    os.remove(session.file.name)
+    fs_stats.record('remove', nil, session.file.name, 'session')
+  end
+
   session.data = _SESSION -- global _SESSION is blank ATM
   session.id = nil
 end
@@ -239,6 +340,14 @@ function session_regenerate()
   session.file.sign = sign
   session.open = true
   _SESSION = type(data) == 'table' and data or {}
+
+  -- The table carried over may be the lazy one, whose `__newindex`
+  -- materializes. This session is materialized, so the hook has nothing left to
+  -- do and would only run `session_materialize()` once more per key.
+  if getmetatable(_SESSION) ~= nil then
+    setmetatable(_SESSION, nil)
+  end
+
   session.data = _SESSION
 
   return session.id

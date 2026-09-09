@@ -54,6 +54,32 @@ local function session()
   return env._SESSION or {}
 end
 
+--[[ The current user's id, resolved rather than stored.
+
+  `init()` used to write it: `if nil == current_session.user_id then
+  current_session.user_id = 0 end`, on every request, for every visitor. That is
+  a write into `_SESSION` of the one value that means "nobody is signed in".
+
+  Since sessions became lazy the write is what *creates* a session, so this line
+  alone gave every anonymous visitor an id, a `Set-Cookie` and a file on disk --
+  it was the last thing standing between the anonymous request and costing
+  nothing. Before that it was merely 27 bytes written to disk and read back on
+  every request to say nothing at all.
+
+  Nil and 0 were already the same answer everywhere that asked: `is_logged_in()`
+  is `not empty(session().user_id)` and `empty(0)` is true, so no caller
+  distinguished them. The two places that want a number get one here.
+]]
+local function session_user_id()
+  local id = session().user_id
+
+  if id == nil then
+    return 0
+  end
+
+  return id
+end
+
 local function query_args()
   return env._GET or {}
 end
@@ -310,13 +336,6 @@ function init()
   -- Captured per request, not at load: a connection object belongs to the
   -- request that asked for it and raises at its next use once released.
   db_connection = env.db_connection
-
-  -- Set anonymous user ID
-  local current_session = session()
-
-  if nil == current_session.user_id then
-    current_session.user_id = 0
-  end
 end
 
 function is_logged_in()
@@ -626,7 +645,7 @@ function cache_clear()
 end
 
 function access(perm, user_id)
-  if nil == user_id then user_id = session().user_id end
+  if nil == user_id then user_id = session_user_id() end
   local account = load(user_id)
 
   local permissions = get_user_permissions(user_id)
@@ -779,7 +798,7 @@ end
 --[[ Return the current user from _SESSION.
 ]]
 function current()
-  return load(session().user_id)
+  return load(session_user_id())
 end
 
 --[[ Render author.

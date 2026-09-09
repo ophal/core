@@ -125,13 +125,40 @@ assert_regex '^HTTP/1\.[01] 200'
 sessions_after=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
 sessions_created=$((sessions_after - sessions_before))
 assert_fs_budget 0 0 0 0 0 0
-# 112 bytes until the CSRF token stopped being minted in `init_js()`. The front
-# page emits no script of its own, so `get_js()` returned '' and the token was
-# written to disk and thrown away unread; what is left is an empty table.
-assert_session_fs_budget 1 1 1 1 27
-[[ "$sessions_created" -eq 1 ]] ||
-  fail "expected the anonymous request to leave 1 session file; left $sessions_created"
+# Was 1/1/1/1 and 112 bytes, then 27 once the CSRF token stopped being minted in
+# `init_js()`, and is zero since sessions became lazy: a visitor who presents no
+# cookie is given no id, no cookie and no file until something writes into
+# `_SESSION`, and nothing on this page does.
+assert_session_fs_budget 0 0 0 0 0
+[[ "$sessions_created" -eq 0 ]] ||
+  fail "expected the anonymous request to leave no session file; left $sessions_created"
+# The half that Phase 9 depends on. A response carrying a per-visitor cookie can
+# never be shared by a downstream cache, whatever Cache-Control says.
+assert_not_contains 'session-id='
 report_ok "db_anonymous_session_cost (open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
+
+#[[ And the other half: a session that is *needed* is still created.
+#
+# "Lazy" has to mean deferred rather than absent, and a budget of zero on the
+# front page cannot tell the two apart on its own. This asks for a CSRF token as
+# an anonymous visitor with no cookie -- `csrf_token()` writes into `_SESSION`,
+# which is exactly the event that buys the id, the cookie and the file -- and
+# asserts all three arrive.
+sessions_before=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
+measure_fs_request db_anonymous_session_on_demand "$DB_URL/__smoke__?scenario=csrf_token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+anon_csrf=$(extract_marker 'SMOKE_CSRF_TOKEN')
+[[ -n "$anon_csrf" ]] || fail 'an anonymous visitor was issued no CSRF token'
+assert_regex '[Ss]et-[Cc]ookie: *session-id='
+sessions_after=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
+sessions_created=$((sessions_after - sessions_before))
+[[ "$sessions_created" -eq 1 ]] ||
+  fail "expected the token request to create 1 session file; created $sessions_created"
+# One open to take the lock and create the file, one write of the token, one
+# remove to drop the lock. No read: there was no session to resume.
+assert_session_fs_budget 1 0 1 1 95
+report_ok "db_anonymous_session_on_demand (open=$FS_S_OPEN write=$FS_S_WRITE remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
 
 measure_request db_content_warm "$DB_URL/content/1"
 assert_status_zero
@@ -202,21 +229,38 @@ COMMENT_BODY='SMOKE_COMMENT_BODY_MARKER'
 
 author_cookie="$SMOKE_DB_WORK/author-cookie.txt"
 
-# An anonymous request first, so the jar holds a session id that was issued
-# before any credential was presented. That id is what a fixation attempt
-# plants, and the assertion after the sign-in is that it does not survive it.
-run_request db_author_pre_login_session -c "$author_cookie" -b "$author_cookie" \
+#[[ The id a fixation attempt plants.
+#
+# This used to be an id the *server* issued to an anonymous visitor, read back
+# out of the jar. Sessions are lazy since Phase 7, so an anonymous request is
+# issued nothing at all -- and planting the id directly is the more faithful
+# test anyway: an attacker chooses the value and sets it on the victim's
+# browser, they do not ask the site for one first. `session_init()` accepts any
+# well-formed id the cookie presents, which is exactly the property being
+# attacked.
+pre_login_session='11111111-2222-4333-8444-555555555555'
+rm -f "$author_cookie"
+
+# Sent as a header rather than written into the jar. The jar is then filled only
+# by what the server issues, so a request made with it later cannot send the
+# planted id back alongside the real one.
+run_request db_author_pre_login_session -b "session-id=$pre_login_session" \
   "$DB_URL/"
 assert_status_zero
-pre_login_session=$(awk '$6 == "session-id" {print $7}' "$author_cookie" | tail -1)
-[[ -n "$pre_login_session" ]] || fail 'anonymous request issued no session id'
+assert_regex '^HTTP/1\.[01] 200'
+# The planted id is still what the jar holds: a presented session is resumed
+# rather than replaced, which is the behaviour the rotation below has to undo.
+# The server does not re-issue a cookie for a session it merely resumed, so an
+# anonymous request carrying the planted id answers with no `Set-Cookie` at all.
+assert_not_contains 'set-cookie'
+assert_not_contains 'Set-Cookie'
 report_ok db_author_pre_login_session
 
 # Signing in is deliberately not measured. It is the cold pass for this
 # account's role, permission and user caches, and it also rewrites the seeded
 # legacy password hash in the current format, so what it costs describes a
 # first login rather than authoring.
-run_request db_author_login -c "$author_cookie" -b "$author_cookie" \
+run_request db_author_login -c "$author_cookie" -b "session-id=$pre_login_session" \
   -H 'Content-Type: application/json' \
   --data-binary "{\"user\":\"$SEED_AUTHOR_NAME\",\"pass\":\"$SEED_AUTHOR_PASS\"}" \
   "$DB_URL/user/auth"
@@ -232,8 +276,14 @@ report_ok db_author_login
 # authenticated session afterwards -- textbook fixation. `session_regenerate()`
 # in the auth service is what rotates it, and this is the end-to-end proof:
 # removing that call leaves the two ids equal and turns this red.
-post_login_session=$(awk '$6 == "session-id" {print $7}' "$author_cookie" | tail -1)
-[[ -n "$post_login_session" ]] || fail 'sign-in left no session id in the jar'
+# Read from the sign-in response's own `Set-Cookie` rather than from the jar.
+# The jar is a merge of what was planted and what was received, and the two can
+# be stored as separate entries when their domain attributes differ -- which is
+# a fact about curl's cookie file, not about whether the server rotated. The
+# header is the server saying so.
+post_login_session=$(printf '%s\n' "$LAST_OUTPUT" |
+  sed -n 's/.*[Ss]et-[Cc]ookie: *session-id=\([^;]*\).*/\1/p' | tr -d '\r' | tail -1)
+[[ -n "$post_login_session" ]] || fail 'sign-in issued no session id'
 if [[ "$post_login_session" == "$pre_login_session" ]]; then
   fail "session id survived sign-in (fixation): $post_login_session"
 fi
@@ -274,11 +324,17 @@ run_request db_anonymous_whoami "$DB_URL/__smoke__?scenario=whoami"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains 'SMOKE_LOGGED_IN=false'
-# Anonymous is user id 0, not a missing id: `load_by_field()` answers id 0 with
-# a synthetic account and `init()` seeds `_SESSION.user_id = 0`. Asserting the
-# zero rather than an absence is what makes a leaked `user_id` of 2 visible.
+# Anonymous is user id 0 to `modules/user` -- `load_by_field()` answers id 0
+# with a synthetic account -- and the session itself now holds **nothing**.
+# `init()` used to seed `_SESSION.user_id = 0` on every request, which since
+# Phase 7 would have created a session, a cookie and a file for every visitor;
+# `session_user_id()` resolves the same 0 without writing it. The two lines say
+# different things on purpose: the first is what the module believes, and a
+# leaked `user_id` of 2 shows up there, while the second says this request
+# carries no session at all.
 assert_contains 'SMOKE_MODULE_USER_ID=0'
-assert_contains 'SMOKE_SESSION_USER_ID=0'
+assert_contains 'SMOKE_SESSION_USER_ID='
+assert_not_contains 'SMOKE_SESSION_USER_ID=2'
 report_ok db_anonymous_whoami
 
 # Warms this account's caches. An authenticated request pays four permission

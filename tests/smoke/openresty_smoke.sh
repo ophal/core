@@ -1043,7 +1043,7 @@ report_ok() {
 # to come back from each; a profile that ran fewer would otherwise disappear
 # into a single global total, which is the failure the count exists to catch.
 EXPECTED_BASE_SCENARIOS=31
-EXPECTED_DB_SCENARIOS=73
+EXPECTED_DB_SCENARIOS=74
 SCENARIO_COUNT=0
 
 # Reset per profile by `db_profile_begin`; the label prefixes each `ok` line so
@@ -1391,6 +1391,9 @@ interleave_a_session_after=$(extract_marker 'SMOKE_SESSION_AFTER')
   fail "session changed across the yield: $interleave_a_session_before -> $interleave_a_session_after"
 [[ "$interleave_a_session_after" != "$interleave_b_session" ]] ||
   fail 'the interleaved request resumed holding the other request session'
+# The session's *contents*, not only its id. Both requests materialize a lazy
+# session mid-flight, so this is the value A wrote before parking.
+assert_contains 'SMOKE_SESSION_TAG_AFTER=alpha'
 report_ok persistent_interleave
 
 # Reads the worker's cumulative counters. The probe does not bootstrap, so it

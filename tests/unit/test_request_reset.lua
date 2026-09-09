@@ -483,9 +483,16 @@ io.write '\n-- session_init per-request --\n'
 
 do
   local mock_request = setup_env()
+  -- `includes/session.lua` captures `safe_open` at load time, so the recording
+  -- stub has to be in place before the dofile below rather than beside the
+  -- assertions that read it.
+  local opened, cookies = {}, {}
   -- Extra stubs for session.lua
   _G.seawolf.behaviour = {temp_dir = function() return '/tmp' end}
-  _G.seawolf.fs.safe_open = function() return nil end
+  _G.seawolf.fs.safe_open = function(path)
+    opened[#opened + 1] = path
+    return {close = function() end, read = function() return '' end}, 'sign'
+  end
   _G.seawolf.fs.safe_write = function() return true end
   _G.seawolf.fs.safe_close = function() end
   _G.seawolf.contrib = _G.seawolf.contrib or {}
@@ -531,11 +538,49 @@ do
   session_init()
   assert_eq('session_reinit_id', ophal.session.id, 'ddd-eee-fff')
 
-  -- 3. Invalid cookie generates new UUID
+  --[[ 3. An invalid or absent cookie now yields **no session at all** here.
+
+    This assertion used to be `session_new_uuid`: an id was minted and the
+    cookie set inside `session_init()`, on every request, for every visitor. It
+    is deliberately inverted rather than deleted -- the id is minted at the
+    first write into `_SESSION`, and both halves are pinned so that "lazy" can
+    never quietly become "never".
+  ]]
+  _G.cookie_set = function(name, value)
+    cookies[#cookies + 1] = {name = name, value = value}
+  end
+  env.cookie_set = _G.cookie_set
+
   mock_request.cookies = {['session-id'] = 'bad'}
   ophal.cookies = mock_request.cookies
   session_init()
-  assert_truthy('session_new_uuid', ophal.session.id:find('^new%-uuid%-'))
+
+  assert_nil('session_without_a_cookie_has_no_id', ophal.session.id)
+  assert_eq('session_without_a_cookie_is_not_resumed', ophal.session.resumed, false)
+  assert_eq('session_init_sets_no_cookie', #cookies, 0)
+
+  session_start()
+
+  assert_eq('lazy_session_opens_no_file', #opened, 0)
+  assert_eq('lazy_session_is_not_open', ophal.session.open, nil)
+  assert_eq('lazy_session_reads_as_empty', _SESSION.anything, nil)
+  assert_eq('reading_a_lazy_session_costs_nothing', #opened, 0)
+
+  -- The first write is what buys the id, the cookie and the file.
+  _SESSION.user_id = 7
+
+  assert_truthy('writing_mints_an_id', ophal.session.id:find('^new%-uuid%-'))
+  assert_eq('writing_sets_the_cookie', #cookies, 1)
+  assert_eq('writing_sets_the_session_cookie', cookies[1].name, 'session-id')
+  assert_eq('writing_opens_the_file', #opened, 1)
+  assert_eq('writing_marks_the_session_open', ophal.session.open, true)
+  assert_eq('the_written_value_survives', _SESSION.user_id, 7)
+
+  -- The hook is dropped once it has fired, so the session is an ordinary table
+  -- from here rather than one that re-enters materialization per key.
+  _SESSION.other = 8
+  assert_eq('a_second_write_opens_nothing_more', #opened, 1)
+  assert_eq('the_second_value_survives', _SESSION.other, 8)
 end
 
 io.write '\n-- session regeneration on privilege change --\n'

@@ -328,6 +328,17 @@ local scenarios = {
           tostring((ophal.session or {}).id or '')
       end
 
+      --[[ A lazy session has no id until something writes into it.
+
+        Writing here is not a workaround for that: it makes this scenario a test
+        of *materialization* under interleaving, which is the case that matters
+        most now. A session can come into existence in the middle of a request,
+        so the id, the cookie and the file are all decided at a point where two
+        requests may be in flight -- and `session_materialize()` reaches the
+        session through `ophal.session`, which is request state.
+      ]]
+      _SESSION.tag = tag
+
       local get_before, session_before = snapshot()
 
       -- Page state and the per-request accumulators, marked with this
@@ -364,6 +375,7 @@ local scenarios = {
         'SMOKE_GET_AFTER=' .. get_after,
         'SMOKE_SESSION_BEFORE=' .. session_before,
         'SMOKE_SESSION_AFTER=' .. session_after,
+        'SMOKE_SESSION_TAG_AFTER=' .. tostring((env._SESSION or {}).tag or ''),
         'SMOKE_TITLE_AFTER=' .. tostring(ophal.title or ''),
         'SMOKE_HEAD_AFTER=' .. tostring(get_head() or ''):gsub('%s+', ' '),
         'SMOKE_JS_AFTER=' .. tostring((get_js() or {}).header or ''):gsub('%s+', ' '),

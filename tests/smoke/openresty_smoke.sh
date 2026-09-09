@@ -198,6 +198,15 @@ assert_not_contains() {
   return 0
 }
 
+# The negative form of `assert_regex`. A response is often defined as much by
+# what it does not carry -- an ETag on a personal page, a Set-Cookie on a
+# shareable one -- as by what it does.
+assert_not_regex() {
+  if printf '%s\n' "$LAST_OUTPUT" | grep -Eq "$1"; then
+    fail "unexpected pattern: $1"
+  fi
+}
+
 assert_regex() {
   local pattern=$1
   printf '%s' "$LAST_OUTPUT" | grep -Eqi -- "$pattern" || fail "missing expected pattern: $pattern"
@@ -1043,7 +1052,7 @@ report_ok() {
 # to come back from each; a profile that ran fewer would otherwise disappear
 # into a single global total, which is the failure the count exists to catch.
 EXPECTED_BASE_SCENARIOS=31
-EXPECTED_DB_SCENARIOS=74
+EXPECTED_DB_SCENARIOS=78
 SCENARIO_COUNT=0
 
 # Reset per profile by `db_profile_begin`; the label prefixes each `ok` line so

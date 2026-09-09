@@ -2534,7 +2534,11 @@ local function setup_projection_env(state, shared)
   settings = {}
   install_db(state, _G)
   if shared then
-    ngx = {shared = {ophal_projection_versions = shared}}
+    -- `ctx` as well as `shared`: `includes/request_state.lua` reads `ngx.ctx`
+    -- whenever `ngx` is present, and `includes/http_cache.lua` records every
+    -- projection version read through it. A stub with only the shared dict is
+    -- not a runtime this codebase would ever meet.
+    ngx = {shared = {ophal_projection_versions = shared}, ctx = {}}
   else
     ngx = nil
   end

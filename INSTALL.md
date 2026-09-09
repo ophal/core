@@ -337,6 +337,10 @@ reach for when something is wrong rather than slow.
     projection_version_miss_ttl = 5,
     projection_shared_dict = 'ophal_projection_versions',
 
+    -- HTTP caching
+    http_cache = true,
+    http_cache_shared_max_age = 0,
+
     -- Deferred work
     projection_rebuild_pending_ttl = 900,
     jobs = {
@@ -367,6 +371,30 @@ query on every request forever. Leave it non-zero unless you are testing.
 
 `projection_shared_dict` only matters if you renamed the `lua_shared_dict` zone
 declared in Section I. The two names must agree; they fail apart silently.
+
+**HTTP caching.** An anonymous `GET` that returns 200, sets no cookie and was
+built from at least one projection is served with an `ETag`, a `Last-Modified`
+and `cache-control: public, max-age=0, s-maxage=N, must-revalidate`. The
+validator is the set of projection versions the response was built from — a
+version is the second its source last changed — so a browser or CDN holding the
+page revalidates with `If-None-Match` and gets a 304 with no body until
+something behind the page actually changes. Everything else keeps the
+`no-cache` it always had: a signed-in request, a `POST`, a redirect, an error, a
+page served from the normalized fallback.
+
+`http_cache_shared_max_age` is the one dial worth thinking about, and its
+default of `0` is deliberate. At `0`, every request still reaches Ophal and
+almost all of them are answered with a 304 — you save the body, not the round
+trip. Raising it lets a shared cache answer without asking at all, and buys that
+with staleness: a published change is invisible to anyone behind that cache for
+up to that many seconds. Pick it the way you would pick a CDN TTL, not by
+copying a number from here. `http_cache = false` turns the whole thing off and
+restores the previous behaviour.
+
+Note that this replaced `settings.micro_cache`, which is gone. That answered
+`304` to any client whose `If-Modified-Since` was within five seconds of *now*,
+with no reference to the page — so a page edited inside that window was served
+as unchanged. Remove the key; it is ignored.
 
 **Deferred work.** `projection_rebuild_pending_ttl` is how long a queued
 projection rebuild is trusted before a request stops waiting for it. If the

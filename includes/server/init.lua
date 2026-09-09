@@ -1,4 +1,5 @@
 local request_state = require 'includes.request_state'
+local http_cache = require 'includes.http_cache'
 
 --[[ This request's output buffer.
 
@@ -23,8 +24,26 @@ local function request_header(name)
   return headers[name] or headers[lower(name)]
 end
 
+--[[ The first byte is where the response stops being negotiable.
+
+  Headers are gone once the body starts, so this is the last point at which
+  `includes/http_cache.lua` can say what the response is -- and, because Ophal's
+  handlers load their data and then print, it is also the first point at which
+  every projection version the page depends on has been read.
+
+  A 304 is expressed as "drop every write for the rest of the request" rather
+  than as an early exit. The shutdown path then runs exactly as it does for any
+  other response: modules get their exit hook, the session is written back, and
+  connections are released.
+]]
 function write(s)
-  return server_get_adapter().write(s)
+  local adapter = server_get_adapter()
+
+  if http_cache.finalize(adapter, server_get_request()) then
+    return
+  end
+
+  return adapter.write(s)
 end
 io.write = write
 
@@ -67,22 +86,18 @@ if ophal.version then
   header('x-powered-by', ophal.version)
 end
 
--- Browser micro cache control
-do
-  local if_modified_since = request_header 'If-Modified-Since'
+--[[ `settings.micro_cache` was here and is gone.
 
-  if settings.micro_cache and if_modified_since ~= nil then
-    local parsed = parse_date(if_modified_since)
-    local last_access = tonumber(('%s%s%s%s%s%s'):format(parsed.year, parsed.month, parsed.day, parsed.hours, parsed.minutes, parsed.seconds))
-    local now = tonumber(os.date('%Y%m%d%H%M%S', time()))
-    if last_access + 5 >= now then
-      header('status', '304 Not Modified')
-      header('cache-control', 'must-revalidate')
-      print ''
-      os.exit()
-    end
-  end
-end
+  It answered 304 to any client whose `If-Modified-Since` was within five
+  seconds of *now* -- no validator, no reference to the page, no idea whether
+  anything had changed. A page edited inside that window was served as
+  unchanged, and one untouched for a year was served in full the moment the
+  window lapsed. It was off by default, which is the only reason it never cost
+  anybody anything.
+
+  `includes/http_cache.lua` replaces it with a validator derived from the
+  projection versions the response was actually built from.
+]]
 
 -- Redirect to mobile domain name
 if settings.mobile then

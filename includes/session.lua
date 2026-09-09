@@ -36,6 +36,21 @@ local random = require 'includes.random'
 ]]
 local fs_stats = require 'includes.fs.stats'
 
+--[[ A request with a session is about one visitor, and says so.
+
+  `includes/http_cache.lua` disqualifies a response that carries a `Set-Cookie`,
+  and that is not enough on its own: a signed-in request *resumes* a session, so
+  the cookie was set at sign-in and this response emits none. The smoke suite
+  caught it -- `db_author_frontpage_warm` came back marked `public` with an ETag,
+  and the page is byte-for-byte the anonymous one, which is exactly why it had to
+  be asserted rather than reasoned about. A validator built from projection
+  versions describes the content, and content is not what makes a response
+  personal.
+
+  The session layer is what knows, so the session layer is what says it.
+]]
+local http_cache = require 'includes.http_cache'
+
 --[[ This request's session, or nil before `session_init()` has run.
 
   Read on entry to each function rather than held in a file upvalue. The
@@ -126,6 +141,7 @@ local function session_materialize()
 
   session.file.sign = sign
   session.open = true
+  http_cache.disable()
 
   if getmetatable(_SESSION) ~= nil then
     setmetatable(_SESSION, nil)
@@ -186,6 +202,9 @@ function session_start()
     session.data = _SESSION
     return
   end
+
+  -- Resuming a presented session is the signed-in case, among others.
+  http_cache.disable()
 
   if not session.open then
     -- Compute session filename

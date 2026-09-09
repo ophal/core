@@ -170,6 +170,28 @@ function adapter.header(name, value, replace)
   end
 end
 
+--[[ What has been set on the response so far.
+
+  `includes/http_cache.lua` has to know two things before the first byte goes
+  out: what status this response carries, and whether anything has put a cookie
+  on it. Both live in the runtime rather than in Ophal -- `adapter.header()`
+  writes straight into `ngx.header` and `ngx.status` -- so they are read back
+  through the adapter for the same reason they are written through it.
+]]
+function adapter.status()
+  local status = tonumber(ngx.status)
+
+  if status == nil or status == 0 then
+    return HTTP_OK
+  end
+
+  return status
+end
+
+function adapter.header_get(name)
+  return ngx.header[name]
+end
+
 function adapter.cookie(name, value, options)
   adapter.header('Set-Cookie', server_cookie_string(name, value, options), false)
 end

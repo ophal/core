@@ -370,7 +370,6 @@ function M.render_settings(options)
     "    logo_path = 'images/ophalproject.png',",
     ("    files_path = %q,"):format(config.files_path),
     '  }',
-    '  settings.micro_cache = false',
     '  settings.debugapi = true',
     '  settings.maintenance_mode = false',
     '  settings.output_buffering = false',

@@ -21,7 +21,6 @@ return function(settings, vault)
     token = (vault.cron or {}).token,
   }
 
-  settings.micro_cache = false
   settings.debugapi = true
   settings.maintenance_mode = false
   settings.output_buffering = false

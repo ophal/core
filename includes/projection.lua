@@ -1,5 +1,7 @@
 local M = {}
 
+local http_cache = require 'includes.http_cache'
+
 local time = os.time
 local floor = math.floor
 local version_cache = {}
@@ -221,7 +223,7 @@ function M.is_missing_table(err, table_name)
   return false
 end
 
-function M.version(key)
+local function read_version(key)
   local normalized = normalize_key(key)
   local shared = shared_versions_dict()
   local cached = version_cache[normalized]
@@ -268,6 +270,26 @@ function M.version(key)
   end
 
   return row
+end
+
+--[[ Read a projection version, and record that this response depends on it.
+
+  Wrapped rather than recorded at each `return` because there are five of them
+  -- two caches, a remembered miss, a query error and the row -- and a validator
+  that silently misses one describes a page by a subset of what built it, which
+  is the failure mode that matters: it would say "not modified" about something
+  that had.
+
+  A read outside a request -- cron, the CLI, the installer -- records into the
+  standalone request-state table and nothing ever reads it back.
+]]
+function M.version(key)
+  local normalized = normalize_key(key)
+  local value, err = read_version(normalized)
+
+  http_cache.depends(normalized, value)
+
+  return value, err
 end
 
 function M.max_version(keys)

@@ -104,6 +104,46 @@ assert_contains "$SEED_SECOND_TITLE"
 assert_query_budget 0 0
 report_ok "db_frontpage_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
+#[[ What the response says about itself to caches in front of it.
+#
+# Every response used to carry `cache-control: store, no-cache, must-revalidate`
+# and a `last-modified` of *now*, so a page that costs zero queries and zero
+# filesystem operations to produce was re-transferred in full to every visitor
+# and every intermediary, every time. The validator is the set of projection
+# versions the response was built from -- a version is the second its source
+# last changed, so if none of them moved, this is the same page.
+run_request db_frontpage_cacheable "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '[Ee][Tt]ag: *W/"[0-9a-f]+"'
+assert_regex '[Cc]ache-[Cc]ontrol: *public, max-age=0, s-maxage=0, must-revalidate'
+assert_regex '[Ll]ast-[Mm]odified:'
+assert_regex '[Vv]ary:.*Cookie'
+# The two that would each on their own make the response unshareable.
+assert_not_contains 'no-cache'
+assert_not_contains 'session-id='
+frontpage_etag=$(printf '%s\n' "$LAST_OUTPUT" |
+  sed -n 's/.*[Ee][Tt]ag: *\(.*\)/\1/p' | tr -d '\r' | tail -1)
+[[ -n "$frontpage_etag" ]] || fail 'the front page issued no ETag'
+report_ok "db_frontpage_cacheable ($frontpage_etag)"
+
+# The same request with the validator the last one handed out. A 304 carries no
+# body, which is the whole point, so the page's own text must be absent.
+run_request db_frontpage_revalidates -H "If-None-Match: $frontpage_etag" "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 304'
+assert_not_contains "$SEED_CONTENT_TITLE"
+report_ok db_frontpage_revalidates
+
+# A validator that does not match gets the page, not a 304. Without this the
+# scenario above passes just as well against a handler that answers 304 to
+# anything carrying an `If-None-Match` at all.
+run_request db_frontpage_stale_etag -H 'If-None-Match: W/"0000000000"' "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$SEED_CONTENT_TITLE"
+report_ok db_frontpage_stale_etag
+
 #[[ What an anonymous request costs the filesystem.
 #
 # It costs zero queries and has never been asked this. `session_init()` mints an
@@ -354,6 +394,15 @@ assert_contains "$SEED_CONTENT_TITLE"
 # cached by then, which is the end-to-end version of what
 # test_user_permissions.lua pins at the handler level.
 assert_query_budget 0 0
+#[[ And it is not cacheable, even though it costs the same to produce.
+#
+# The page is the same bytes as the anonymous one here, which is exactly why
+# this has to be asserted rather than reasoned about: a validator built from
+# projection versions describes the *content*, and content is not what makes a
+# signed-in response personal. The response carries the session cookie, which
+# `includes/http_cache.lua` treats as disqualifying on its own.
+assert_not_regex '[Ee][Tt]ag:'
+assert_regex '[Cc]ache-[Cc]ontrol:.*no-cache'
 report_ok "db_author_frontpage_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # The create. Tags are included because `entity_after_save()` is where the tag
@@ -412,6 +461,28 @@ assert_contains "$AUTHORED_TITLE"
 # the write's own cost.
 assert_query_budget 2 0
 report_ok "db_frontpage_after_create (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+#[[ The validator moved, because the projection version behind it did.
+#
+# This is the assertion that says the ETag describes the page rather than the
+# request: the same URL, the same anonymous visitor, a different answer. A
+# validator that did not move here would serve the pre-create front page to
+# every cache and every browser holding the old one, which is worse than not
+# caching at all -- and it is the failure `modules/boost` shipped with.
+run_request db_frontpage_etag_moves "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$AUTHORED_TITLE"
+frontpage_etag_after=$(printf '%s\n' "$LAST_OUTPUT" |
+  sed -n 's/.*[Ee][Tt]ag: *\(.*\)/\1/p' | tr -d '\r' | tail -1)
+[[ -n "$frontpage_etag_after" ]] || fail 'the front page issued no ETag after the create'
+[[ "$frontpage_etag_after" != "$frontpage_etag" ]] ||
+  fail "the ETag did not move across a content write: $frontpage_etag_after"
+# And the stale validator is refused rather than answered 304.
+run_request db_frontpage_etag_moves_revalidate -H "If-None-Match: $frontpage_etag" "$DB_URL/"
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$AUTHORED_TITLE"
+report_ok "db_frontpage_etag_moves ($frontpage_etag -> $frontpage_etag_after)"
 
 measure_request db_content_update -c "$author_cookie" -b "$author_cookie" \
   -H 'Content-Type: application/json' \

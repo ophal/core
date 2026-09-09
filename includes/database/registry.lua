@@ -45,8 +45,19 @@ end
   count + 1. A `?` inside a quoted literal is data rather than a placeholder --
   no statement here has one today, and finding out the hard way later is not
   worth the four lines it costs to be right now.
+
+  `?*` is a variadic slot: one placeholder per value, comma-separated. It is
+  what lets a statement whose *arity* is not known until it runs still be
+  declared -- an IN list as wide as an account has roles was the last value
+  interpolation in the codebase, and it was injectable. The arity is a compile
+  key rather than a runtime parameter, so the expansion happens once per width
+  per worker and the call is still a table lookup.
+
+  The separator is fixed at `, ` because every position that can take a
+  variadic slot is a comma list: an `IN (...)`, a `VALUES (...)` tuple. A slot
+  needing anything else is a different feature, not a parameter on this one.
 ]]
-local function split_placeholders(body)
+local function split_placeholders(body, arity)
   local pieces, start, quoted = {}, 1, false
   local i, n = 1, #body
 
@@ -66,6 +77,22 @@ local function split_placeholders(body)
       quoted = true
     elseif c == '?' then
       pieces[#pieces + 1] = sub(body, start, i - 1)
+
+      if sub(body, i + 1, i + 1) == '*' then
+        if arity == nil then
+          fail('?* needs an arity; reach the statement with db:list(): %s', body)
+        end
+
+        -- One placeholder is the chunk just pushed; each additional one needs a
+        -- separator piece in front of it. Arity is held to at least 1 by
+        -- `M.compile`, so this never renders an empty list.
+        for _ = 2, arity do
+          pieces[#pieces + 1] = ', '
+        end
+
+        i = i + 1
+      end
+
       start = i + 1
     end
 
@@ -247,6 +274,27 @@ function M.define(name, decl)
     end
   end
 
+  --[[ A variadic body is detected once, at load, rather than searched for on
+    every compile. Every dialect override is checked too: a statement that is a
+    list on one backend and not on another would take `db:list()` on one and
+    refuse it on the other, which is a portability break that would only show up
+    on whichever backend the test suite does not run.
+  ]]
+  do
+    local variadic = decl.sql:find('?*', 1, true) ~= nil
+
+    for key, value in pairs(decl) do
+      if type(value) == 'table' and type(value.sql) == 'string' then
+        if (value.sql:find('?*', 1, true) ~= nil) ~= variadic then
+          fail('%s is variadic on %s and not on its portable body; ?* has to '
+            .. 'be in both or neither', name, tostring(key))
+        end
+      end
+    end
+
+    decl.variadic = variadic
+  end
+
   decl.name = name
   statements[name] = decl
 
@@ -299,7 +347,7 @@ local function expand_macros(body, driver)
   end))
 end
 
-local function build(decl, driver, values, connection)
+local function build(decl, driver, values, connection, arity)
   local body = decl.sql
   local override = driver.dialect and decl[driver.dialect]
   local tables, pieces, count, sql, chunks, template
@@ -316,7 +364,7 @@ local function build(decl, driver, values, connection)
     body = substitute(body, decl, values, driver.quote_identifier, connection)
   end
 
-  pieces, count = split_placeholders(body)
+  pieces, count = split_placeholders(body, arity)
   sql, chunks, template = render(driver, pieces, count)
 
   tables = {}
@@ -352,7 +400,7 @@ end
   Identifier values are part of the key. Lookup walks one nested table per
   identifier and allocates nothing.
 ]]
-function M.compile(driver, name, values, connection)
+function M.compile(driver, name, values, connection, arity)
   local decl = statements[name]
   local per_driver = compiled[driver.name]
   local node
@@ -368,6 +416,29 @@ function M.compile(driver, name, values, connection)
     fail('%s takes identifiers; reach it with db:with(%q, ...)', name, name)
   end
 
+  --[[ Arity is a compile key, and it is required in both directions.
+
+    A variadic statement reached through `run()` would render one placeholder
+    and bind however many values the call passed, which is a silent wrong
+    answer rather than an error -- so it is named here. The reverse is cheap to
+    check and worth checking: `db:list()` on a fixed statement means the caller
+    believes it takes a list, and it does not.
+
+    Zero is refused rather than rendered. `IN ()` is a syntax error on every
+    backend, and the empty case is a question about the caller's intent -- no
+    roles means no permissions, which is a branch, not a query.
+  ]]
+  if decl.variadic then
+    if arity == nil then
+      fail('%s takes a list; reach it with db:list(%q, values)', name, name)
+    elseif arity < 1 then
+      fail('%s was given an empty list; decide what no values means at the '
+        .. 'call site rather than rendering IN ()', name)
+    end
+  elseif arity ~= nil then
+    fail('%s takes no list; reach it with db:run(%q, ...)', name, name)
+  end
+
   if per_driver == nil then
     per_driver = {}
     compiled[driver.name] = per_driver
@@ -375,7 +446,7 @@ function M.compile(driver, name, values, connection)
 
   node = per_driver[name]
 
-  if decl.idents == nil then
+  if decl.idents == nil and not decl.variadic then
     if node == nil then
       node = build(decl, driver, nil, connection)
       per_driver[name] = node
@@ -391,7 +462,7 @@ function M.compile(driver, name, values, connection)
 
   -- `order` fixes the walk, so the same identifiers always reach the same leaf.
   -- `define()` has already held it to the declared identifiers.
-  for _, key in ipairs(decl.order) do
+  for _, key in ipairs(decl.order or {}) do
     local value = values[key]
     local next_node = node[value]
 
@@ -403,8 +474,22 @@ function M.compile(driver, name, values, connection)
     node = next_node
   end
 
+  -- Arity is the last level, so a statement that is both variadic and
+  -- identifier-bearing keys on the identifiers first and the width beneath
+  -- them, which is the order `with()` already walks.
+  if arity ~= nil then
+    local next_node = node[arity]
+
+    if next_node == nil then
+      next_node = {}
+      node[arity] = next_node
+    end
+
+    node = next_node
+  end
+
   if node.compiled == nil then
-    node.compiled = build(decl, driver, values, connection)
+    node.compiled = build(decl, driver, values, connection, arity)
   end
 
   return node.compiled

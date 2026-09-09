@@ -23,6 +23,8 @@ local M = {}
 
 local registry = require 'includes.database.registry'
 
+local unpack = unpack or table.unpack
+
 require 'includes.database.statements'
 
 --[[ The driver a stand-in compiles for.
@@ -96,6 +98,33 @@ function M.connection(dispatch)
           normalize(registry.compile(DRIVER, name, values, conn).sql), ...)
       end,
     }
+  end
+
+  --[[ A declared statement whose width the caller decides.
+
+    Compiled at the arity the call passes, so a SQL-dispatching stand-in sees
+    the expanded `IN (?, ?, ?)` a backend would rather than the `?*` the
+    declaration carries -- which is what lets a test assert the placeholder
+    count as well as the values.
+  ]]
+  function conn:list(name, values)
+    local decl = registry.declaration(name)
+
+    if decl == nil then
+      error('undeclared statement: ' .. tostring(name), 0)
+    end
+
+    if type(values) ~= 'table' then
+      error('db:list takes a list of values', 0)
+    end
+
+    if dispatch.statement then
+      return dispatch.statement(name, unpack(values, 1, #values))
+    end
+
+    return dispatch.sql(
+      normalize(registry.compile(DRIVER, name, nil, conn, #values).sql),
+      unpack(values, 1, #values))
   end
 
   function conn:try(name, ...)

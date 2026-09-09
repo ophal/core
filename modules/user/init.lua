@@ -546,55 +546,42 @@ do
       if config.permissions_storage then
         local roles = xtable(get_user_roles(user_id) or {})
 
-        --[[ Ad-hoc, and the one statement here that cannot be declared.
+        --[[ Declared and variadic, reached with `db:list()`.
 
-          The IN list is as wide as the account has roles, so its arity is not
-          known until it runs -- a declared statement has a fixed number of
-          placeholders by construction. `db:execute()` is what the layer offers
-          for text that is not known until it runs, and attribution falls back
-          to the tokenizer for it.
+          This was assembled here until 2026-09-08 -- `IN ('%s')` over a
+          concatenation of the role ids -- because a declared statement fixes
+          its placeholder count at load time and this list is as wide as the
+          account has roles. `?*` removed that reason. The ids came from
+          `user_role` rather than from a request, which is why it stood, but it
+          was the last value interpolation in the codebase and
+          `tests/bench/injection_probe.lua` shows the shape returning a row from
+          a WHERE clause written to match nothing on every backend.
 
-          **The values are bound, not formatted in.** They were interpolated
-          until 2026-09-08, and the argument for it was that role ids come from
-          `user_role` rather than from a request. That was true and it was the
-          wrong thing to rest on: it was the only place left in the codebase
-          where a *value* reached SQL as text, and the admin UI for roles
-          that this anticipates would make it reachable.
-          `tests/bench/injection_probe.lua` runs this exact shape both ways
-          against all three backends -- concatenated, one hostile id returns a
-          row from a WHERE clause written to match nothing, on every one of
-          them.
-
-          Every value is bound, gathered with `pairs` rather than over the
-          array part. `roles:concat()` is seawolf's `table_concat`, which walks
-          `pairs` and not `ipairs` -- so it read the `anonymous` and
-          `authenticated` markers, which are string *keys*, alongside the
-          numeric role ids, and `role_permission` holds rows for both. Binding
-          `1 .. #roles` instead silently drops the markers and every
-          role-derived permission with them, which is what
-          `perm_granted` catches.
+          Every value is passed, gathered with `pairs` rather than over the
+          array part. `roles:concat()` was seawolf's `table_concat`, which walks
+          `pairs` and not `ipairs`, so it read the `anonymous` and
+          `authenticated` markers -- string *keys* -- alongside the numeric role
+          ids, and `role_permission` holds rows for both. Taking only
+          `1 .. #roles` silently drops the markers and every permission that
+          comes with one; `perm_granted` is what catches it.
 
           Runs once per role set per worker: `test_user_permissions.lua` pins
           the cold cost at four queries and the warm at zero.
         ]]
-        local marks, values = {}, {}
+        local values = {}
 
         for _, role_id in pairs(roles) do
           values[#values + 1] = role_id
-          marks[#marks + 1] = '?'
         end
 
-        -- No roles means no rows to match, and `IN ()` is a syntax error on
-        -- every backend where the old `IN ('')` was merely a query that found
-        -- nothing. `get_user_roles()` always returns at least one marker, so
-        -- this is a guard against a future shape rather than a live branch.
-        if #marks > 0 then
-          local rs = db_connection():execute(([[
-SELECT permission
-FROM role_permission
-WHERE role_id IN (%s)
-GROUP BY permission
-ORDER BY permission]]):format(tconcat(marks, ', ')), unpack(values))
+        -- No roles means no rows to match. The layer refuses a zero-width list
+        -- rather than rendering `IN ()`, which is a syntax error everywhere, so
+        -- the empty case is answered here. `get_user_roles()` always returns at
+        -- least one marker, so this guards a future shape rather than a live
+        -- branch.
+        if #values > 0 then
+          local rs = db_connection():list('user.role_permissions', values)
+
           for row in rs:rows(true) do
             if nil == permissions[row.permission] then
               permissions[row.permission] = true

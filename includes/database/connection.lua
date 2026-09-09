@@ -29,6 +29,7 @@ local stats = require 'includes.database.stats'
 local db_result = require 'includes.database.result'
 
 local setmetatable, select, type, ipairs = setmetatable, select, type, ipairs
+local unpack = unpack or table.unpack
 
 local Connection = {}
 local Statement = {}
@@ -173,6 +174,52 @@ function Connection:run(name, ...)
   end
 
   return run_compiled(s, compiled, ...)
+end
+
+--[[ Run a declared statement whose width is decided by the caller.
+
+  For a `?*` slot: an IN list as wide as an account has roles, which was the
+  last value interpolation in the codebase and was injectable --
+  `tests/bench/injection_probe.lua` shows one hostile id returning a row from a
+  WHERE clause written to match nothing, on all three backends.
+
+    db:list('user.role_permissions', role_ids)
+
+  The values arrive as a table rather than as varargs, because the caller has
+  one already and the arity has to be read before anything is compiled. That is
+  one table per call, against none for `run()`, and it is the right trade for a
+  statement whose width varies: the compiled form is still cached per width per
+  worker, so nothing is built here beyond the first call at each size.
+
+  `#values` is the arity, so a list with a nil in the middle is a shorter list.
+  That is Lua's own rule for `#` and there is nothing useful this could do
+  instead -- a caller with optional values wants a different statement, not a
+  hole in this one.
+]]
+function Connection:list(name, values)
+  local s = own(self)
+  local arity, compiled, per_name
+
+  if type(values) ~= 'table' then
+    fail('%s takes a list of values, got %s', tostring(name), type(values))
+  end
+
+  arity = #values
+  per_name = s.lists[name]
+
+  if per_name == nil then
+    per_name = {}
+    s.lists[name] = per_name
+  end
+
+  compiled = per_name[arity]
+
+  if compiled == nil then
+    compiled = registry.compile(s.driver, name, nil, self, arity)
+    per_name[arity] = compiled
+  end
+
+  return run_compiled(s, compiled, unpack(values, 1, arity))
 end
 
 --[[ The same, returning `nil, err` instead of raising.
@@ -471,6 +518,8 @@ function M.open(name)
     request = request_state.current(),
     compiled = {},
     with = {},
+    -- Compiled forms keyed by name and then by width, for `list()`.
+    lists = {},
     schema = {},
   }
 

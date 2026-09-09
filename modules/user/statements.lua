@@ -42,6 +42,27 @@ define('user.role_list', {
   tables = {'role'},
 })
 
+--[[ The permissions a set of roles grants.
+
+  Variadic, because the IN list is as wide as the account has roles and a
+  declared statement fixes its placeholder count at load time. That is the whole
+  reason this was assembled at the call site instead of declared -- and it was
+  assembled by formatting the ids into the statement, which
+  `tests/bench/injection_probe.lua` shows returning a row from a WHERE clause
+  written to match nothing, on all three backends.
+
+  `db:list()` is how it is reached; the width is a compile key, so each distinct
+  role count is compiled once per worker.
+]]
+define('user.role_permissions', {
+  sql = [[SELECT permission
+FROM role_permission
+WHERE role_id IN (?*)
+GROUP BY permission
+ORDER BY permission]],
+  tables = {'role_permission'},
+})
+
 define('user.roles', {
   sql = [[SELECT ur.role_id
 FROM user_role ur JOIN role r ON ur.role_id = r.id

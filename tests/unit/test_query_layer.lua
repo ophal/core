@@ -454,6 +454,85 @@ do
   request_state.reset()
 end
 
+io.write '\n-- variadic statements --\n'
+
+--[[ `?*` is what lets a statement whose *width* is not known until it runs be
+  declared rather than assembled. The permission read was the last value
+  interpolation in the codebase and it was injectable; this is the mechanism
+  that removes the reason for it.
+]]
+do
+  local pgmoon = require 'includes.database.driver.pgmoon'
+  local sqlite = require 'includes.database.driver.lsqlite3'
+  local mysql = require 'includes.database.driver.resty_mysql'
+
+  registry.define('test.in_list', {
+    sql = 'SELECT permission FROM role_permission WHERE role_id IN (?*)',
+    tables = {'role_permission'},
+  })
+
+  assert_eq('variadic_detected_at_define',
+    registry.declaration('test.in_list').variadic, true)
+  assert_eq('fixed_statement_is_not_variadic',
+    registry.declaration('test.point').variadic, false)
+
+  -- One placeholder per value, comma separated, in every placeholder style.
+  assert_eq('variadic_one_value_question',
+    registry.compile(sqlite, 'test.in_list', nil, nil, 1).sql,
+    'SELECT permission FROM role_permission WHERE role_id IN (?)')
+  assert_eq('variadic_three_values_question',
+    registry.compile(sqlite, 'test.in_list', nil, nil, 3).sql,
+    'SELECT permission FROM role_permission WHERE role_id IN (?, ?, ?)')
+  assert_eq('variadic_numbered_renumbers',
+    registry.compile(pgmoon, 'test.in_list', nil, nil, 3).sql,
+    'SELECT permission FROM role_permission WHERE role_id IN ($1, $2, $3)')
+  assert_eq('variadic_template_for_non_binding',
+    registry.compile(mysql, 'test.in_list', nil, nil, 2).template,
+    'SELECT permission FROM role_permission WHERE role_id IN (%s, %s)')
+
+  -- The arity reaches the driver, which is what decides how many values are
+  -- bound or escaped. A wrong count here is a silent wrong answer.
+  assert_eq('variadic_nparams_follows_arity',
+    registry.compile(sqlite, 'test.in_list', nil, nil, 4).nparams, 4)
+
+  -- Each width is compiled once and cached under its own key, so a second call
+  -- at the same width is a lookup and a different width is not a collision.
+  assert_truthy('variadic_same_width_is_cached',
+    registry.compile(sqlite, 'test.in_list', nil, nil, 3)
+      == registry.compile(sqlite, 'test.in_list', nil, nil, 3))
+  assert_eq('variadic_widths_do_not_collide',
+    registry.compile(sqlite, 'test.in_list', nil, nil, 2)
+      == registry.compile(sqlite, 'test.in_list', nil, nil, 3), false)
+
+  --[[ Both directions are refused, and each for its own reason.
+
+    A variadic statement reached without an arity would render one placeholder
+    and bind however many the caller passed -- a wrong answer rather than an
+    error. A fixed statement reached with one means the caller believes it takes
+    a list, and it does not.
+
+    Zero is refused rather than rendered: `IN ()` is a syntax error everywhere,
+    and "no values" is a question about the caller's intent -- no roles means no
+    permissions, which is a branch and not a query.
+  ]]
+  assert_raises('variadic_without_arity_refused', 'reach it with db:list',
+    registry.compile, sqlite, 'test.in_list')
+  assert_raises('fixed_with_arity_refused', 'takes no list',
+    registry.compile, sqlite, 'test.point', nil, nil, 2)
+  assert_raises('variadic_empty_list_refused', 'empty list',
+    registry.compile, sqlite, 'test.in_list', nil, nil, 0)
+
+  -- A `?*` that is variadic on one dialect and not on another would take
+  -- `db:list()` on one backend and refuse it on the other, which would only
+  -- surface on whichever backend the suite does not run.
+  assert_raises('variadic_must_agree_across_dialects', 'in both or neither',
+    registry.define, 'test.in_list_split', {
+      sql = 'SELECT 1 FROM t WHERE a IN (?*)',
+      postgresql = {sql = 'SELECT 1 FROM t WHERE a = ?'},
+      tables = {'t'},
+    })
+end
+
 io.write(('\n%d passed, %d failed\n'):format(passed, failed))
 
 if failed > 0 then

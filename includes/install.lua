@@ -210,39 +210,29 @@ local function runtime_warning_for_driver(driver)
   end
 end
 
+--[[ The site hash, from the CSPRNG.
+
+  This used to try three shapes of uuid binding and, failing all of them, fall
+  back to
+
+      math.randomseed(os.time())
+      return ('install-%d-%06d'):format(os.time(), math.random(0, 999999))
+
+  which puts its own seed in the string it returns: given the value, the six
+  digits are recomputable, so its entropy is zero rather than small. Nothing
+  reads `site.hash` today, which is why it never mattered -- and is exactly why
+  it would have mattered later, the first time something signed with it.
+
+  `includes/random.lua` reads a CSPRNG or raises, so there is no longer a weak
+  path to fall into. Failing the install is the correct outcome: a site whose
+  secret is guessable should not be created.
+]]
 local function generate_site_hash(options)
   if type(options.generate_site_hash) == 'function' then
     return tostring(options.generate_site_hash())
   end
 
-  local ok, uuid = pcall(require, 'uuid')
-  if ok then
-    local value
-
-    if type(uuid) == 'function' then
-      ok, value = pcall(uuid)
-      if ok and value then
-        return tostring(value)
-      end
-    end
-
-    if type(uuid.new) == 'function' then
-      ok, value = pcall(uuid.new, uuid)
-      if ok and value then
-        return tostring(value)
-      end
-    end
-
-    if type(uuid.generate) == 'function' then
-      ok, value = pcall(uuid.generate, uuid)
-      if ok and value then
-        return tostring(value)
-      end
-    end
-  end
-
-  math.randomseed(os.time())
-  return ('install-%d-%06d'):format(os.time(), math.random(0, 999999))
+  return require('includes.random').hex(32)
 end
 
 local function build_config(options)

@@ -25,6 +25,10 @@ local settings, floor = settings, math.floor
 -- below replaces this file's environment with the module table, so a bare
 -- global call would not resolve once the module is open.
 local secure_equals = secure_equals
+-- Captured for the same reason, and required rather than reached through a
+-- global because `includes/random.lua` is a plain module: password salts came
+-- from `uuid.new()`, whose strength is the installed uuid binding's default.
+local random = require 'includes.random'
 
 --[[ This request's session and query arguments.
 
@@ -214,7 +218,10 @@ function password_hash(password, options)
   end
 
   if empty(hash_options.salt) then
-    hash_options.salt = (uuid.new() or ''):gsub('%-', '')
+    -- 16 bytes of CSPRNG output. A salt does not have to be secret, but it
+    -- does have to be unique per password, and `uuid.new()` was only as unique
+    -- as whichever generation mode libuuid happened to default to.
+    hash_options.salt = random.hex(16)
   end
 
   return ('%s%s$%d$%s$%s'):format(

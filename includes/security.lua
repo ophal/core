@@ -1,5 +1,6 @@
 local empty = seawolf.variable.empty
 local lower = string.lower
+local random = require 'includes.random'
 
 local function request_header(name)
   local request = type(server_get_request) == 'function' and server_get_request()
@@ -78,7 +79,10 @@ function csrf_token()
   end
 
   if empty(_SESSION.csrf_token) then
-    _SESSION.csrf_token = uuid.new()
+    -- 32 bytes of CSPRNG output rather than `uuid.new()`, whose strength is
+    -- the installed uuid binding's default. Hex rather than a UUID shape,
+    -- because nothing checks this one's format -- it is only ever compared.
+    _SESSION.csrf_token = random.hex(32)
   end
 
   return _SESSION.csrf_token

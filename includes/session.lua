@@ -3,6 +3,17 @@ local safe_open, safe_write = seawolf.fs.safe_open, seawolf.fs.safe_write
 local safe_close, table_dump = seawolf.fs.safe_close, seawolf.contrib.table_dump
 local time, rawset, tconcat = os.time, rawset, table.concat
 local format, empty = string.format, seawolf.variable.empty
+--[[ Session ids come from the CSPRNG, not from `uuid.new()`.
+
+  `uuid` here is whatever binding is installed -- production is told to install
+  `luuid`, over libuuid, which can generate time-and-MAC based UUIDs as well as
+  random ones, and which of those `new()` returns is that library's default
+  rather than this project's choice. A session id is the credential for a whole
+  session, so it is generated from a source this codebase knows the strength
+  of. `uuid.isvalid()` still gates what arrives in the cookie, and
+  `random.uuid()` produces the same 8-4-4-4-12 shape so that check is unchanged.
+]]
+local random = require 'includes.random'
 
 --[[ This request's session, or nil before `session_init()` has run.
 
@@ -30,7 +41,7 @@ function session_init()
   local session_id = ophal.cookies['session-id'] or ''
   -- if session ID is not valid then set a new ID
   if not uuid.isvalid(session_id) then
-    session_id = uuid.new()
+    session_id = random.uuid()
     -- Delegate cookie header to ophal.header
     cookie_set('session-id', session_id, 3*60*60, base.route, get_cookie_domain())
   end
@@ -180,7 +191,7 @@ function session_regenerate()
     os.remove(session.file.name)
   end
 
-  session.id = uuid.new()
+  session.id = random.uuid()
   session.file = {}
 
   cookie_set('session-id', session.id, 3*60*60, base.route, get_cookie_domain())

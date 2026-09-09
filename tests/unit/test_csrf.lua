@@ -32,8 +32,20 @@ local function setup_security_env()
   }
   _G._SESSION = {}
   _G._GET = {}
+  --[[ The CSRF token comes from `includes/random.lua` now, not `uuid.new()`.
+
+    Stubbed at the module rather than left to the real CSPRNG, so the token is
+    a value these assertions can name. The stub has to be installed before
+    `security.lua` is loaded, because that file captures the module in a local.
+  ]]
   _G.uuid = {
     new = function() return 'csrf-token-1' end,
+  }
+  package.loaded['includes.random'] = {
+    hex = function() return 'csrf-token-1' end,
+    uuid = function() return 'csrf-token-1' end,
+    bytes = function(n) return ('x'):rep(n) end,
+    reset = function() end,
   }
   _G.seawolf = {
     variable = {

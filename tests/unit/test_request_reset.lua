@@ -444,6 +444,15 @@ do
     isvalid = function(s) return s and #s > 5 end,
     new = function() uuid_counter = uuid_counter + 1; return 'new-uuid-' .. uuid_counter end,
   }
+  -- Session ids come from `includes/random.lua` now. `isvalid` above still
+  -- gates what arrives in the cookie, so both are stubbed: the generator here
+  -- and the format check on `uuid`.
+  package.loaded['includes.random'] = {
+    uuid = function() uuid_counter = uuid_counter + 1; return 'new-uuid-' .. uuid_counter end,
+    hex = function(n) return ('a'):rep(n * 2) end,
+    bytes = function(n) return ('x'):rep(n) end,
+    reset = function() end,
+  }
   env.uuid = _G.uuid
   _G.cookie_set = function() end
   env.cookie_set = _G.cookie_set
@@ -502,6 +511,12 @@ do
   _G.uuid = {
     isvalid = function(v) return v and #v > 5 end,
     new = function() uuid_counter = uuid_counter + 1; return 'rotated-' .. uuid_counter end,
+  }
+  package.loaded['includes.random'] = {
+    uuid = function() uuid_counter = uuid_counter + 1; return 'rotated-' .. uuid_counter end,
+    hex = function(n) return ('a'):rep(n * 2) end,
+    bytes = function(n) return ('x'):rep(n) end,
+    reset = function() end,
   }
   env.uuid = _G.uuid
   _G.cookie_set = function(name, value)

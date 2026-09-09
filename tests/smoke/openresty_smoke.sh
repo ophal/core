@@ -868,6 +868,54 @@ start_db_openresty() {
   fail "the $SMOKE_DB_BACKEND openresty instance did not become ready"
 }
 
+# Runs the injection probe against this profile's backend.
+#
+# Folded into the profiles by stage 8.7 so it runs on every backend on every
+# run, which is what the plan asked for: until now it was a thing somebody
+# remembered. It runs last in a profile and against the lab's own
+# `ophal_bench` database rather than the measured one, because it creates and
+# drops a canary table and a measured database has budgets pinned on it.
+#
+# The probe asserts its own per-backend assertion count, so a probe that
+# stopped early is a failure rather than a smaller number nobody was reading.
+db_injection_probe() {
+  local output status label
+  local -a probe_env
+
+  case "$SMOKE_DB_BACKEND" in
+    sqlite3) label=SQLite ;;
+    postgresql) label=PostgreSQL ;;
+    mysql) label=MySQL ;;
+    *) fail "no injection probe label for the $SMOKE_DB_BACKEND backend" ;;
+  esac
+
+  probe_env=(
+    "LUA_PATH=$VENDOR_LUA_PATH"
+    "LUA_CPATH=$VENDOR_LUA_CPATH"
+    "OPHAL_PROBE_BACKEND=$label"
+    "OPHAL_BENCH_SQLITE=$SMOKE_DB_WORK/injection.sqlite"
+    "OPHAL_BENCH_PG_HOST=$BACKEND_PG_HOST"
+    "OPHAL_BENCH_PG_PORT=$BACKEND_PG_PORT"
+    "OPHAL_BENCH_PG_USER=$BACKEND_PG_USER"
+    "OPHAL_BENCH_PG_PASS=$BACKEND_PG_PASS"
+  )
+  if [[ -n "$VENDOR_LD_LIB_DIR" ]]; then
+    probe_env+=("LD_LIBRARY_PATH=$VENDOR_LD_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}")
+  fi
+
+  LAST_SCENARIO="db_injection_probe"
+  set +e
+  output=$(cd "$ROOT" && env "${probe_env[@]}" resty -c 512 \
+    tests/bench/injection_probe.lua 2>&1)
+  status=$?
+  set -e
+  LAST_OUTPUT=$output
+  LAST_STATUS=$status
+
+  [[ $status -eq 0 ]] || fail "the injection probe failed on $SMOKE_DB_BACKEND"
+  assert_contains '0 failed'
+}
+
 # Stopped between profiles rather than left running: each holds a worker, a
 # connection pool and a lua_shared_dict, and the next profile has to warm its
 # own caches from cold for its budgets to mean what the previous one's did.
@@ -958,7 +1006,7 @@ report_ok() {
 # to come back from each; a profile that ran fewer would otherwise disappear
 # into a single global total, which is the failure the count exists to catch.
 EXPECTED_BASE_SCENARIOS=31
-EXPECTED_DB_SCENARIOS=71
+EXPECTED_DB_SCENARIOS=72
 SCENARIO_COUNT=0
 
 # Reset per profile by `db_profile_begin`; the label prefixes each `ok` line so

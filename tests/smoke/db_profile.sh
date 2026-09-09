@@ -918,3 +918,14 @@ if [[ "$(wc -c < "$SMOKE_DB_FILES/.incoming/$ordered_id")" != '4104' ]]; then
 fi
 report_ok db_media_ordered_kept_both
 
+# The injection probe, against this profile's backend.
+#
+# Last in the profile, so nothing it creates can move a budget measured above
+# it. It is here rather than in a script somebody runs by hand because that is
+# the difference between a surface that is closed and a surface that was
+# checked once: `tests/bench/injection_probe.lua` pushes ten value payloads and
+# nine identifier payloads through the bound path, the escaped path, `{ident}`,
+# `{ident:bare}`, a composed statement, ad-hoc `db:execute()` and a
+# second-order case that stores a payload and reads it back as an identifier.
+db_injection_probe
+report_ok "db_injection_probe ($(printf '%s' "$LAST_OUTPUT" | sed -n 's/^\([0-9]* passed.*\)$/\1/p' | tail -1))"

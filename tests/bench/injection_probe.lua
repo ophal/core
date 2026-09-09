@@ -18,21 +18,39 @@
 
 package.path = './?.lua;./?/init.lua;' .. package.path
 
+--[[ The lab's defaults, overridable so a caller pointing the suite at another
+  server cannot end up probing this one instead.
+
+  `tests/smoke/openresty_smoke.sh` takes the same overrides, which is what keeps
+  the profile it measures and the backend it probes the same machine.
+]]
+local getenv = os.getenv
+
+local function env(name, fallback)
+  local value = getenv(name)
+
+  return (value ~= nil and value ~= '') and value or fallback
+end
+
 settings = {
   db = {
     default = {
-      driver = 'pgmoon', database = 'ophal_bench',
-      username = 'ophal', password = 'ophal',
-      host = '127.0.0.1', port = 15432,
+      driver = 'pgmoon', database = env('OPHAL_BENCH_PG_DATABASE', 'ophal_bench'),
+      username = env('OPHAL_BENCH_PG_USER', 'ophal'),
+      password = env('OPHAL_BENCH_PG_PASS', 'ophal'),
+      host = env('OPHAL_BENCH_PG_HOST', '127.0.0.1'),
+      port = tonumber(env('OPHAL_BENCH_PG_PORT', '15432')),
     },
     mysql = {
-      driver = 'resty-mysql', database = 'ophal_bench',
-      username = 'ophal', password = 'ophal',
-      host = '127.0.0.1', port = 13306,
+      driver = 'resty-mysql', database = env('OPHAL_BENCH_MY_DATABASE', 'ophal_bench'),
+      username = env('OPHAL_BENCH_MY_USER', 'ophal'),
+      password = env('OPHAL_BENCH_MY_PASS', 'ophal'),
+      host = env('OPHAL_BENCH_MY_HOST', '127.0.0.1'),
+      port = tonumber(env('OPHAL_BENCH_MY_PORT', '13306')),
     },
     sqlite = {
       driver = 'SQLite3',
-      database = os.getenv('OPHAL_BENCH_SQLITE') or '/tmp/ophal_injection.sqlite',
+      database = env('OPHAL_BENCH_SQLITE', '/tmp/ophal_injection.sqlite'),
     },
   },
   performance = {query_stats = false},
@@ -382,10 +400,57 @@ SELECT id FROM ophal_canary WHERE title = 'nothing' OR note IN ('%s')]])
   assert_eq(('%s_canary_survives_everything'):format(driver), count(name), 1)
 end
 
+--[[ Which backends to probe, and how many assertions each owes.
+
+  All three by default, which is what `run_injection_probe.sh` does. A single
+  label is what the smoke suite passes: since stage 8.7 each database profile
+  runs the probe against its own backend, so the probe is part of every build
+  rather than something a person remembers -- and a checkout with only SQLite
+  still gets one.
+
+  The per-backend count is the same discipline as the smoke suite's scenario
+  count, and for the same reason: a probe that silently stopped after ten
+  assertions would exit 0 and print a number nobody was checking. Every backend
+  runs one identical body, so all three owe the same total; it goes up when an
+  assertion is added, which is a deliberate edit visible in the diff.
+]]
+local BACKENDS = {
+  PostgreSQL = nil,
+  MySQL = 'mysql',
+  SQLite = 'sqlite',
+}
+
+local ORDER = {'PostgreSQL', 'MySQL', 'SQLite'}
+local EXPECTED_PER_BACKEND = 49
+
+local only = getenv('OPHAL_PROBE_BACKEND')
+
 io.write('=== injection probe ===\n')
-probe('PostgreSQL', nil)
-probe('MySQL', 'mysql')
-probe('SQLite', 'sqlite')
+
+local probed = 0
+
+for _, label in ipairs(ORDER) do
+  if only == nil or only == '' or only == label then
+    local before = passed + failed
+
+    probe(label, BACKENDS[label])
+    probed = probed + 1
+
+    local ran = passed + failed - before
+
+    if ran ~= EXPECTED_PER_BACKEND then
+      bad(('%s_assertion_count'):format(label:lower()),
+        ('ran %d assertions, expected %d -- every backend runs one identical '
+          .. 'body, so they cannot differ; update EXPECTED_PER_BACKEND '
+          .. 'deliberately'):format(ran, EXPECTED_PER_BACKEND))
+    end
+  end
+end
+
+if probed == 0 then
+  bad('backend_selected', ('OPHAL_PROBE_BACKEND=%q names no backend; it is one '
+    .. 'of PostgreSQL, MySQL or SQLite'):format(tostring(only)))
+end
 
 io.write(('\n%d passed, %d failed\n'):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

@@ -966,6 +966,30 @@ do
     select(2, composed.sql:gsub("LIKE '%%draft%%'", '')), 2)
 end
 
+io.write '\n-- a driver that is not reachable --\n'
+
+--[[ `lua-resty-mysql` ships with OpenResty rather than being installed, so
+  `module 'resty.mysql' not found` and its page of search paths says the wrong
+  thing: the process is not OpenResty, and no rock would fix it. The unit suite
+  runs under `lua5.1`, so this is the failure exactly as the command line meets
+  it -- which is where a MySQL site actually hits it, since `ophal migrate
+  apply` has to run under `resty`.
+]]
+do
+  local mysql = require 'includes.database.driver.resty_mysql'
+  local handle, err = mysql.connect({host = '127.0.0.1', database = 'ophal'})
+
+  assert_eq('mysql_without_openresty_refuses', handle, nil)
+  assert_truthy('mysql_without_openresty_names_resty',
+    tostring(err):match('resty'))
+  assert_truthy('mysql_without_openresty_names_the_command',
+    tostring(err):match('ophal migrate apply'))
+  -- The message it replaced. A search-path dump names the loader rather than
+  -- the thing that is wrong.
+  assert_eq('mysql_without_openresty_hides_the_search_path',
+    tostring(err):match('no file') , nil)
+end
+
 io.write(('\n%d passed, %d failed\n'):format(passed, failed))
 
 if failed > 0 then

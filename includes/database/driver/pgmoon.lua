@@ -116,9 +116,18 @@ end
   issue a ROLLBACK when `transaction_status` is `T` or `E`, but that is a repair
   of a broken invariant rather than the invariant: the layer's `transaction()`
   is what makes the state known before this is reached.
+
+  Pooling is a cosocket facility, so the test is the socket rather than the
+  method: `handle.keepalive` is defined whatever the socket is, and pgmoon's
+  LuaSocket backend *raises* from `setkeepalive` instead of declining. That is
+  the runtime the `ophal` CLI, the installer and migrations run in, so a driver
+  asking for a pool there turns every released connection into an error --
+  after the work committed, which is the worst place for one. Under LuaSocket
+  the connection is simply closed, which is what a one-shot process wants
+  anyway.
 ]]
 function M.release(handle, ok)
-  if ok and handle.keepalive then
+  if ok and handle.sock_type == 'nginx' then
     local pooled = handle:keepalive()
 
     if pooled then

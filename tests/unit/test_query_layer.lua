@@ -674,6 +674,122 @@ do
     {table = 'content', parent = 'users'}, fake)
 end
 
+--[[ A resolver may block, so it cannot run inside the text pass.
+
+  This is stage 8.7's PostgreSQL profile in miniature, and it needs no database.
+  A resolver is a schema lookup, and `connection:table()` reads
+  `core.table_schema` the first time it is asked about a table -- which on a
+  cosocket driver *yields*. Resolvers used to be called from inside
+  `substitute()`'s `gsub` replacement function, and neither LuaJIT nor PUC Lua
+  can yield out of one: the compile raised `attempt to yield across C-call
+  boundary`, from a line mentioning no socket and no coroutine.
+
+  SQLite has no socket, so it could not happen there, and SQLite was the only
+  backend anything ran against -- which made every identifier statement in the
+  codebase broken on PostgreSQL and MySQL and green on the one that could not
+  show it: the three `load_by_field`, both `entity.delete*`, and
+  `tag.legacy_arm`.
+
+  Driving it through a coroutine is what turns "yields" into something a unit
+  test can assert. The resolver yields once; the compile has to survive that and
+  finish.
+]]
+do
+  local pgmoon = require 'includes.database.driver.pgmoon'
+  local calls = 0
+  local fake = {}
+
+  function fake:table(name)
+    return name == 'content' and name or nil
+  end
+
+  registry.define('test.blocking_resolver', {
+    -- The identifier appears three times, twice bare, once quoted -- the shape
+    -- of `tag.legacy_arm`, which is the declaration that reaches a real schema
+    -- lookup on the tag listing's fallback.
+    sql = [[SELECT '{table:bare}' kind FROM {table} WHERE {table:bare}_id = ?]],
+    idents = {
+      table = function(value, conn)
+        calls = calls + 1
+        coroutine.yield('resolving')
+
+        return conn:table(value)
+      end,
+    },
+    order = {'table'},
+    tables = {'{table}'},
+  })
+
+  local co = coroutine.create(function()
+    return registry.compile(
+      pgmoon, 'test.blocking_resolver', {table = 'content'}, fake)
+  end)
+
+  local resumed, yielded = coroutine.resume(co)
+
+  assert_eq('resolver_may_block', resumed and yielded, 'resolving')
+
+  local finished, compiled = coroutine.resume(co)
+
+  assert_eq('compile_survives_a_blocking_resolver', finished and compiled.sql,
+    [[SELECT 'content' kind FROM "content" WHERE content_id = $1]])
+
+  --[[ Once, not once per slot and not once per table name.
+
+    That is the same property from the other side: resolution happens ahead of
+    every text pass, so the number of times a declaration mentions an identifier
+    cannot change how often the database is asked about it. Under the old shape
+    this statement resolved four times -- three slots and one `tables` entry --
+    and each one of them was a schema read that could block.
+  ]]
+  assert_eq('resolver_runs_once_per_compile', calls, 1)
+  assert_eq('resolved_statement_attributes_to_the_real_table',
+    compiled.tables[1], 'content')
+end
+
+io.write '\n-- releasing a connection --\n'
+
+--[[ Pooling is a cosocket facility, and the test for it is the socket.
+
+  `handle.keepalive` is defined whatever socket pgmoon is on, so a driver
+  guarding on the method asks a LuaSocket connection to pool itself -- and
+  pgmoon's LuaSocket backend *raises* from `setkeepalive` rather than declining
+  it. That runtime is the `ophal` CLI, the installer and `ophal migrate apply`,
+  so every PostgreSQL connection released there errored after its work had
+  already committed. `router.release_all()` wraps each release in `pcall`, which
+  is why it never surfaced: the connection was simply never closed either.
+
+  Stage 8.7's seeder is what ran it, being the first thing to release a
+  PostgreSQL connection by hand rather than through the request teardown.
+]]
+do
+  local pgmoon = require 'includes.database.driver.pgmoon'
+  local pooled, closed
+
+  local function handle(sock_type)
+    pooled, closed = false, false
+
+    return {
+      sock_type = sock_type,
+      keepalive = function() pooled = true return true end,
+      disconnect = function() closed = true end,
+    }
+  end
+
+  assert_eq('cosocket_release_pools', pgmoon.release(handle('nginx'), true), true)
+  assert_eq('cosocket_release_did_not_close', closed, false)
+
+  assert_eq('luasocket_release_closes',
+    pgmoon.release(handle('luasocket'), true), false)
+  assert_eq('luasocket_release_did_not_pool', pooled, false)
+  assert_eq('luasocket_release_closed_it', closed, true)
+
+  -- A failed connection is closed on either socket: it may hold a live
+  -- transaction or unread protocol traffic, so it never goes back to a pool.
+  assert_eq('failed_release_closes', pgmoon.release(handle('nginx'), false), false)
+  assert_eq('failed_release_did_not_pool', pooled, false)
+end
+
 io.write '\n-- composed statements --\n'
 
 --[[ A statement whose *structure* is decided by the caller.

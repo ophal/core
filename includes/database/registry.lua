@@ -182,43 +182,75 @@ local function render(driver, pieces, count)
     tostring(driver.name), tostring(style))
 end
 
---[[ Substitute `{ident}` slots.
+--[[ Resolve every declared identifier, before a character of SQL is touched.
 
-  An identifier is part of the compile key rather than a runtime parameter, so
-  it is validated and quoted here -- once per distinct value per worker --
-  rather than concatenated into SQL on every call, which is what
-  `'DELETE FROM ' .. entity.type` does today.
+  Resolution happens here rather than inside `substitute()`'s `gsub`, and that
+  is a correctness requirement rather than tidiness. A resolver is a schema
+  lookup -- `connection:table()`, `connection:field()` -- which reads
+  `core.table_schema` the first time it is asked about a table. On a cosocket
+  driver that read *yields*, and LuaJIT cannot yield out of a `gsub` replacement
+  function: the compile raises `attempt to yield across C-call boundary`, from a
+  line that mentions neither a socket nor a coroutine.
+
+  It could not happen on SQLite, which has no socket to wait on, so every
+  identifier statement in the codebase -- the three `load_by_field`, both
+  `entity.delete*`, and `tag.legacy_arm` -- was broken on PostgreSQL and MySQL
+  and green on the one backend that could not show it. Stage 8.7's PostgreSQL
+  profile is what ran them.
+
+  `define()` proves `order` and `idents` name the same keys, so walking `order`
+  resolves exactly the declared set, once each, whatever the text does with
+  them.
 ]]
-local function substitute(text, decl, values, quote, connection)
-  return (gsub(text, '{(%w+)(:?%a*)}', function(key, modifier)
-    local resolver = decl.idents and decl.idents[key]
-    local value = values[key]
+local function resolve_idents(decl, values, connection)
+  local resolved = {}
 
-    if resolver == nil then
-      fail('%s has no identifier named %q', decl.name, key)
-    end
+  for _, key in ipairs(decl.order) do
+    local value = values[key]
+    local name, err
 
     if value == nil then
       fail('%s needs identifier %q', decl.name, key)
     end
 
-    do
-      -- Unconditional: `define()` refuses an `idents` entry that is not a
-      -- function, so there is no declaration whose identifiers reach the shape
-      -- check below without a resolver having spoken first.
-      local resolved, err = resolver(value, connection)
+    -- Unconditional: `define()` refuses an `idents` entry that is not a
+    -- function, so no identifier reaches the shape check below without a
+    -- resolver having spoken first.
+    name, err = decl.idents[key](value, connection)
 
-      if resolved == nil then
-        fail('%s rejected identifier %s=%q: %s',
-          decl.name, key, tostring(value), tostring(err or 'not allowed'))
-      end
-
-      value = resolved
+    if name == nil then
+      fail('%s rejected identifier %s=%q: %s',
+        decl.name, key, tostring(value), tostring(err or 'not allowed'))
     end
 
-    if not is_identifier(value) then
+    if not is_identifier(name) then
       fail('%s identifier %s=%q is not an identifier',
-        decl.name, key, tostring(value))
+        decl.name, key, tostring(name))
+    end
+
+    resolved[key] = name
+  end
+
+  return resolved
+end
+
+--[[ Substitute `{ident}` slots with names `resolve_idents()` has already
+  cleared.
+
+  An identifier is part of the compile key rather than a runtime parameter, so
+  it is validated and quoted at compile time -- once per distinct value per
+  worker -- rather than concatenated into SQL on every call, which is what
+  `'DELETE FROM ' .. entity.type` did.
+
+  This pass is pure text and calls nothing that can block, which is what keeps
+  it safe to run inside `gsub`.
+]]
+local function substitute(text, decl, resolved, quote)
+  return (gsub(text, '{(%w+)(:?%a*)}', function(key, modifier)
+    local value = resolved[key]
+
+    if value == nil then
+      fail('%s has no identifier named %q', decl.name, key)
     end
 
     --[[ `{name}` is an identifier and gets quoted. `{name:bare}` is a name in
@@ -468,21 +500,23 @@ local function compose_arms(decl, driver, connection, arms, body)
   for i, value in ipairs(arms) do
     local arm_body = arm.sql
     local override = driver.dialect and arm[driver.dialect]
-    local values = {[key] = value}
+    -- Once per arm, before either text pass: the body and the arm's table names
+    -- name the same identifier, and resolving is what can block.
+    local resolved = resolve_idents(arm, {[key] = value}, connection)
 
     if type(override) == 'table' and type(override.sql) == 'string' then
       arm_body = override.sql
     end
 
     rendered[i] = substitute(
-      arm_body, arm, values, driver.quote_identifier, connection)
+      arm_body, arm, resolved, driver.quote_identifier)
 
     for _, name in ipairs(arm.tables or {}) do
-      local resolved = substitute(name, arm, values, nil, connection):lower()
+      local attributed = substitute(name, arm, resolved, nil):lower()
 
-      if not seen[resolved] then
-        seen[resolved] = true
-        tables[#tables + 1] = resolved
+      if not seen[attributed] then
+        seen[attributed] = true
+        tables[#tables + 1] = attributed
       end
     end
   end
@@ -499,7 +533,13 @@ local function build(decl, driver, values, connection, arity, arms)
   local body = decl.sql
   local override = driver.dialect and decl[driver.dialect]
   local tables, pieces, count, sql, chunks, template
-  local arm_tables
+  local arm_tables, resolved
+
+  -- Before anything text-shaped, and once for both the body and the table
+  -- names, because this is the step that can reach the database.
+  if decl.idents then
+    resolved = resolve_idents(decl, values, connection)
+  end
 
   if type(override) == 'table' and type(override.sql) == 'string' then
     body = override.sql
@@ -520,7 +560,7 @@ local function build(decl, driver, values, connection, arity, arms)
   end
 
   if decl.idents then
-    body = substitute(body, decl, values, driver.quote_identifier, connection)
+    body = substitute(body, decl, resolved, driver.quote_identifier)
   end
 
   pieces, count = split_placeholders(body, arity)
@@ -534,7 +574,7 @@ local function build(decl, driver, values, connection, arity, arms)
       -- actually compiled for, not to the literal `{table}`. Unquoted, because
       -- this is a name for `includes/database/stats.lua` to classify, not
       -- SQL for a backend to parse.
-      name = substitute(name, decl, values, nil, connection)
+      name = substitute(name, decl, resolved, nil)
     end
 
     tables[#tables + 1] = name:lower()

@@ -101,7 +101,12 @@ io.write '\n-- the file themes --\n'
 do
   _G.ophal = {modules = {}, title = nil}
   _G.add_js = function() end
-  _G.render_attributes = function() return '' end
+  -- Stubbed *before* the module is loaded: `modules/file` captures
+  -- `render_attributes` at load time, so replacing the global afterwards leaves
+  -- the module holding the original. Same rule the module itself documents.
+  _G.render_attributes = function(attrs)
+    return attrs and 'data-x="1"' or ''
+  end
   _G.format_size = function(v) return tostring(v or 0) end
   _G.format_date = function(v) return tostring(v or 0) end
   _G.theme = setmetatable({}, {__call = function(_, spec)
@@ -125,6 +130,23 @@ do
   local field = themes.file{id = 'f1', entity = {id = 7, filename = XSS, timestamp = 0}}
   assert_absent('theme_file_escapes_the_filename', field, XSS)
   assert_present('theme_file_shows_the_escaped_name', field, '&lt;img')
+
+  --[[ The upload input carried one `%s` and three arguments, so `format` put
+    `id` in the slot and threw the rest away -- the markup was
+    `<input upload type="file">` and the caller's attributes were silently
+    dropped. `file.js` selects on the class, so nothing looked wrong.
+  ]]
+  assert_present('theme_file_input_has_an_id', field, 'id="f1_file"')
+  assert_absent('theme_file_input_has_no_bare_attribute', field, '<input f1 ')
+  assert_present('theme_file_input_keeps_its_class', field, 'form-upload-file')
+
+  local with_attrs = themes.file{
+    id = 'f2',
+    entity = {},
+    attributes = {['data-x'] = '1'},
+  }
+
+  assert_present('theme_file_renders_caller_attributes', with_attrs, 'data-x="1"')
 
   local info = themes.file_info{file = {filename = XSS, filesize = 1, timestamp = 0}}
   assert_absent('theme_file_info_escapes_the_filename', info, XSS)

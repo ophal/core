@@ -34,7 +34,7 @@ local safe_path_segment, unsafe_path_denied = safe_path_segment, unsafe_path_den
   the codebase -- `l()`, `page_set_title()` and the form and menu themes all
   escape already.
 ]]
-local html_escape = html_escape
+local html_escape, html_attr_escape = html_escape, html_attr_escape
 
 local debug = debug
 -- Required rather than captured from a global: this is a module of its own, and
@@ -579,7 +579,14 @@ function theme.file(variables)
     ('<div class="form-upload-field" id="%s_field">'):format(id),
     theme{'hidden', attributes = {class = 'form-upload-entity-id'}, value = entity.id},
     '<p>', file_info, '</p>',
-    ('<input %s type="file" class="form-upload-file">'):format(id, id, render_attributes(variables.attributes)),
+    --[[ One `%s` and three arguments, so `format` filled the slot with `id` and
+      discarded the other two: the field rendered `<input upload type="file">`,
+      a bare bogus attribute, and the caller's attributes never appeared at all.
+      `modules/file/file.js` selects on `.form-upload-file` rather than on the
+      id, which is why nothing looked broken.
+    ]]
+    ('<input id="%s_file" type="file" class="form-upload-file" %s>'):format(
+      html_attr_escape(id), render_attributes(variables.attributes)),
     theme{'button', value = 'upload', attributes = {class = 'form-upload-button'}},
     theme{'button', value = 'delete', attributes = {class = 'form-delete-button'}},
     '<br />',

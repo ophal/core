@@ -469,6 +469,98 @@ do
   assert_truthy('session_new_uuid', ophal.session.id:find('^new%-uuid%-'))
 end
 
+io.write '\n-- session regeneration on privilege change --\n'
+-- ================================================================
+
+--[[ Signing in must not keep the id the request arrived with.
+
+  `session_init()` accepts any well-formed id the cookie presents, so carrying
+  it into an authenticated session is fixation: plant an id on a visitor's
+  browser, wait for them to sign in, and the planted id is theirs. These pin the
+  rotation and the three things that have to travel with it -- the cookie, the
+  data, and the removal of the file the old id named.
+]]
+do
+  local mock_request = setup_env()
+  local opened, removed, cookies_set = {}, {}, {}
+
+  _G.seawolf.behaviour = {temp_dir = function() return '/tmp' end}
+  _G.seawolf.fs.safe_open = function(path)
+    opened[#opened + 1] = path
+    return {close = function() end, read = function() return '' end}, 'sign-' .. #opened
+  end
+  _G.seawolf.fs.safe_write = function() return true end
+  _G.seawolf.fs.safe_close = function(path) end
+  _G.seawolf.contrib = _G.seawolf.contrib or {}
+  _G.seawolf.contrib.table_dump = function() end
+  env.seawolf = _G.seawolf
+  _G.base = _G.base or {}
+  _G.base.route = '/'
+  env.base = _G.base
+
+  local uuid_counter = 0
+  _G.uuid = {
+    isvalid = function(v) return v and #v > 5 end,
+    new = function() uuid_counter = uuid_counter + 1; return 'rotated-' .. uuid_counter end,
+  }
+  env.uuid = _G.uuid
+  _G.cookie_set = function(name, value)
+    cookies_set[#cookies_set + 1] = {name = name, value = value}
+  end
+  env.cookie_set = _G.cookie_set
+  _G.get_cookie_domain = function() return 'localhost' end
+  env.get_cookie_domain = _G.get_cookie_domain
+
+  mock_request.cookies = {['session-id'] = 'planted-session-id'}
+  ophal.cookies = mock_request.cookies
+
+  dofile('includes/session.lua')
+
+  local real_remove = os.remove
+  os.remove = function(path) removed[#removed + 1] = path return true end
+
+  session_init()
+  assert_eq('regen_starts_from_the_presented_id',
+    ophal.session.id, 'planted-session-id')
+
+  -- Stand in for `session_start()` having opened the file, which is the state
+  -- a sign-in actually rotates from.
+  ophal.session.file.name = '/tmp/planted-session-id.ophal'
+  ophal.session.file.sign = 'sign-0'
+  ophal.session.open = true
+  _SESSION = {cart = 'kept'}
+  ophal.session.data = _SESSION
+
+  local new_id = session_regenerate()
+
+  assert_truthy('regen_returns_the_new_id', new_id and new_id:find('^rotated%-'))
+  assert_eq('regen_changes_the_session_id', ophal.session.id, new_id)
+  assert_eq('regen_id_is_not_the_planted_one',
+    ophal.session.id == 'planted-session-id', false)
+
+  -- The cookie has to move with it, or the browser keeps presenting the old id
+  -- and the next request rotates again forever.
+  assert_eq('regen_sets_the_cookie',
+    cookies_set[#cookies_set] and cookies_set[#cookies_set].name, 'session-id')
+  assert_eq('regen_cookie_carries_the_new_id',
+    cookies_set[#cookies_set] and cookies_set[#cookies_set].value, new_id)
+
+  -- Left behind, the old id is the same fixation with an expiry on it.
+  assert_eq('regen_removes_the_old_file',
+    removed[1], '/tmp/planted-session-id.ophal')
+
+  -- Anything a `user_login` hook wrote before the account is set must survive.
+  assert_eq('regen_keeps_the_session_data', (_SESSION or {}).cart, 'kept')
+  assert_eq('regen_data_is_the_live_table', ophal.session.data, _SESSION)
+
+  -- Reopened under the new name, so this request's writes land there.
+  assert_eq('regen_opens_the_new_file',
+    opened[#opened], '/tmp/' .. new_id .. '.ophal')
+  assert_eq('regen_marks_the_session_open', ophal.session.open, true)
+
+  os.remove = real_remove
+end
+
 -- ================================================================ summary
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

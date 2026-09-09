@@ -729,6 +729,22 @@ function auth_service()
           password_rehash_account(account, parsed.pass or '')
         end
 
+        --[[ A new session id before the account is written into it.
+
+          The id that arrived on this request was chosen by whoever sent it --
+          `session_init()` accepts any well-formed one from the cookie -- so
+          carrying it into an authenticated session is fixation: plant an id on
+          a visitor's browser, wait for them to sign in, and the planted id is
+          now theirs. Rotating here is the standard defence, and it has to
+          happen at the privilege change rather than at the next request.
+
+          Before `user_login`'s hooks and before `user_id` is set, so anything
+          a module writes into the session lands in the new one.
+        ]]
+        if type(session_regenerate) == 'function' then
+          session_regenerate()
+        end
+
         module_invoke_all('user_login', account, output)
         session().user_id = account.id
 

@@ -89,9 +89,15 @@ function csrf_validate(token)
     return true
   end
 
+  -- Compared the way every other secret in this file is compared. It was `==`,
+  -- which returns as soon as two bytes differ; `secure_equals` is three lines
+  -- away and `cron_access()` below already uses it. A CSRF token is a secret
+  -- the client is supposed to echo back, so there is no reason for it to be
+  -- the one comparison that leaks where it stopped matching.
   return type(_SESSION) == 'table' and
          not empty(token) and
-         token == _SESSION.csrf_token
+         not empty(_SESSION.csrf_token) and
+         secure_equals(token, _SESSION.csrf_token)
 end
 
 function csrf_validate_request(data)

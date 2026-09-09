@@ -105,6 +105,45 @@ assert_eq('csrf_token_generated', csrf_token(), 'csrf-token-1')
 assert_eq('csrf_token_reused', csrf_token(), 'csrf-token-1')
 assert_eq('csrf_validate_token', csrf_validate('csrf-token-1'), true)
 assert_eq('csrf_reject_missing', csrf_validate(nil), false)
+assert_eq('csrf_reject_wrong', csrf_validate('csrf-token-2'), false)
+
+--[[ Compared in constant time, like every other secret in this file.
+
+  It was `==` until 2026-09-09, which returns at the first differing byte --
+  the one secret comparison here not using the `secure_equals` sitting three
+  functions above it. Pinned by identity rather than by timing: a timing
+  assertion is flaky on a loaded machine, so this checks that the comparison
+  used is the constant-time one by taking it away.
+]]
+do
+  local real = secure_equals
+  local saw
+
+  _G.secure_equals = function(left, right)
+    saw = {left = left, right = right}
+    return real(left, right)
+  end
+
+  assert_eq('csrf_uses_constant_time_compare',
+    csrf_validate('csrf-token-1'), true)
+  assert_eq('csrf_compared_the_presented_token',
+    saw and saw.left, 'csrf-token-1')
+  assert_eq('csrf_compared_against_the_session',
+    saw and saw.right, 'csrf-token-1')
+
+  _G.secure_equals = real
+end
+
+-- An empty stored token must not be matchable. `secure_equals('', '')` is
+-- true, so without the emptiness guard a session that has never issued a token
+-- would accept one.
+do
+  local saved = _SESSION.csrf_token
+
+  _SESSION.csrf_token = ''
+  assert_eq('csrf_empty_session_token_matches_nothing', csrf_validate(''), false)
+  _SESSION.csrf_token = saved
+end
 assert_eq('csrf_validate_body_token', csrf_validate_request({csrf_token = 'csrf-token-1'}), true)
 request_headers = {['X-CSRF-Token'] = 'csrf-token-1'}
 assert_eq('csrf_validate_header_token', csrf_validate_request(), true)

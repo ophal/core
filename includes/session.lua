@@ -142,6 +142,69 @@ function session_destroy()
   session.id = nil
 end
 
+--[[ Move this session's data to a freshly generated id.
+
+  Called when a session changes who it speaks for -- signing in, today. Without
+  it the id that arrives on an anonymous request is the id that carries the
+  authenticated one, which is session fixation: `session_init()` accepts any
+  well-formed id the cookie presents, so anyone who can plant a `session-id` on
+  a visitor's browser before they sign in holds their session afterwards.
+  Cookie tossing from a neighbouring subdomain and plain http are both ways in;
+  `HttpOnly` stops a script reading the cookie and does not stop one being set.
+
+  The data table is carried over rather than rewritten, so a caller that has
+  already put something in `_SESSION` does not lose it -- `auth_service()`
+  assigns `user_id` right after this, and any module hooking `user_login`
+  before it keeps what it wrote.
+
+  The old file is removed rather than left to expire, so an id that has been
+  rotated away from cannot be resumed: leaving it is the same fixation with a
+  time limit on it.
+]]
+function session_regenerate()
+  local session = current_session()
+  local data, fh, sign, err
+
+  if not session then
+    return nil
+  end
+
+  data = _SESSION
+
+  if session.open then
+    safe_close(session.file.name, session.file.sign)
+    session.open = false
+  end
+
+  if session.file.name then
+    os.remove(session.file.name)
+  end
+
+  session.id = uuid.new()
+  session.file = {}
+
+  cookie_set('session-id', session.id, 3*60*60, base.route, get_cookie_domain())
+
+  -- Reopened straight away so the lock this request holds is the new file's,
+  -- and `session_write_close()` at the end of the request writes there.
+  session.file.name = format('%s/%s.ophal', sessions_path(), session.id)
+  fh, sign, err = safe_open(session.file.name)
+
+  if not fh then
+    error(format('session: cannot open regenerated session: %s',
+      tostring(err)))
+  end
+
+  fh:close()
+
+  session.file.sign = sign
+  session.open = true
+  _SESSION = type(data) == 'table' and data or {}
+  session.data = _SESSION
+
+  return session.id
+end
+
 -- Delete expired sessions
 function session_destroy_expired()
   local path = sessions_path()

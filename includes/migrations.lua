@@ -26,6 +26,28 @@ ON route_index(kind, target)]],
     }
   end
 
+  --[[ MySQL declares its indexes inside the table.
+
+    `CREATE INDEX IF NOT EXISTS` is MariaDB syntax that MySQL 8 does not accept,
+    and a migration that runs on one and not the other is worse than no
+    migration at all. An index declared in `CREATE TABLE IF NOT EXISTS` needs no
+    such clause: the table is created with it or not created at all.
+  ]]
+  if driver == 'mysql' then
+    return {
+      [[CREATE TABLE IF NOT EXISTS route_index(
+  kind VARCHAR(32) NOT NULL,
+  source VARCHAR(255) NOT NULL,
+  target VARCHAR(255),
+  language VARCHAR(32),
+  http_code INT,
+  updated_at BIGINT,
+  PRIMARY KEY(kind, source),
+  KEY idx_route_index_kind_target (kind, target)
+)]],
+    }
+  end
+
   return {
     [[CREATE TABLE IF NOT EXISTS route_index(
   kind VARCHAR(32) NOT NULL,
@@ -67,6 +89,28 @@ ON content_public(user_id)]],
     }
   end
 
+  if driver == 'mysql' then
+    return {
+      [[CREATE TABLE IF NOT EXISTS content_public(
+  id INT PRIMARY KEY,
+  user_id INT,
+  language VARCHAR(12),
+  title VARCHAR(255),
+  teaser TEXT,
+  body TEXT,
+  created BIGINT,
+  changed BIGINT,
+  status SMALLINT,
+  promote SMALLINT,
+  route VARCHAR(255),
+  updated_at BIGINT,
+  KEY idx_content_public_route (route),
+  KEY idx_content_public_frontpage (promote, status, created DESC),
+  KEY idx_content_public_user (user_id)
+)]],
+    }
+  end
+
   return {
     [[CREATE TABLE IF NOT EXISTS content_public(
   id INTEGER PRIMARY KEY,
@@ -98,6 +142,16 @@ local function projection_version_sql(driver)
   projection_key character varying(255) PRIMARY KEY,
   version bigint,
   updated_at bigint
+)]],
+    }
+  end
+
+  if driver == 'mysql' then
+    return {
+      [[CREATE TABLE IF NOT EXISTS projection_version(
+  projection_key VARCHAR(255) PRIMARY KEY,
+  version BIGINT,
+  updated_at BIGINT
 )]],
     }
   end
@@ -136,6 +190,31 @@ local function tag_listing_index_sql(driver)
 ON tag_listing_index(tag_id, created DESC)]],
       [[CREATE INDEX IF NOT EXISTS idx_tag_listing_index_route
 ON tag_listing_index(route)]],
+    }
+  end
+
+  if driver == 'mysql' then
+    return {
+      [[CREATE TABLE IF NOT EXISTS tag_listing_index(
+  tag_id INT NOT NULL,
+  tag_name VARCHAR(255),
+  entity_type VARCHAR(255) NOT NULL,
+  entity_id INT NOT NULL,
+  user_id INT,
+  language VARCHAR(12),
+  title VARCHAR(255),
+  teaser TEXT,
+  body TEXT,
+  created BIGINT,
+  changed BIGINT,
+  status SMALLINT,
+  promote SMALLINT,
+  route VARCHAR(255),
+  updated_at BIGINT,
+  PRIMARY KEY(tag_id, entity_type, entity_id),
+  KEY idx_tag_listing_index_tag_created (tag_id, created DESC),
+  KEY idx_tag_listing_index_route (route)
+)]],
     }
   end
 
@@ -204,6 +283,34 @@ local function jobs_sql(driver)
 ON ophal_jobs(active_key)]],
       [[CREATE INDEX IF NOT EXISTS idx_ophal_jobs_claim
 ON ophal_jobs(status, priority, id)]],
+    }
+  end
+
+  --[[ NULLs are distinct in a MySQL unique index too, so the dedup rule the
+    other two dialects get from a single-column UNIQUE holds here unchanged: at
+    most one live job per identity, and a job with no `active_key` is never
+    deduped.
+  ]]
+  if driver == 'mysql' then
+    return {
+      [[CREATE TABLE IF NOT EXISTS ophal_jobs(
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  kind VARCHAR(64) NOT NULL,
+  dedup_key VARCHAR(255),
+  active_key VARCHAR(255),
+  payload TEXT,
+  status VARCHAR(16) NOT NULL,
+  priority INT,
+  attempts INT,
+  available_at BIGINT,
+  claimed_at BIGINT,
+  claimed_by VARCHAR(64),
+  created_at BIGINT,
+  updated_at BIGINT,
+  last_error TEXT,
+  UNIQUE KEY unq_idx_ophal_jobs_active_key (active_key),
+  KEY idx_ophal_jobs_claim (status, priority, id)
+)]],
     }
   end
 

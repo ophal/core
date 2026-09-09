@@ -172,6 +172,29 @@ end
   The pass is per column rather than per query, so its cost scales with result
   size -- which is why the bench measures it on a 100-row select and not only on
   a point lookup.
+
+  What is deliberately *not* normalized here is the type of a number, and that
+  is the one place MySQL still differs from the other two backends.
+  `lua-resty-mysql` 0.27 converts TINY, SHORT, LONG, INT24, FLOAT, DOUBLE,
+  DECIMAL and YEAR to Lua numbers and leaves LONGLONG alone --
+  `converters[0x08] = tonumber` is commented out in the library, because a
+  64-bit integer does not fit a Lua number exactly. So a `BIGINT` column arrives
+  as a **string**.
+
+  It cannot be repaired here. The rows this driver receives carry no column
+  types, so the only rule available would be "a string of digits is a number",
+  which would rewrite a title of "2024" and a role id of "007" into numbers --
+  silently changing stored data to fix a type. Two things follow, and stage
+  8.7's MySQL profile is what established them:
+
+  - The schema uses `INT` wherever an id or a foreign key is stored, which is
+    what PostgreSQL's own schema already declares those as, so ids compare as
+    numbers on every backend. `content.user_id == account.id` is an
+    authorization check, and `"2" == 2` is false in Lua.
+  - A genuinely 64-bit column -- a unix second, a file size -- stays `BIGINT`
+    and reads back as a string here. Anything in Lua that compares or sorts one
+    must call `tonumber` first; arithmetic coerces on its own, comparison does
+    not. `projection.version()`'s reader already does.
 ]]
 function M.rows(res)
   local null = ngx.null

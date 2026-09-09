@@ -152,6 +152,12 @@ local function migration_table_sql(driver)
   module character varying(255),
   applied_at bigint
 )]]
+  elseif driver == 'mysql' then
+    return [[CREATE TABLE IF NOT EXISTS ophal_migrations(
+  id VARCHAR(255) NOT NULL PRIMARY KEY,
+  module VARCHAR(255),
+  applied_at BIGINT
+)]]
   end
 
   return nil, ('unsupported migration driver: %s'):format(tostring(driver))

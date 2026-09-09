@@ -73,11 +73,20 @@ FROM pragma_table_info(?)]],
   find. A schema resolver would be the wrong guard rather than a stricter one:
   the sequence name it builds is not a table, so there is nothing for
   `connection:table()` to answer about.
+
+  The `+ 0.0` on MySQL is not decoration. `LAST_INSERT_ID()` is a BIGINT, and
+  `lua-resty-mysql` 0.27 deliberately does not convert BIGINT -- its converter
+  table has `converters[0x08] = tonumber` commented out, because a 64-bit
+  integer does not fit a Lua number exactly. So the id came back as the *string*
+  `"19"`, and every caller stores it, renders it into JSON and compares it. The
+  arithmetic makes the column a DOUBLE, which that driver does convert, and a
+  double is exactly what pgmoon and lsqlite3 already hand back: the same value,
+  exact to 2^53, rather than a type that differs by backend.
 ]]
 define('core.last_insert_id', {
   sql = 'SELECT last_insert_rowid() AS id',
   postgresql = {sql = "SELECT CURRVAL('{table:bare}_{field:bare}_seq') AS id"},
-  mysql = {sql = 'SELECT LAST_INSERT_ID() AS id'},
+  mysql = {sql = 'SELECT LAST_INSERT_ID() + 0.0 AS id'},
   idents = {table = registry.trusted, field = registry.trusted},
   order = {'table', 'field'},
   tables = {},
@@ -90,8 +99,15 @@ define('core.last_insert_id', {
   serializes on the write lock that `busy_timeout` and WAL already manage, which
   is sound because SQLite is the single-node case. MySQL 8 has `SKIP LOCKED`
   too, but MariaDB does not, and the vendored lab backend is MariaDB 10.11 --
-  so the portable form is what MySQL gets until stage 8.6 measures a real
-  server and can tell the two apart.
+  so MySQL gets the portable claim model, and the override below is about
+  syntax rather than about locking.
+
+  MySQL refuses the portable form twice over: a subquery in `IN` may not name
+  the table the `UPDATE` is modifying, and `LIMIT` is not allowed inside an
+  `IN` subquery at all. One derived table answers both -- the inner select is
+  materialised first, so it is no longer the target table and its `LIMIT` is no
+  longer inside the `IN`. It is the same claim, spelled the way that dialect
+  accepts.
 
   Parameters, in order: claimed_at, claimed_by, updated_at, the available_at
   cutoff, and the row limit.
@@ -124,6 +140,22 @@ WHERE id IN (
   FOR UPDATE SKIP LOCKED
 )]],
   },
+  mysql = {
+    sql = [[UPDATE ophal_jobs
+SET status = 'running',
+  claimed_at = ?,
+  claimed_by = ?,
+  attempts = attempts + 1,
+  updated_at = ?
+WHERE id IN (
+  SELECT id FROM (
+    SELECT id FROM ophal_jobs
+    WHERE status = 'pending' AND available_at <= ?
+    ORDER BY priority, id
+    LIMIT ?
+  ) claimed
+)]],
+  },
   tables = {'ophal_jobs'},
 })
 
@@ -132,8 +164,13 @@ WHERE id IN (
   Dedup is the database's. `active_key` carries a job's identity while it is
   live and is nulled when it finishes, so a single UNIQUE index over it plus
   `ON CONFLICT(active_key) DO NOTHING` gives "at most one live job per identity"
-  with no read-then-write race. NULLs are distinct in a unique index on both
-  drivers, so a job with no dedup key is never deduped.
+  with no read-then-write race. NULLs are distinct in a unique index on all
+  three, so a job with no dedup key is never deduped.
+
+  MySQL has no `ON CONFLICT`, and its `ON DUPLICATE KEY UPDATE id = id` is the
+  same statement: the row that is already live wins and nothing is written.
+  `INSERT IGNORE` would read more simply and is the wrong tool -- it downgrades
+  every error the insert can raise to a warning, not only the duplicate.
 ]]
 define('jobs.enqueue', {
   sql = [[INSERT INTO ophal_jobs(
@@ -141,6 +178,13 @@ define('jobs.enqueue', {
   available_at, created_at, updated_at
 ) VALUES(?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
 ON CONFLICT(active_key) DO NOTHING]],
+  mysql = {
+    sql = [[INSERT INTO ophal_jobs(
+  kind, dedup_key, active_key, payload, status, priority, attempts,
+  available_at, created_at, updated_at
+) VALUES(?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+ON DUPLICATE KEY UPDATE id = id]],
+  },
   tables = {'ophal_jobs'},
 })
 
@@ -334,6 +378,17 @@ VALUES(?, ?, ?)
 ON CONFLICT(projection_key) DO UPDATE SET
   version = excluded.version,
   updated_at = excluded.updated_at]],
+  -- MySQL spells the same upsert without a conflict target and reads the
+  -- proposed row through `VALUES()` rather than through `excluded`. MariaDB has
+  -- only that spelling and MySQL 8 still accepts it, so one override serves
+  -- both.
+  mysql = {
+    sql = [[INSERT INTO projection_version(projection_key, version, updated_at)
+VALUES(?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  version = VALUES(version),
+  updated_at = VALUES(updated_at)]],
+  },
   tables = {'projection_version'},
 })
 

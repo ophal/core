@@ -215,10 +215,16 @@ start_backends() {
 
   # `lua-resty-mysql` speaks mysql_native_password only, so the bench user is
   # created with it explicitly rather than left on the server default.
+  #
+  # The grant is server-wide rather than scoped to the bench database because
+  # the smoke suite's MySQL profile drops and creates its own database on every
+  # run, the way its PostgreSQL profile does -- one seeder, one procedure, no
+  # per-backend privilege dance. This is a lab credential on a loopback server
+  # that is thrown away with the tree.
   "$MY_PREFIX/usr/bin/mariadb" --protocol=TCP -h 127.0.0.1 -P "$MY_PORT" -u root -e "
     CREATE DATABASE IF NOT EXISTS $DB_NAME;
     CREATE USER IF NOT EXISTS '$DB_USER'@'%' IDENTIFIED VIA mysql_native_password USING PASSWORD('$DB_PASS');
-    GRANT ALL ON $DB_NAME.* TO '$DB_USER'@'%';
+    GRANT ALL ON *.* TO '$DB_USER'@'%';
     FLUSH PRIVILEGES;" >/dev/null
 
   printf 'postgres on 127.0.0.1:%s, mariadb on 127.0.0.1:%s\n' "$PG_PORT" "$MY_PORT"

@@ -526,6 +526,57 @@ do
 
   assert_match('claim_sqlite_targets_pending', sqlite_sql, "status = 'pending'")
   assert_match('claim_postgresql_targets_pending', pg_sql, "status = 'pending'")
+
+  --[[ MySQL, whose override is about syntax rather than about locking.
+
+    It gets the portable claim model -- MariaDB has no `SKIP LOCKED` and the
+    lab backend is MariaDB -- but not the portable *statement*: MySQL refuses a
+    subquery in `IN` that names the table being updated, and refuses `LIMIT`
+    inside an `IN` subquery at all. A derived table answers both, and the
+    parameters are unchanged, which is what these assert.
+  ]]
+  --[[ The compiled form is a `template`, not `sql`.
+
+    `lua-resty-mysql` cannot bind, so the layer compiles a `string.format`
+    template with the values escaped into it -- which is why every assertion
+    below reads `template` where the other two read `sql`. Reading `.sql` there
+    is nil, and `nil:match()` is the loudest possible way to be told so.
+  ]]
+  local mysql = require 'includes.database.driver.resty_mysql'
+  local my_compiled = registry.compile(mysql, 'jobs.claim')
+  local my_sql = my_compiled.template
+
+  assert_eq('claim_mysql_placeholders', my_compiled.nparams, 5)
+  assert_eq('claim_mysql_no_skip_locked', my_sql:match('SKIP LOCKED') == nil, true)
+  assert_match('claim_mysql_targets_pending', my_sql, "status = 'pending'")
+  -- The derived table is the whole point of the override; without it MySQL
+  -- rejects the statement rather than answering it wrongly, so this is the
+  -- assertion that says the override is still doing its job.
+  assert_match('claim_mysql_wraps_the_subquery', my_sql, '%) claimed')
+
+  -- The other two statements MySQL cannot spell portably. `ON CONFLICT` is not
+  -- its syntax, and both of these are how dedup and the projection upsert stay
+  -- one statement rather than a read followed by a write.
+  assert_match('enqueue_mysql_on_duplicate_key',
+    registry.compile(mysql, 'jobs.enqueue').template, 'ON DUPLICATE KEY UPDATE')
+  assert_match('touch_mysql_on_duplicate_key',
+    registry.compile(mysql, 'projection.touch').template, 'ON DUPLICATE KEY UPDATE')
+  assert_eq('touch_mysql_has_no_excluded',
+    registry.compile(mysql, 'projection.touch').template:match('excluded') == nil,
+    true)
+
+  --[[ `lua-resty-mysql` 0.27 does not convert a BIGINT.
+
+    Its converter table has `converters[0x08] = tonumber` commented out, because
+    a 64-bit integer does not fit a Lua number exactly -- so `LAST_INSERT_ID()`
+    came back as the string `"19"`, which every caller then stored, rendered
+    into JSON and compared. The arithmetic makes it a DOUBLE, which that driver
+    does convert, and which is what the other two drivers already hand back.
+  ]]
+  assert_match('last_insert_id_mysql_is_a_number',
+    registry.compile(mysql, 'core.last_insert_id',
+      {table = 'content', field = 'id'}).template,
+    'LAST_INSERT_ID%(%) %+ 0%.0')
 end
 
 io.write '\n-- queue migration --\n'
@@ -536,10 +587,23 @@ do
 
   assert_eq('migration_id', jobs_migration.id, '005_jobs')
 
-  -- Dedup is a database guarantee, so the index that provides it has to exist
-  -- on both drivers. Without it `ON CONFLICT(active_key)` has no arbiter and
-  -- every stale request queues another rebuild.
-  for _, driver in ipairs({'sqlite3', 'postgresql'}) do
+  --[[ Dedup is a database guarantee, so the index that provides it has to exist
+    on every dialect. Without it the enqueue has no arbiter to conflict on and
+    every stale request queues another rebuild.
+
+    MySQL declares it inside the table rather than after it: it has no
+    `CREATE INDEX IF NOT EXISTS` (MariaDB does, MySQL 8 does not), and a
+    migration that installs on one of them and not the other is worse than one
+    that installs on neither. So the assertion is that the unique index over
+    `active_key` exists, not where it is written.
+  ]]
+  local index_shapes = {
+    sqlite3 = 'CREATE UNIQUE INDEX[^\n]*\nON ophal_jobs%(active_key%)',
+    postgresql = 'CREATE UNIQUE INDEX[^\n]*\nON ophal_jobs%(active_key%)',
+    mysql = 'UNIQUE KEY unq_idx_ophal_jobs_active_key %(active_key%)',
+  }
+
+  for _, driver in ipairs({'sqlite3', 'postgresql', 'mysql'}) do
     local statements = {}
     local ok = jobs_migration.up({
       driver = driver,
@@ -552,9 +616,38 @@ do
     assert_eq('migration_runs_' .. driver, ok, true)
     assert_eq(
       'migration_unique_active_key_' .. driver,
-      table.concat(statements, '\n'):match('CREATE UNIQUE INDEX[^\n]*\nON ophal_jobs%(active_key%)') ~= nil,
+      table.concat(statements, '\n'):match(index_shapes[driver]) ~= nil,
       true
     )
+  end
+
+  --[[ Every migration has to answer for MySQL, not only the queue.
+
+    Asserting that it *ran* proves nothing: with no MySQL branch each of these
+    falls through to the SQLite one and runs happily, right up until the server
+    rejects `UNSIGNED BIG INT`. So the check is that what came out is not the
+    other two dialects -- `UNSIGNED BIG INT` is SQLite's spelling and
+    `character varying` is PostgreSQL's, and neither belongs in a statement
+    MySQL is about to be handed.
+  ]]
+  for _, migration in ipairs(registry) do
+    local statements = {}
+
+    migration.up({
+      driver = 'mysql',
+      db_query = function(sql)
+        statements[#statements + 1] = sql
+        return true
+      end,
+    })
+
+    local sql = table.concat(statements, '\n')
+
+    assert_eq('mysql_branch_' .. migration.id,
+      #statements > 0
+        and sql:match('UNSIGNED BIG INT') == nil
+        and sql:match('character varying') == nil,
+      true)
   end
 end
 

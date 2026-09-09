@@ -149,7 +149,16 @@ function fetch_service()
   if not comment_access(comment, 'read') then
     header('status', 401)
   else
-    entity_id = arg(2)
+    --[[ A number, not the string the route hands over.
+
+      Binding preserves a value's type and lets the server type-check the
+      comparison, so `entity_id = ?` with a string reaches PostgreSQL as
+      `bigint = text`, which has no operator and is refused. SQLite and MySQL
+      both coerce it, which is why this read the route argument raw while every
+      other service in this file already called `tonumber` -- and why nothing
+      noticed until stage 8.7 ran the fetch service on a third backend.
+    ]]
+    entity_id = tonumber(arg(2) or '')
     if entity_id then
       list, err = load_multiple_by('entity_id', entity_id)
       if err then
@@ -267,7 +276,8 @@ function create(entity)
       entity.body,
       entity.created or time(),
       entity.status,
-      entity.sticky or false
+      -- 0 rather than false: see the note in `modules/content`'s create().
+      entity.sticky or 0
     )
   else
     db:run('comment.create',
@@ -278,7 +288,7 @@ function create(entity)
       entity.body,
       entity.created or time(),
       entity.status,
-      entity.sticky or false
+      entity.sticky or 0
     )
     entity.id = db:last_insert_id('comment', 'id')
   end

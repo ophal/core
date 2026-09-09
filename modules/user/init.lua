@@ -679,7 +679,8 @@ function create(entity)
       entity.name,
       entity.mail,
       entity.pass,
-      entity.active or false,
+      -- 0 rather than false: see the note in `modules/content`'s create().
+      entity.active or 0,
       entity.created or time()
     )
   else
@@ -687,7 +688,7 @@ function create(entity)
       entity.name,
       entity.mail,
       entity.pass,
-      entity.active or false,
+      entity.active or 0,
       entity.created or time()
     )
     entity.id = db:last_insert_id('users', 'id')

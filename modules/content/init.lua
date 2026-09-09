@@ -448,7 +448,13 @@ function create(entity)
       entity.teaser,
       entity.body,
       entity.status,
-      entity.promote or false,
+      -- 0 rather than false. Every flag column in the schema is `smallint` on
+      -- PostgreSQL and `BOOLEAN` -- which is an integer -- on SQLite, and
+      -- PostgreSQL type-checks a bound parameter rather than coercing it: a
+      -- Lua boolean here is `column "x" is of type smallint but expression is
+      -- of type boolean`. SQLite and MySQL both take it, so this was invisible
+      -- until stage 8.7 ran the authoring path on a third backend.
+      entity.promote or 0,
       entity.created or time()
     )
   else
@@ -458,7 +464,7 @@ function create(entity)
       entity.teaser,
       entity.body,
       entity.status,
-      entity.promote or false,
+      entity.promote or 0,
       entity.created or time()
     )
     entity.id = db:last_insert_id('content', 'id')

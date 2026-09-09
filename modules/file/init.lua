@@ -377,7 +377,9 @@ function merge_service()
   -- the finished file and reads it, on the request, after the bytes have
   -- already been written once. That is what moves to the queue.
   if config.filedb_storage then
-    file.status = true
+    -- 1 rather than true: see the note in `modules/content`'s create(). The
+    -- column is `smallint` on PostgreSQL, which refuses a bound boolean.
+    file.status = 1
     file.timestamp = time()
     file.filesize = staged_size
 

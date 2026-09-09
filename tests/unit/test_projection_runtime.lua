@@ -767,6 +767,53 @@ local function setup_content_env(state, projection_overrides)
   return ophal.modules.content
 end
 
+io.write '\n-- flag columns are integers --\n'
+
+--[[ A Lua boolean must never reach a flag column.
+
+  Every flag in the schema is `smallint` on PostgreSQL and `BOOLEAN` -- which is
+  an integer -- on SQLite. PostgreSQL type-checks a bound parameter instead of
+  coercing it, so `promote` defaulting to `false` is
+  `column "promote" is of type smallint but expression is of type boolean`, on
+  the create path, for any article saved without the checkbox. SQLite and MySQL
+  both take it, which is why four call sites carried the defect until stage
+  8.7's PostgreSQL profile ran the authoring path on a third backend --
+  `modules/content`, `modules/comment`, `modules/user` and `modules/file`.
+
+  Content is the one with a unit harness, so it is the one pinned here; the
+  other three are covered by that profile, which is the argument for it running
+  on every build rather than when someone remembers to.
+]]
+do
+  local state = new_projection_state()
+  local content = setup_content_env(state)
+  local insert
+
+  content.create{
+    user_id = 1,
+    title = 'Unpromoted',
+    teaser = 'teaser',
+    body = 'body',
+    status = 1,
+    created = 10,
+  }
+
+  for _, query in ipairs(state.queries) do
+    if query.sql:match('^INSERT INTO content%\(') then
+      insert = query
+      break
+    end
+  end
+
+  assert_eq('content_create_issued_an_insert', insert ~= nil, true)
+  -- The declaration's order is user_id, title, teaser, body, status, promote,
+  -- created, so the sixth parameter is the one that defaulted.
+  assert_eq('content_create_promote_is_a_number',
+    type((insert or {params = {}}).params[6]), 'number')
+  assert_eq('content_create_promote_defaults_to_zero',
+    (insert or {params = {}}).params[6], 0)
+end
+
 io.write '\n-- core migrations registry --\n'
 
 do

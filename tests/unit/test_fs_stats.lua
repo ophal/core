@@ -31,14 +31,14 @@ do
   local stats = load_stats{fs_stats = true}
   local snapshot
 
-  stats.record('open', nil, '/tmp/a')
-  stats.record('write', 8, '/tmp/a')
-  stats.record('write', 3, '/tmp/a')
-  stats.record('read', 11, '/tmp/a')
-  stats.record('remove', nil, '/tmp/a')
-  stats.record('rename')
+  stats.record('open', nil, '/tmp/a', 'media')
+  stats.record('write', 8, '/tmp/a', 'media')
+  stats.record('write', 3, '/tmp/a', 'media')
+  stats.record('read', 11, '/tmp/a', 'media')
+  stats.record('remove', nil, '/tmp/a', 'media')
+  stats.record('rename', nil, nil, 'media')
 
-  snapshot = stats.snapshot()
+  snapshot = stats.snapshot('media')
 
   assert_eq('fs_counts_opens', snapshot.open, 1)
   assert_eq('fs_counts_writes', snapshot.write, 2)
@@ -63,15 +63,15 @@ do
   local stats = load_stats{fs_stats = true}
   local first, second
 
-  stats.record('write', 5, '/tmp/b')
-  first = stats.snapshot()
-  stats.record('write', 5, '/tmp/b')
-  second = stats.snapshot()
+  stats.record('write', 5, '/tmp/b', 'media')
+  first = stats.snapshot('media')
+  stats.record('write', 5, '/tmp/b', 'media')
+  second = stats.snapshot('media')
 
   assert_eq('fs_snapshot_is_a_copy', first.bytes, 5)
   assert_eq('fs_snapshot_moves_on', second.bytes, 10)
   first.files['/tmp/b'] = 999
-  assert_eq('fs_snapshot_files_is_a_copy', stats.snapshot().files['/tmp/b'], 2)
+  assert_eq('fs_snapshot_files_is_a_copy', stats.snapshot('media').files['/tmp/b'], 2)
 end
 
 -- Off by default, and off is genuinely off: nothing is counted and nothing is
@@ -80,18 +80,18 @@ end
 do
   local stats = load_stats{}
 
-  stats.record('open', nil, '/tmp/c')
-  stats.record('write', 100, '/tmp/c')
+  stats.record('open', nil, '/tmp/c', 'media')
+  stats.record('write', 100, '/tmp/c', 'media')
 
-  assert_eq('fs_disabled_counts_nothing', stats.snapshot().open, 0)
-  assert_eq('fs_disabled_counts_no_bytes', stats.snapshot().bytes, 0)
-  assert_eq('fs_disabled_records_no_file', stats.snapshot().files['/tmp/c'], nil)
+  assert_eq('fs_disabled_counts_nothing', stats.snapshot('media').open, 0)
+  assert_eq('fs_disabled_counts_no_bytes', stats.snapshot('media').bytes, 0)
+  assert_eq('fs_disabled_records_no_file', stats.snapshot('media').files['/tmp/c'], nil)
 end
 
 do
   local stats = load_stats{}
 
-  assert_eq('fs_absent_settings_off', stats.snapshot().open, 0)
+  assert_eq('fs_absent_settings_off', stats.snapshot('media').open, 0)
 end
 
 -- An unknown op is ignored rather than counted into a field of its own. The
@@ -100,10 +100,10 @@ end
 do
   local stats = load_stats{fs_stats = true}
 
-  stats.record('fsync', 10, '/tmp/d')
+  stats.record('fsync', 10, '/tmp/d', 'media')
 
-  assert_eq('fs_unknown_op_ignored', stats.snapshot().bytes, 0)
-  assert_eq('fs_unknown_op_no_file', stats.snapshot().files['/tmp/d'], nil)
+  assert_eq('fs_unknown_op_ignored', stats.snapshot('media').bytes, 0)
+  assert_eq('fs_unknown_op_no_file', stats.snapshot('media').files['/tmp/d'], nil)
 end
 
 -- `reset()` drops the gate too, so a test that changes the setting sees the
@@ -112,15 +112,66 @@ end
 do
   local stats = load_stats{fs_stats = true}
 
-  stats.record('write', 7, '/tmp/e')
-  assert_eq('fs_reset_before', stats.snapshot().bytes, 7)
+  stats.record('write', 7, '/tmp/e', 'media')
+  assert_eq('fs_reset_before', stats.snapshot('media').bytes, 7)
 
   settings.performance = {fs_stats = false}
   stats.reset()
-  stats.record('write', 7, '/tmp/e')
+  stats.record('write', 7, '/tmp/e', 'media')
 
-  assert_eq('fs_reset_clears_counts', stats.snapshot().bytes, 0)
-  assert_eq('fs_reset_rereads_the_gate', stats.snapshot().write, 0)
+  assert_eq('fs_reset_clears_counts', stats.snapshot('media').bytes, 0)
+  assert_eq('fs_reset_rereads_the_gate', stats.snapshot('media').write, 0)
+end
+
+io.write '\n-- the buckets are separate --\n'
+
+--[[ A media request opens a session too.
+
+  One set of counters would therefore have made every media budget a statement
+  about sessions as well: the media scenarios in `db_profile.sh` went red the
+  moment `includes/session.lua` started recording, which is how this came up.
+  Moving one path's cost would have moved the other's, and the media numbers are
+  the ones Phase 6 pinned.
+]]
+do
+  local stats = load_stats{fs_stats = true}
+
+  stats.record('open', nil, '/tmp/m', 'media')
+  stats.record('write', 10, '/tmp/m', 'media')
+  stats.record('open', nil, '/tmp/s', 'session')
+  stats.record('write', 100, '/tmp/s', 'session')
+  stats.record('remove', nil, '/tmp/s', 'session')
+
+  assert_eq('fs_media_counts_only_media', stats.snapshot('media').open, 1)
+  assert_eq('fs_media_bytes_only_media', stats.snapshot('media').bytes, 10)
+  assert_eq('fs_media_sees_no_session_file',
+    stats.snapshot('media').files['/tmp/s'], nil)
+  assert_eq('fs_session_counts_only_session', stats.snapshot('session').open, 1)
+  assert_eq('fs_session_bytes_only_session', stats.snapshot('session').bytes, 100)
+  assert_eq('fs_session_counts_removes', stats.snapshot('session').remove, 1)
+  assert_eq('fs_session_sees_no_media_file',
+    stats.snapshot('session').files['/tmp/m'], nil)
+end
+
+--[[ An unknown bucket raises rather than defaulting.
+
+  A permissive default is how a third caller lands in the wrong bucket silently,
+  and a bucket that silently absorbs another path's work is exactly the failure
+  the split exists to prevent. It raises whether or not counting is enabled --
+  a name that is wrong is wrong on a production site too, where the gate is off.
+]]
+do
+  local stats = load_stats{fs_stats = true}
+  local off = load_stats{}
+
+  assert_eq('fs_unknown_bucket_raises',
+    pcall(stats.record, 'open', nil, '/tmp/x', 'templates'), false)
+  assert_eq('fs_missing_bucket_raises',
+    pcall(stats.record, 'open', nil, '/tmp/x'), false)
+  assert_eq('fs_unknown_bucket_raises_when_disabled',
+    pcall(off.record, 'open', nil, '/tmp/x', 'templates'), false)
+  assert_eq('fs_unknown_snapshot_raises',
+    pcall(stats.snapshot, 'templates'), false)
 end
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

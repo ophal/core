@@ -194,14 +194,20 @@ local scenarios = {
   -- booted would add filesystem work to the number it exists to report.
   fs_stats = function()
     local stats = require 'includes.fs.stats'
-    local snapshot = stats.snapshot()
+    local media = stats.snapshot('media')
+    local session = stats.snapshot('session')
     local lines = {
-      'SMOKE_FS_OPEN=' .. tostring(snapshot.open),
-      'SMOKE_FS_READ=' .. tostring(snapshot.read),
-      'SMOKE_FS_WRITE=' .. tostring(snapshot.write),
-      'SMOKE_FS_RENAME=' .. tostring(snapshot.rename),
-      'SMOKE_FS_REMOVE=' .. tostring(snapshot.remove),
-      'SMOKE_FS_BYTES=' .. tostring(snapshot.bytes),
+      'SMOKE_FS_OPEN=' .. tostring(media.open),
+      'SMOKE_FS_READ=' .. tostring(media.read),
+      'SMOKE_FS_WRITE=' .. tostring(media.write),
+      'SMOKE_FS_RENAME=' .. tostring(media.rename),
+      'SMOKE_FS_REMOVE=' .. tostring(media.remove),
+      'SMOKE_FS_BYTES=' .. tostring(media.bytes),
+      'SMOKE_FS_SESSION_OPEN=' .. tostring(session.open),
+      'SMOKE_FS_SESSION_READ=' .. tostring(session.read),
+      'SMOKE_FS_SESSION_WRITE=' .. tostring(session.write),
+      'SMOKE_FS_SESSION_REMOVE=' .. tostring(session.remove),
+      'SMOKE_FS_SESSION_BYTES=' .. tostring(session.bytes),
     }
 
     ngx.print(render(lines))

@@ -15,6 +15,27 @@ local format, empty = string.format, seawolf.variable.empty
 ]]
 local random = require 'includes.random'
 
+--[[ The session path is the second caller of `includes/fs/stats.lua`.
+
+  That module's own header says it is deliberately not global instrumentation --
+  only the media path calls through it, because that was the only path with a
+  budget to hold. The session path has one now: an anonymous request costs zero
+  queries since stage 8.5 and its filesystem cost had never been counted at all,
+  which is the whole reason it survived six phases of measurement.
+
+  What is recorded here is the *logical* operation -- one `open` for one
+  `safe_open`. Underneath each is worth far more, and the multiplier was
+  measured rather than read off the source: `tests/unit/test_session.lua` counts
+  a real `io.open` through the vendored `seawolf.fs` and gets **six opens and
+  three reads for one `safe_open`**, plus three more opens across the
+  `safe_write` and `safe_close` that end the request. Reading the code carefully
+  gave five, which is the argument for having measured it.
+
+  So the four operations this file records are about ten `open()` calls, on a
+  request whose SQL budget is zero.
+]]
+local fs_stats = require 'includes.fs.stats'
+
 --[[ This request's session, or nil before `session_init()` has run.
 
   Read on entry to each function rather than held in a file upvalue. The
@@ -85,6 +106,7 @@ function session_start()
 
     -- Try to create/read session data
     fh, sign, err = safe_open(session.file.name)
+    fs_stats.record('open', nil, session.file.name, 'session')
 
     if fh then
       session.file.sign = sign
@@ -92,6 +114,7 @@ function session_start()
       session.open = true
       local data = fh:read('*a') or ''
       fh:close()
+      fs_stats.record('read', #data, session.file.name, 'session')
       if data:byte(1) == 27 then
         error 'session: binary bytecode in session data!'
       end
@@ -118,6 +141,7 @@ local function session_close()
   local session = current_session()
 
   safe_close(session.file.name, session.file.sign)
+  fs_stats.record('remove', nil, session.file.name, 'session')
   session.open = false
   _SESSION = nil
 end
@@ -133,6 +157,7 @@ function session_write_close()
     rawdata = tconcat(rawdata)
     if serialized then
       saved, err = safe_write(session.file.name, session.file.sign, rawdata)
+      fs_stats.record('write', #rawdata, session.file.name, 'session')
       if not saved then
         error "session: Can't save session data!"
       end
@@ -149,6 +174,7 @@ function session_destroy()
 
   session_close()
   os.remove(session.file.name)
+  fs_stats.record('remove', nil, session.file.name, 'session')
   session.data = _SESSION -- global _SESSION is blank ATM
   session.id = nil
 end
@@ -189,6 +215,7 @@ function session_regenerate()
 
   if session.file.name then
     os.remove(session.file.name)
+    fs_stats.record('remove', nil, session.file.name, 'session')
   end
 
   session.id = random.uuid()
@@ -200,6 +227,7 @@ function session_regenerate()
   -- and `session_write_close()` at the end of the request writes there.
   session.file.name = format('%s/%s.ophal', sessions_path(), session.id)
   fh, sign, err = safe_open(session.file.name)
+  fs_stats.record('open', nil, session.file.name, 'session')
 
   if not fh then
     error(format('session: cannot open regenerated session: %s',

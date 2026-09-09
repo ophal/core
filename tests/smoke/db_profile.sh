@@ -104,6 +104,32 @@ assert_contains "$SEED_SECOND_TITLE"
 assert_query_budget 0 0
 report_ok "db_frontpage_warm (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
+#[[ What an anonymous request costs the filesystem.
+#
+# It costs zero queries and has never been asked this. `session_init()` mints an
+# id for any visitor arriving without a valid cookie and `session_start()` opens
+# a session file, which takes a lock file with it; `session_write_close()` then
+# writes and unlocks at the end of the request. So a visitor who sends no cookie
+# and reads nothing still leaves a `.ophal` file behind, and a crawler leaves one
+# per request until cron's sweep reaches them.
+#
+# The session bucket counts the operations `includes/session.lua` performs, and
+# each is worth far more underneath: `tests/unit/test_session.lua` measures six
+# real `open()` calls for one `safe_open`, and about ten across the request. The
+# media bucket is asserted at zero here for the same reason it exists -- this
+# page touches no file of its own.
+sessions_before=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
+measure_fs_request db_anonymous_session_cost "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+sessions_after=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
+sessions_created=$((sessions_after - sessions_before))
+assert_fs_budget 0 0 0 0 0 0
+assert_session_fs_budget 1 1 1 1 112
+[[ "$sessions_created" -eq 1 ]] ||
+  fail "expected the anonymous request to leave 1 session file; left $sessions_created"
+report_ok "db_anonymous_session_cost (open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
+
 measure_request db_content_warm "$DB_URL/content/1"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'

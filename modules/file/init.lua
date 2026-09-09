@@ -250,7 +250,7 @@ function upload_service()
 
   if body_file and lfs.attributes(target, 'size') == nil then
     status, err = os_rename(body_file, target)
-    fs_stats.record('rename', nil, target)
+    fs_stats.record('rename', nil, target, 'media')
 
     if status then
       output.success = true
@@ -266,11 +266,11 @@ function upload_service()
   data = request_get_body()
 
   output_fh = io_open(target, 'r+')
-  fs_stats.record('open', nil, target)
+  fs_stats.record('open', nil, target, 'media')
 
   if not output_fh then
     output_fh, err = io_open(target, 'w+')
-    fs_stats.record('open', nil, target)
+    fs_stats.record('open', nil, target, 'media')
   end
 
   if not output_fh then
@@ -280,7 +280,7 @@ function upload_service()
 
   output_fh:seek('set', index * bytes_per_chunk())
   output_fh:write(data)
-  fs_stats.record('write', #data, target)
+  fs_stats.record('write', #data, target, 'media')
   output_fh:close()
   output.success = true
 
@@ -355,13 +355,13 @@ function merge_service()
   -- a plausible-looking file rather than an error.
   if file.filesize > 0 and staged_size ~= file.filesize then
     os_remove(staged)
-    fs_stats.record('remove', nil, staged)
+    fs_stats.record('remove', nil, staged, 'media')
     output.error = ('upload is %s bytes, expected %s'):format(staged_size, file.filesize)
     return output
   end
 
   status, err = os_rename(staged, file.filepath)
-  fs_stats.record('rename', nil, file.filepath)
+  fs_stats.record('rename', nil, file.filepath, 'media')
 
   if not status then
     output.error = err or 'cannot finalize upload'
@@ -479,7 +479,7 @@ function delete(entity)
 
   if entity.filepath then
     os_remove(entity.filepath)
-    fs_stats.record('remove', nil, entity.filepath)
+    fs_stats.record('remove', nil, entity.filepath, 'media')
   end
 
   module_invoke_all('entity_after_delete', entity)
@@ -528,7 +528,7 @@ jobs.register('file_post_process', function(payload)
   end
 
   entity.filemime = mime:file(entity.filepath)
-  fs_stats.record('read', nil, entity.filepath)
+  fs_stats.record('read', nil, entity.filepath, 'media')
 
   local _, err = update(entity)
 

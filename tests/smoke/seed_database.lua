@@ -1,27 +1,138 @@
--- Seeds the SQLite database the OpenResty smoke harness measures against.
---
--- The schema here is the SQLite half of INSTALL.md, kept in the same order the
--- document installs it. Only the normalized tables are created: the projection
--- tables come from `ophal migrate apply`, and the projection *rows* are left
--- for the first request to build, because rebuilding from inside a GET is the
--- behavior Phase 3 introduced and a seeded projection would hide it.
---
--- Usage: lua5.1 tests/smoke/seed_database.lua <database-path>
+--[[ Seeds the database the OpenResty smoke harness measures against.
 
-local sqlite3 = require 'lsqlite3'
+  One seeder, one set of rows, one schema per dialect -- the SQLite and
+  PostgreSQL halves of INSTALL.md, in the order the document installs them.
+  Only the normalized tables are created here: the projection tables come from
+  `ophal migrate apply`, and the projection *rows* are left for the first
+  request to build, because rebuilding from inside a GET is the behavior Phase
+  3 introduced and a seeded projection would hide it.
+
+  It seeds through the query layer, which it did not before stage 8.7. Going
+  straight at lsqlite3 was defensible while SQLite was the only backend; a
+  second dialect would have meant a second hand-rolled binding path beside it,
+  each with its own placeholder spelling and its own escaping. The layer
+  already owns one audited escaper per driver and one placeholder rendering per
+  dialect, and it is what the site under measurement runs on. What that costs
+  is a `settings` table this file builds itself -- which is what an installer
+  does anyway, and the reason the old comment gave for not using the layer.
+
+  The connection comes from the environment, and it is the same environment the
+  profile's generated `settings.lua` reads, so the harness cannot seed one
+  database and then measure another:
+
+    OPHAL_SMOKE_DB_DRIVER   sqlite3 (the default), postgresql, mysql
+    OPHAL_SMOKE_DB          the SQLite path, or the database name
+    OPHAL_SMOKE_DB_HOST     server backends only
+    OPHAL_SMOKE_DB_PORT
+    OPHAL_SMOKE_DB_USER
+    OPHAL_SMOKE_DB_PASS
+
+  Usage: lua5.1 tests/smoke/seed_database.lua
+]]
+
+package.path = './?.lua;./?/init.lua;' .. package.path
+
+local getenv = os.getenv
+
+local driver = getenv('OPHAL_SMOKE_DB_DRIVER') or 'sqlite3'
+local database = getenv('OPHAL_SMOKE_DB')
+local host = getenv('OPHAL_SMOKE_DB_HOST') or '127.0.0.1'
+local port = tonumber(getenv('OPHAL_SMOKE_DB_PORT') or '')
+local username = getenv('OPHAL_SMOKE_DB_USER')
+local password = getenv('OPHAL_SMOKE_DB_PASS')
+
+assert(type(database) == 'string' and database ~= '',
+  'OPHAL_SMOKE_DB names the database, and is unset')
+
+--[[ Built here rather than read from the profile's settings file.
+
+  The layer resolves `settings.db` once per process through
+  `includes/database/config.lua`, so a table is all it wants, and a seeder that
+  loaded the site's settings would be loading a file written for a running
+  site -- session paths, module lists, a theme -- to get six keys out of it.
+]]
+settings = {
+  db = {
+    default = {
+      driver = driver,
+      database = database,
+      host = host,
+      port = port,
+      username = username,
+      password = password,
+    },
+  },
+  performance = {query_stats = false},
+}
+
+--[[ The connection a server backend is dropped and created from.
+
+  `postgres` is the database that is always there, and a `DROP DATABASE` cannot
+  be issued from inside the database it drops. SQLite needs none of this: the
+  harness works in a fresh temporary directory, so its file does not exist yet.
+]]
+if driver ~= 'sqlite3' then
+  settings.db.maintenance = {
+    driver = driver,
+    database = driver == 'postgresql' and 'postgres' or 'mysql',
+    host = host,
+    port = port,
+    username = username,
+    password = password,
+  }
+end
+
+local registry = require 'includes.database.registry'
+local router = require 'includes.database.router'
 -- The digest `modules/user` resolves for `sha256` under this vendor runtime,
 -- where neither `lsha2` nor `sha2` is installed and `seawolf.other` does not
 -- build. Requiring it here is what lets the seed store a password the real
 -- `password_verify()` accepts without this file restating a hashing scheme.
 local sha256 = require 'includes.sha256'
+require 'includes.database.statements'
 
-local path = ...
+--[[ The seeder's own statements, declared the way every other statement is.
 
-assert(type(path) == 'string' and path ~= '', 'usage: seed_database.lua <database-path>')
+  A database name and a sequence's table and column cannot be bind parameters,
+  so they are identifiers -- and `registry.trusted` is the honest guard for
+  them: they come from this file and from the harness's own environment, never
+  from data. That is the claim the name exists to make, in the one place
+  `grep -rn trusted` will find it.
+]]
+registry.define('smoke.drop_database', {
+  sql = 'DROP DATABASE IF EXISTS {database}',
+  idents = {database = registry.trusted},
+  order = {'database'},
+  tables = {},
+})
+
+registry.define('smoke.create_database', {
+  sql = 'CREATE DATABASE {database}',
+  idents = {database = registry.trusted},
+  order = {'database'},
+  tables = {},
+})
+
+--[[ Move a sequence past the ids the seed wrote.
+
+  Every seeded row names its id, so the site reads correctly and nothing has
+  advanced the sequence -- and PostgreSQL's `core.last_insert_id` is
+  `CURRVAL('<table>_<field>_seq')`, so the first article an author creates
+  would collide with the first article the seed wrote. SQLite has nothing to do
+  here: `AUTOINCREMENT` tracks the highest rowid the table holds, whoever
+  wrote it.
+]]
+registry.define('smoke.sequence_reset', {
+  sql = [[SELECT setval('{table:bare}_{field:bare}_seq',
+  (SELECT MAX({field}) FROM {table})) AS value]],
+  idents = {table = registry.trusted, field = registry.trusted},
+  order = {'table', 'field'},
+  tables = {},
+})
 
 local now = os.time()
 
-local schema = {
+local sqlite_schema = {
   -- Content module.
   [[CREATE TABLE content(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,6 +257,157 @@ local schema = {
   sticky BOOLEAN
 )]],
   [[CREATE INDEX idx_comment_entity ON comment (entity_id, created)]],
+}
+
+--[[ The PostgreSQL half of the same document.
+
+  Transcribed from INSTALL.md's `####PostgreSQL` blocks in the order the
+  document installs them, statement for statement, because this is the first
+  thing in the project that executes them. A schema the documentation describes
+  and nothing runs is a schema nobody has checked.
+
+  The `id` columns are `integer NOT NULL` with a sequence and a default rather
+  than `serial`, which is what the document says and what a `pg_dump` of an
+  Ophal site produces. It matters beyond style: `core.last_insert_id` reads
+  `CURRVAL('<table>_<field>_seq')`, so the sequence has to carry exactly that
+  name.
+]]
+local postgresql_schema = {
+  [[CREATE TABLE content(
+  id integer NOT NULL,
+  user_id bigint,
+  language character varying(12),
+  title character varying(255),
+  teaser text,
+  body text,
+  created bigint,
+  changed bigint,
+  status smallint,
+  sticky smallint,
+  comment smallint,
+  promote smallint
+)]],
+  [[CREATE SEQUENCE content_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1]],
+  [[ALTER SEQUENCE content_id_seq OWNED BY content.id]],
+  [[ALTER TABLE ONLY content ALTER COLUMN id SET DEFAULT nextval('content_id_seq'::regclass)]],
+  [[ALTER TABLE ONLY content ADD CONSTRAINT content_pkey PRIMARY KEY (id)]],
+  [[CREATE INDEX idx_content_created ON content USING btree (created DESC)]],
+  [[CREATE INDEX idx_content_changed ON content USING btree (changed DESC)]],
+  [[CREATE INDEX idx_content_frontpage ON content USING btree (promote, status, sticky, created DESC)]],
+  [[CREATE INDEX idx_content_title ON content USING btree (title)]],
+  [[CREATE INDEX idx_content_user ON content USING btree (user_id)]],
+  [[CREATE TABLE comment(
+  id integer NOT NULL,
+  entity_id bigint,
+  parent_id bigint,
+  user_id bigint,
+  language character varying(12),
+  body text,
+  created bigint,
+  changed bigint,
+  status smallint,
+  sticky smallint
+)]],
+  [[CREATE SEQUENCE comment_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1]],
+  [[ALTER SEQUENCE comment_id_seq OWNED BY comment.id]],
+  [[ALTER TABLE ONLY comment ALTER COLUMN id SET DEFAULT nextval('comment_id_seq'::regclass)]],
+  [[ALTER TABLE ONLY comment ADD CONSTRAINT comment_pkey PRIMARY KEY (id)]],
+  [[CREATE INDEX idx_comment_created ON comment USING btree (created DESC)]],
+  [[CREATE INDEX idx_comment_entity ON comment USING btree (entity_id)]],
+  [[CREATE INDEX idx_comment_user ON comment USING btree (user_id)]],
+  [[CREATE TABLE users(
+    id integer NOT NULL,
+    name character varying(255),
+    mail character varying(255),
+    pass character varying(255),
+    active smallint,
+    created bigint
+  )]],
+  [[CREATE SEQUENCE users_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1]],
+  [[ALTER SEQUENCE users_id_seq OWNED BY users.id]],
+  [[ALTER TABLE ONLY users ALTER COLUMN id SET DEFAULT nextval('users_id_seq'::regclass)]],
+  [[ALTER TABLE ONLY users ADD CONSTRAINT users_pkey PRIMARY KEY (id)]],
+  [[CREATE UNIQUE INDEX unq_idx_user_name ON users USING btree (name)]],
+  [[CREATE INDEX idx_user_created ON users USING btree (created)]],
+  [[CREATE INDEX idx_user_mail ON users USING btree (mail)]],
+  [[CREATE TABLE role (
+    id character varying(255) NOT NULL,
+    name character varying(255),
+    active smallint,
+    weight integer
+  )]],
+  [[ALTER TABLE ONLY role ADD CONSTRAINT role_pkey PRIMARY KEY (id)]],
+  [[CREATE UNIQUE INDEX unq_idx_role_name ON role USING btree (name)]],
+  [[CREATE INDEX idx_role_weight ON role USING btree (weight)]],
+  [[CREATE TABLE user_role (
+    user_id bigint NOT NULL,
+    role_id character varying(255) NOT NULL
+  )]],
+  [[ALTER TABLE ONLY user_role ADD CONSTRAINT user_role_pkey PRIMARY KEY (user_id, role_id)]],
+  [[CREATE TABLE role_permission (
+    role_id character varying(255) NOT NULL,
+    permission character varying(255) NOT NULL,
+    module character varying(255)
+  )]],
+  [[ALTER TABLE ONLY role_permission ADD CONSTRAINT role_permission_pkey PRIMARY KEY (role_id, permission)]],
+  [[CREATE INDEX idx_role_permission_perm ON role_permission USING btree (permission)]],
+  [[CREATE TABLE field_tag(
+  entity_type character varying(255) NOT NULL,
+  entity_id bigint NOT NULL,
+  tag_id bigint NOT NULL
+)]],
+  [[ALTER TABLE ONLY field_tag ADD CONSTRAINT field_tag_pkey PRIMARY KEY (entity_type, entity_id, tag_id)]],
+  [[CREATE TABLE tag(
+  id integer NOT NULL,
+  user_id bigint,
+  name character varying(255),
+  description text,
+  created bigint,
+  changed bigint,
+  status smallint
+)]],
+  [[CREATE SEQUENCE tag_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1]],
+  [[ALTER SEQUENCE tag_id_seq OWNED BY tag.id]],
+  [[ALTER TABLE ONLY tag ALTER COLUMN id SET DEFAULT nextval('tag_id_seq'::regclass)]],
+  [[ALTER TABLE ONLY tag ADD CONSTRAINT tag_pkey PRIMARY KEY (id)]],
+  [[CREATE INDEX idx_tag_name ON tag USING btree (name)]],
+  [[CREATE INDEX idx_tag_created ON tag USING btree (created DESC)]],
+  [[CREATE INDEX idx_tag_changed ON tag USING btree (changed DESC)]],
+  [[CREATE INDEX idx_tag_user ON tag USING btree (user_id)]],
+  [[CREATE TABLE route_alias(
+  id integer NOT NULL,
+  source character varying(255),
+  alias character varying(255),
+  language character varying(12)
+)]],
+  [[CREATE SEQUENCE route_alias_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1]],
+  [[ALTER SEQUENCE route_alias_id_seq OWNED BY route_alias.id]],
+  [[ALTER TABLE ONLY route_alias ALTER COLUMN id SET DEFAULT nextval('route_alias_id_seq'::regclass)]],
+  [[ALTER TABLE ONLY route_alias ADD CONSTRAINT route_alias_pkey PRIMARY KEY (id)]],
+  [[CREATE INDEX idx_route_alias_alias_language_id ON route_alias USING btree (alias, language, id)]],
+  [[CREATE INDEX idx_route_alias_source_language_id ON route_alias USING btree (source, language, id)]],
+  [[CREATE TABLE file(
+  id integer NOT NULL,
+  user_id bigint,
+  filename character varying(255),
+  filepath character varying(255),
+  filemime character varying(255),
+  filesize bigint,
+  status smallint,
+  timestamp bigint
+)]],
+  [[CREATE SEQUENCE file_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1]],
+  [[ALTER SEQUENCE file_id_seq OWNED BY file.id]],
+  [[ALTER TABLE ONLY file ALTER COLUMN id SET DEFAULT nextval('file_id_seq'::regclass)]],
+  [[ALTER TABLE ONLY file ADD CONSTRAINT file_pkey PRIMARY KEY (id)]],
+  [[CREATE INDEX idx_file_timestamp ON file USING btree (timestamp DESC)]],
+  [[CREATE INDEX idx_file_user ON file USING btree (user_id)]],
+  [[CREATE INDEX idx_file_filename ON file USING btree (filename)]],
+}
+
+local schema = {
+  sqlite3 = sqlite_schema,
+  postgresql = postgresql_schema,
 }
 
 -- Every seeded string a smoke assertion greps for is spelled once, here, so a
@@ -285,44 +547,55 @@ VALUES(18, 1, 'en', ?, 'Tail teaser', 'Tail body', ?, ?, 1, 0, 0, 1)]],
     fixtures.alias},
 }
 
---[[ Seeded through lsqlite3, the binding Ophal reaches SQLite with.
+--[[ Seeded through the connection the site itself will use.
 
-  Directly rather than through the query layer, because this runs before there
-  is a settings file to resolve a connection from -- it is the installer's job,
-  done by hand. It used to go through LuaDBI, which reads integer columns with
-  32-bit precision; the timestamps here are already within a few thousand
-  seconds of 2^31, so seeding through it was living on a deadline too.
+  `db:execute()` is the layer's path for SQL that is not a declaration, and DDL
+  is exactly that: it is written once, by hand, from the documentation. What
+  the layer supplies is the two things a second dialect would otherwise have
+  forced this file to write twice -- `?` rendered as the driver spells it, and
+  one audited escaper for a driver that cannot bind.
 
-  No autocommit call: SQLite is in autocommit until a statement opens a
-  transaction, and lsqlite3 does not pretend otherwise.
+  Nothing here opens a transaction. SQLite is in autocommit until a statement
+  starts one, PostgreSQL wraps each statement on its own, and a `CREATE
+  DATABASE` cannot run inside a transaction block at all.
 ]]
-local db = assert(sqlite3.open(path))
+local db = router.get()
+local dialect = db:dialect()
 
-local function run(statement, ...)
-  local stmt = db:prepare(statement)
+assert(schema[dialect], ('no seed schema for the %q dialect; INSTALL.md has no '
+  .. '%s section to transcribe one from'):format(dialect, dialect))
 
-  assert(stmt, db:errmsg())
+if dialect ~= 'sqlite3' then
+  local admin = router.get('maintenance')
 
-  if select('#', ...) > 0 then
-    stmt:bind_values(...)
-  end
-
-  -- Stepped to completion and finalized. A statement left mid-scan holds a read
-  -- transaction, which is what the driver's own comments are about.
-  while stmt:step() == sqlite3.ROW do end
-
-  stmt:finalize()
+  admin:with('smoke.drop_database', database):run()
+  admin:with('smoke.create_database', database):run()
+  admin:release(true)
 end
 
-for _, statement in ipairs(schema) do
-  run(statement)
+for _, statement in ipairs(schema[dialect]) do
+  db:execute(statement)
 end
 
 for _, row in ipairs(rows) do
-  run(unpack(row))
+  db:execute(unpack(row))
 end
 
-db:close()
+-- Every seeded id is written out, so the sequences are behind the rows.
+if dialect == 'postgresql' then
+  local sequences = {
+    {'users', 'id'},
+    {'content', 'id'},
+    {'tag', 'id'},
+    {'route_alias', 'id'},
+  }
+
+  for _, pair in ipairs(sequences) do
+    db:with('smoke.sequence_reset', pair[1], pair[2]):run()
+  end
+end
+
+db:release(true)
 
 -- The harness reads these back so its assertions and this file cannot drift.
 for name, value in pairs(fixtures) do

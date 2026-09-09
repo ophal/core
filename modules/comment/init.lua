@@ -185,7 +185,13 @@ function save_service()
   elseif not csrf_validate_request(parsed) then
     csrf_denied(output)
   else
-    comment = load(id)
+    -- `local`, and it was not. Inside `module()` an unqualified assignment
+    -- becomes a field on the module table, so one request's comment stayed
+    -- there for the worker's lifetime and was readable by the next -- the same
+    -- class as `modules/file`'s `load_by_field` in stage 8.5. Nothing here read
+    -- it before assigning, so it leaked data rather than decisions; a later
+    -- reader placed above this line would have inherited an access answer.
+    local comment = load(id)
 
     if not comment_access(comment, action) then
       header('status', 401)

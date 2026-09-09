@@ -1,4 +1,10 @@
 local seawolf = require 'seawolf'.__build('fs', 'behaviour', 'variable')
+
+-- The same guard `modules/entity` carries: bootstrap loads `includes/escape.lua`
+-- before modules, but a unit test that loads this file on its own does not.
+if type(html_escape) ~= 'function' then
+  pcall(require, 'includes.escape')
+end
 local config, theme, header = settings.file or {}, theme, header
 local tinsert, tconcat, lfs, env = table.insert, table.concat, lfs, env
 local is_dir, is_file, add_js = seawolf.fs.is_dir, seawolf.fs.is_file, add_js
@@ -17,6 +23,18 @@ local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 -- `module()` call below replaces this file's environment, so a global looked up
 -- afterwards resolves to nil.
 local safe_path_segment, unsafe_path_denied = safe_path_segment, unsafe_path_denied
+--[[ Captured for the same reason, and it was missing.
+
+  `theme.file` and `theme.file_info` rendered `entity.filename` straight into
+  HTML. A filename is attacker-chosen -- it arrives as `?name=` on `file/merge`
+  -- and the only guard on it is `safe_path_segment`, which is a *path* check:
+  it rejects separators, NUL and control bytes, and has no opinion about `<`.
+  So `<img src=x onerror=...>` is a valid filename by that rule, and every
+  viewer of the file field ran it. Stored XSS, and the only unescaped output in
+  the codebase -- `l()`, `page_set_title()` and the form and menu themes all
+  escape already.
+]]
+local html_escape = html_escape
 
 local debug = debug
 -- Required rather than captured from a global: this is a module of its own, and
@@ -552,7 +570,7 @@ function theme.file(variables)
   entity = variables.entity or {}
   if not empty(entity) then
     file_info = tconcat{
-      '<strong>Current file:</strong> ', entity.filename, '<br />',
+      '<strong>Current file:</strong> ', html_escape(entity.filename), '<br />',
       '<strong>Uploaded on: </strong> ', format_date(entity.timestamp),
     }
   end
@@ -576,7 +594,7 @@ function theme.file_info(variables)
 
   return tconcat{
     '<div class="file-info">',
-    '<span class="file-size">', entity.filename or '', '</span>',
+    '<span class="file-size">', html_escape(entity.filename or ''), '</span>',
     ' - ',
     '<span class="file-size">', format_size(entity.filesize), '</span>',
     ' - ',

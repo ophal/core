@@ -145,9 +145,25 @@ default method, and it applies to the worker as much as to the command line:
 $ sudo luarocks install luaossl
 ```
 
-MySQL needs no rock at all. `lua-resty-mysql` ships with OpenResty and is
-reached from the worker; it has no blocking mode, so `ophal migrate` does not
-yet support MySQL -- the migrations have no MySQL branch either.
+MySQL needs no rock at all: `lua-resty-mysql` ships with OpenResty.
+
+It has **no blocking mode**, though, which is the one way a MySQL site differs
+from the other two in operation. The `ophal` script is `#!/usr/bin/env lua5.1`,
+which has no cosockets, so on MySQL the command line runs under `resty` --
+which ships with OpenResty as well -- instead:
+
+```sh
+$ resty -c 512 ./ophal migrate apply
+```
+
+Everything else is the same, and the migrations carry a MySQL branch. There is
+one behavioural difference worth knowing before you write a module: that driver
+converts every numeric column type to a Lua number *except* `BIGINT`, which it
+leaves as a string, because a 64-bit integer does not fit a Lua number exactly.
+The shipped schema uses `INT` for every id and foreign key for that reason, so
+comparisons of ids behave the same on all three backends; a `BIGINT` column --
+a unix second, a file size -- needs `tonumber` before it is compared in Lua.
+Arithmetic coerces on its own; comparison does not.
 
 ### Upgrading from a release before 2026-09-08
 
@@ -201,6 +217,10 @@ appropriate filesystem permissions before starting OpenResty.
 $ ./ophal migrate status
 $ ./ophal migrate apply
 ```
+
+On MySQL, run both under `resty` -- `resty -c 512 ./ophal migrate apply` -- for
+the reason given under Dependencies: that driver has no blocking mode and the
+`ophal` script runs on plain Lua.
 
 This creates two kinds of table. `route_index`, `content_public`,
 `tag_listing_index` and `projection_version` are the read path: they hold no
@@ -420,6 +440,29 @@ CREATE INDEX idx_content_title ON content USING btree (title);
 CREATE INDEX idx_content_user ON content USING btree (user_id);
 ```
 
+####MySQL
+```SQL
+CREATE TABLE content(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  language VARCHAR(12),
+  title VARCHAR(255),
+  teaser TEXT,
+  body TEXT,
+  created BIGINT,
+  changed BIGINT,
+  status SMALLINT,
+  sticky SMALLINT,
+  comment SMALLINT,
+  promote SMALLINT,
+  KEY idx_content_created (created DESC),
+  KEY idx_content_changed (changed DESC),
+  KEY idx_content_frontpage (promote, status, sticky, created DESC),
+  KEY idx_content_title (title),
+  KEY idx_content_user (user_id)
+);
+```
+
 Now add the following to settings.lua:
 ```Lua
   settings.modules.content = true
@@ -470,6 +513,23 @@ ALTER TABLE ONLY comment ADD CONSTRAINT comment_pkey PRIMARY KEY (id);
 CREATE INDEX idx_comment_created ON comment USING btree (created DESC);
 CREATE INDEX idx_comment_entity ON comment USING btree (entity_id);
 CREATE INDEX idx_comment_user ON comment USING btree (user_id);
+```
+
+####MySQL
+```SQL
+CREATE TABLE comment(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  entity_id INT,
+  parent_id INT,
+  user_id INT,
+  language VARCHAR(12),
+  body TEXT,
+  created BIGINT,
+  changed BIGINT,
+  status SMALLINT,
+  sticky SMALLINT,
+  KEY idx_comment_entity (entity_id, created)
+);
 ```
 
 As with the `file` table, these are the columns the module names in its own
@@ -577,6 +637,44 @@ Run the following SQL queries in strict order:
   CREATE INDEX idx_role_permission_perm ON role_permission USING btree (permission);
   ```
 
+  ####MySQL
+  ```SQL
+  CREATE TABLE users(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255),
+    mail VARCHAR(255),
+    pass VARCHAR(255),
+    active SMALLINT,
+    created BIGINT,
+    UNIQUE KEY unq_idx_user_name (name),
+    KEY idx_user_created (created),
+    KEY idx_user_mail (mail)
+  );
+
+  CREATE TABLE role(
+    id VARCHAR(255) NOT NULL PRIMARY KEY,
+    name VARCHAR(255),
+    active SMALLINT,
+    weight INT,
+    UNIQUE KEY unq_idx_role_name (name),
+    KEY idx_role_weight (weight)
+  );
+
+  CREATE TABLE user_role(
+    user_id INT NOT NULL,
+    role_id VARCHAR(255) NOT NULL,
+    PRIMARY KEY (user_id, role_id)
+  );
+
+  CREATE TABLE role_permission(
+    role_id VARCHAR(255) NOT NULL,
+    permission VARCHAR(255) NOT NULL,
+    module VARCHAR(255),
+    PRIMARY KEY (role_id, permission),
+    KEY idx_role_permission_perm (permission)
+  );
+  ```
+
 2. Generate a bootstrap password hash for superuser with the included CLI:
 
   ```sh
@@ -605,6 +703,11 @@ Run the following SQL queries in strict order:
   ####PostgreSQL
   ```SQL
   INSERT INTO users VALUES(1, 'root', 'test@example.com', 'your password hash', 1, extract(epoch from now() at time zone 'utc'));
+  ```
+
+  ####MySQL
+  ```SQL
+  INSERT INTO users VALUES(1, 'root', 'test@example.com', 'your password hash', 1, UNIX_TIMESTAMP());
   ```
 
 4. Enable Form API:
@@ -694,6 +797,30 @@ CREATE INDEX idx_tag_changed ON tag USING btree (changed DESC);
 CREATE INDEX idx_tag_user ON tag USING btree (user_id);
 ```
 
+####MySQL
+```SQL
+CREATE TABLE field_tag(
+  entity_type VARCHAR(255) NOT NULL,
+  entity_id INT NOT NULL,
+  tag_id INT NOT NULL,
+  PRIMARY KEY(entity_type, entity_id, tag_id)
+);
+
+CREATE TABLE tag(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  name VARCHAR(255),
+  description TEXT,
+  created BIGINT,
+  changed BIGINT,
+  status SMALLINT,
+  KEY idx_tag_name (name),
+  KEY idx_tag_created (created DESC),
+  KEY idx_tag_changed (changed DESC),
+  KEY idx_tag_user (user_id)
+);
+```
+
 Now add the following to settings.lua:
 ```Lua
   settings.modules.tag = true
@@ -730,6 +857,18 @@ ALTER TABLE ONLY route_alias ALTER COLUMN id SET DEFAULT nextval('route_alias_id
 ALTER TABLE ONLY route_alias ADD CONSTRAINT route_alias_pkey PRIMARY KEY (id);
 CREATE INDEX idx_route_alias_alias_language_id ON route_alias USING btree (alias, language, id);
 CREATE INDEX idx_route_alias_source_language_id ON route_alias USING btree (source, language, id);
+```
+
+####MySQL
+```SQL
+CREATE TABLE route_alias(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  source VARCHAR(255),
+  alias VARCHAR(255),
+  language VARCHAR(12),
+  KEY idx_route_alias_alias_language_id (alias, language, id),
+  KEY idx_route_alias_source_language_id (source, language, id)
+);
 ```
 
 Now add the following to settings.lua:
@@ -778,6 +917,23 @@ ALTER TABLE ONLY file ADD CONSTRAINT file_pkey PRIMARY KEY (id);
 CREATE INDEX idx_file_timestamp ON file USING btree (timestamp DESC);
 CREATE INDEX idx_file_user ON file USING btree (user_id);
 CREATE INDEX idx_file_filename ON file USING btree (filename);
+```
+
+####MySQL
+```SQL
+CREATE TABLE file(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  filename VARCHAR(255),
+  filepath VARCHAR(255),
+  filemime VARCHAR(255),
+  filesize BIGINT,
+  status SMALLINT,
+  timestamp BIGINT,
+  KEY idx_file_timestamp (timestamp DESC),
+  KEY idx_file_user (user_id),
+  KEY idx_file_filename (filename)
+);
 ```
 
 These are the columns the module reads and writes: `create()` and `update()`

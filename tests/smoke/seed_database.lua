@@ -419,11 +419,19 @@ local postgresql_schema = {
 
 --[[ The MySQL half, which INSTALL.md did not have until this ran.
 
-  Written from the pair above rather than transcribed, because there was
-  nothing to transcribe: `ophal migrate` had no MySQL branch and the document
-  said so. The order is the same, the columns are the same, and the types are
-  the MySQL spellings of what the other two use -- `BIGINT` for a unix second,
-  `SMALLINT` for a flag, `VARCHAR`/`TEXT` for the rest.
+  Written from the pair above rather than transcribed, because there was nothing
+  to transcribe: `ophal migrate` had no MySQL branch and the document said so.
+  INSTALL.md's `####MySQL` blocks are this schema, copied there once it had
+  installed a working site -- the one section of that document that was proven
+  before it was written rather than after.
+
+  The order is the same and the columns are the same. The types are the MySQL
+  spellings of what the other two use, with one deliberate narrowing: an id or a
+  foreign key is `INT`, not `BIGINT`. PostgreSQL already declares every `id` as
+  `integer`, so this is faithful rather than a compromise -- and it is load
+  bearing, because `lua-resty-mysql` converts `INT` to a Lua number and leaves
+  `BIGINT` a string. `content.user_id == account.id` is an authorization check,
+  and `"2" == 2` is false.
 
   Indexes are declared inside `CREATE TABLE` rather than after it. MySQL 8 has
   no `CREATE INDEX IF NOT EXISTS` (MariaDB does), and a schema that installs on

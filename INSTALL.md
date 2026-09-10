@@ -364,6 +364,19 @@ keyed by user id — that key space grows with accounts, so this is the one to
 lower on a site with many users and little memory. Setting either to `0`
 disables that cache rather than making it unbounded.
 
+**A role or permission change needs a worker restart.** The role, permission and
+user-object caches above are per-worker and have no cross-worker invalidation.
+That is deliberate rather than unfinished: nothing in Ophal writes `role`,
+`user_role` or `role_permission`, so there is no write path to hang an
+invalidation on, and an administrator edits those tables with SQL. The
+consequence is the part worth knowing before it surprises you — grant or revoke
+a permission and the workers that have already answered for that account keep
+serving the old answer until they are restarted, so a revocation is not in
+effect when the `UPDATE` returns. Reload OpenResty after changing roles or
+permissions, and treat that reload as part of the change rather than as
+housekeeping. Setting `user_cache_size` to `0` disables the caches and makes
+changes take effect immediately, at one to four extra queries per request.
+
 `projection_version_miss_ttl` is how long a worker remembers that a projection
 version row was absent. It exists because a nil and a missing key are
 indistinguishable in a Lua table, so without it an untouched key costs one

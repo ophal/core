@@ -16,7 +16,6 @@ local time, date = os.time, os.date
 local tinsert = table.insert
 local empty = seawolf.variable.empty
 local trim, dirname = seawolf.text.trim, seawolf.fs.dirname
-local parse_date = seawolf.contrib.parse_date
 local tconcat, lower = table.concat, string.lower
 
 local function request_header(name)

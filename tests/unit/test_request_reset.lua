@@ -76,26 +76,6 @@ local function setup_env()
   }
   env.settings = _G.settings
 
-  -- Stub seawolf
-  _G.seawolf = {
-    variable = {empty = function(v) return v == nil or v == '' or v == 0 or v == false end},
-    text = {
-      trim = function(s, chars) return (s or ''):match('^%s*(.-)%s*$') end,
-      explode = function(sep, s)
-        local t = {}
-        for w in s:gmatch('[^' .. sep .. ']+') do t[#t+1] = w end
-        return t
-      end,
-      ltrim = function(s) return (s or ''):match('^%s*(.*)$') end,
-      rtrim = function(s) return (s or ''):match('^(.-)%s*$') end,
-    },
-    fs = {
-      dirname = function(s) return s:match('^(.+)/[^/]*$') or '' end,
-      basename = function(s) return s:match('[^/]+$') or s end,
-    },
-    contrib = {parse_date = function() return 0 end},
-  }
-  env.seawolf = _G.seawolf
 
   -- Track headers set during reset
   local headers_set = {}
@@ -245,13 +225,6 @@ do
   -- Set up globals expected by route.lua
   _G.ophal.aliases = {source = {}, alias = {}}
   _G.ophal.redirects = {source = {}, target = {}}
-  _G.seawolf.contrib = _G.seawolf.contrib or {}
-  _G.seawolf.contrib.table_shift = function(t)
-    local shifted = {}
-    for i = 2, #t do shifted[#shifted+1] = t[i] end
-    return shifted
-  end
-  env.seawolf = _G.seawolf
   env.ophal = _G.ophal
   _G.route_set_title = function() end
   env.route_set_title = _G.route_set_title
@@ -261,7 +234,7 @@ do
   env.db_query = _G.db_query
   _G.request_path = function() return server_get_request().path or '' end
   env.request_path = _G.request_path
-  _G.explode = _G.seawolf.text.explode
+  _G.explode = require('includes.text').split
   env.explode = _G.explode
 
   mock_request.path = 'content/42'
@@ -309,13 +282,6 @@ io.write '\n-- common reset --\n'
 local function setup_common_env()
   setup_env()
 
-  -- Stub seawolf for require
-  local sw = _G.seawolf
-  sw.maths = {round = function(n) return math.floor(n + 0.5) end}
-  sw.text.str_replace = function(search, replace, subject) return (subject or ''):gsub(search, replace) end
-  sw.fs.is_file = function() return false end
-  sw.__build = function() return sw end
-  package.loaded['seawolf'] = sw
 
   -- lfs stub
   _G.lfs = {attributes = function() return {} end, dir = function() return function() end end}
@@ -430,10 +396,6 @@ do
   local mock_request, _, headers_set = setup_env()
 
   -- Re-apply common env stubs after setup_env reset
-  local sw = _G.seawolf
-  sw.maths = {round = function(n) return math.floor(n + 0.5) end}
-  sw.__build = function() return sw end
-  package.loaded['seawolf'] = sw
   _G.lfs = {attributes = function() return {} end, dir = function() return function() end end}
   env.lfs = _G.lfs
   _G.theme = {name = 'basic', settings = {js = {}, css = {}, head = {}}}
@@ -448,13 +410,6 @@ do
   -- Route dependencies
   _G.ophal.aliases = {source = {}, alias = {}}
   _G.ophal.redirects = {source = {}, target = {}}
-  _G.seawolf.contrib = _G.seawolf.contrib or {}
-  _G.seawolf.contrib.table_shift = function(t)
-    local shifted = {}
-    for i = 2, #t do shifted[#shifted+1] = t[i] end
-    return shifted
-  end
-  env.seawolf = _G.seawolf
   env.ophal = _G.ophal
   _G.route_set_title = function() end
   env.route_set_title = _G.route_set_title
@@ -462,7 +417,7 @@ do
   env.db_query = _G.db_query
   _G.request_path = function() return server_get_request().path or '' end
   env.request_path = _G.request_path
-  _G.explode = _G.seawolf.text.explode
+  _G.explode = require('includes.text').split
   env.explode = _G.explode
 
   -- Simulate first request
@@ -640,7 +595,6 @@ do
       end,
     }
   end
-  env.seawolf = _G.seawolf
   _G.base = _G.base or {}
   _G.base.route = '/'
   env.base = _G.base
@@ -921,7 +875,6 @@ do
     write = function(path) opened[#opened + 1] = path return true end,
     remove = function(path) removed[#removed + 1] = path end,
   }
-  env.seawolf = _G.seawolf
   _G.base = _G.base or {}
   _G.base.route = '/'
   env.base = _G.base

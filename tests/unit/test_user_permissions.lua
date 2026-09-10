@@ -21,8 +21,6 @@ do
   end
 end
 
-seawolf = require 'seawolf'
-seawolf.__build('variable', 'contrib', 'fs')
 
 local pass_count, fail_count = 0, 0
 

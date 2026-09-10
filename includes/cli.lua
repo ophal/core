@@ -333,7 +333,7 @@ local function run_install_init(options)
 end
 
 local function prepare_migrate_runtime(options)
-  local settings, ok, err, seawolf_builder
+  local settings, ok, err
 
   if type(options.prepare_migrate_runtime) == 'function' then
     return options.prepare_migrate_runtime()
@@ -346,12 +346,6 @@ local function prepare_migrate_runtime(options)
 
   _G.settings = settings
   _G.ophal = {modules = {}}
-
-  ok, seawolf_builder = pcall(require, 'seawolf')
-  if not ok then
-    return nil, seawolf_builder
-  end
-  _G.seawolf = seawolf_builder.__build('contrib')
 
   package.loaded['includes.module'] = nil
   package.loaded['includes.migrate'] = nil

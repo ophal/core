@@ -47,13 +47,6 @@ local function setup_security_env()
     bytes = function(n) return ('x'):rep(n) end,
     reset = function() end,
   }
-  _G.seawolf = {
-    variable = {
-      empty = function(v)
-        return v == nil or v == '' or v == 0 or v == false
-      end,
-    },
-  }
   _G.header = function(k, v)
     _G.last_header = {k = k, v = v}
   end

@@ -51,39 +51,6 @@ do
     modules = {},
   }
   env.settings = _G.settings
-  _G.seawolf = {
-    variable = {empty = function(v) return v == nil or v == '' or v == 0 or v == false end},
-    text = {
-      explode = function(sep, s)
-        local t = {}
-        for w in s:gmatch('[^' .. sep .. ']+') do t[#t+1] = w end
-        return t
-      end,
-    },
-    fs = {
-      dirname = function(s) return s:match('^(.+)/[^/]*$') or '' end,
-      basename = function(s) return s:match('[^/]+$') or s end,
-    },
-    contrib = {
-      table_shift = function(t)
-        local shifted = {}
-        for i = 2, #t do shifted[#shifted+1] = t[i] end
-        return shifted
-      end,
-      seawolf_table = function(t)
-        local mt = {
-          concat = function(self, sep)
-            local r = {}
-            for _, v in pairs(self) do r[#r+1] = tostring(v) end
-            return table.concat(r, sep)
-          end
-        }
-        mt.__index = mt
-        return setmetatable(t or {}, mt)
-      end,
-    },
-  }
-  env.seawolf = _G.seawolf
   _G.socket = {url = {unescape = function(s) return s end}}
   env.socket = _G.socket
   _G.route_set_title = function() end
@@ -94,7 +61,7 @@ do
   env.db_query = _G.db_query
   _G.request_path = function() return '' end
   env.request_path = _G.request_path
-  _G.explode = _G.seawolf.text.explode
+  _G.explode = require('includes.text').split
   env.explode = _G.explode
 
   dofile('includes/server/adapter.lua')
@@ -178,16 +145,6 @@ do
   -- helper. Let's load it if not already loaded.
   if type(module_cache_clear) ~= 'function' then
     -- Need seawolf.contrib.seawolf_table for module.lua
-    _G.seawolf.contrib = _G.seawolf.contrib or {}
-    _G.seawolf.contrib.seawolf_table = function(t)
-      local mt = {
-        append = function(self, v) self[#self+1] = v end,
-        each = function(self, fn) for _, v in ipairs(self) do fn(v) end end,
-      }
-      mt.__index = mt
-      return setmetatable(t or {}, mt)
-    end
-    env.seawolf = _G.seawolf
     dofile('includes/module.lua')
   end
 
@@ -210,9 +167,6 @@ do
   _G.ophal = _G.ophal or {}
   _G.ophal.modules = _G.ophal.modules or {}
   env.ophal = _G.ophal
-  _G.seawolf.variable = _G.seawolf.variable or {}
-  _G.seawolf.variable.empty = function(v) return v == nil or v == '' or v == 0 or v == false or (type(v) == 'table' and next(v) == nil) end
-  env.seawolf = _G.seawolf
 
   -- Use a counting module_invoke_all from the start, because entity module
   -- captures it as a local at dofile time.

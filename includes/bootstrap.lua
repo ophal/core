@@ -40,8 +40,6 @@ env = {
   _SESSION = nil,
   _VERSION = _VERSION,
   lfs = nil,
-  uuid = nil,
-  socket = nil,
   theme = {},
   -- `base`, `output_buffer`, `_GET` and `_SESSION` are deliberately absent, and
   -- so are the request-scoped fields of `ophal`. They are routed to the current
@@ -139,12 +137,15 @@ function bootstrap(phase, main)
   end
 
   local phases = {
-    -- 1. Lua libraries
+    --[[ 1. Lua libraries.
+
+      `lfs` is the only one left. `uuid` and `seawolf` were required here, and
+      `seawolf` is what pulled `lpeg` and `socket` in behind it -- its `fs`
+      component requires `socket.sleep` and `uuid` at load, for a lock spin
+      `includes/session/store.lua` no longer performs.
+    ]]
     function ()
       env.lfs = require 'lfs'
-      env.uuid = require 'uuid'
-
-      env.seawolf = require 'seawolf'.__build('variable', 'fs', 'behaviour', 'contrib')
     end,
 
     -- 2. Debug API

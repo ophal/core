@@ -68,9 +68,7 @@ local function assert_not_match(label, got, pattern)
 end
 
 local function setup_env()
-  local seawolf = require 'seawolf'
 
-  seawolf.__build('maths', 'fs', 'variable', 'contrib')
 
   _G.settings = {
     slash = '/',
@@ -103,7 +101,6 @@ local function setup_env()
   _G.server_exit = function() end
   _G.print = function() end
   _G.lfs = require 'lfs'
-  _G.seawolf = seawolf
 
   package.loaded['includes.escape'] = nil
   package.loaded['includes.common'] = nil

@@ -37,9 +37,7 @@ end
 
 local function setup_env()
   local counts = {}
-  local seawolf = require 'seawolf'
 
-  seawolf.__build('maths', 'fs', 'variable', 'contrib')
 
   _G.settings = {
     slash = '/',
@@ -87,7 +85,6 @@ local function setup_env()
     return text
   end
   _G.debug = {}
-  _G.seawolf = seawolf
   _G.theme = {
     settings = {js = {}, css = {}, head = {}},
   }

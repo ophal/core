@@ -1,4 +1,3 @@
-local seawolf = require 'seawolf'.__build('fs', 'behaviour', 'variable')
 
 -- The same guard `modules/entity` carries: bootstrap loads `includes/escape.lua`
 -- before modules, but a unit test that loads this file on its own does not.

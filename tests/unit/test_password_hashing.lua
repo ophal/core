@@ -122,8 +122,6 @@ local function load_user_module()
   -- became its second caller, and `modules/user` captures it at load time. The
   -- real file is loaded here rather than stubbed, because a stub would let the
   -- module keep passing while the comparison it actually uses was broken.
-  seawolf = require 'seawolf'
-  seawolf.__build('variable')
   dofile('includes/security.lua')
 
   dofile('modules/user/init.lua')

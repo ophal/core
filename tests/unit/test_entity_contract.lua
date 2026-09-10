@@ -4,7 +4,7 @@
 -- type info discovery, access control nil-safety, deletion relation cleanup,
 -- and lifecycle hook consistency.
 --
--- Runs without the full Ophal bootstrap.  Requires seawolf from vendor.
+-- Runs without the full Ophal bootstrap.
 --
 
 -- ------------------------------------------------------------------ helpers
@@ -32,10 +32,6 @@ local function assert_match(label, text, pattern)
 end
 
 -- ------------------------------------------------------------------ setup
-
--- Load seawolf into globals (same as the framework does)
-seawolf = require 'seawolf'
-seawolf.__build('variable', 'contrib', 'fs')
 
 local db_fake = require 'tests.unit.db_fake'
 

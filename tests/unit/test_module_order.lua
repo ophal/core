@@ -3,7 +3,7 @@
 -- Standalone unit tests for module resolution order, route build order,
 -- route conflict detection, and route freeze.
 --
--- Runs without the full Ophal bootstrap.  Requires seawolf from vendor.
+-- Runs without the full Ophal bootstrap.
 --
 
 -- ------------------------------------------------------------------ helpers
@@ -102,10 +102,6 @@ local function reset_globals()
 end
 
 -- ------------------------------------------------------------------ setup
-
--- Load seawolf into globals (same as the framework does)
-seawolf = require 'seawolf'
-seawolf.__build('variable', 'contrib', 'fs')
 
 -- Initial load
 reset_globals()

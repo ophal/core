@@ -1,11 +1,10 @@
-local seawolf = require 'seawolf'.__build('variable', 'contrib')
 local json, require, tonumber = require 'includes.json', require, tonumber
 
 require 'modules.user.statements'
 local print, exit, config = print, exit, settings.user or {}
 local error, empty, header, l = error, require('includes.util').empty, header, l
 local theme, tconcat, add_js, unpack = theme, table.concat, add_js, unpack
-local type, env, uuid, time, go_to, pairs, tostring = type, env, uuid, os.time, go_to, pairs, tostring
+local type, env, time, go_to, pairs, tostring = type, env, os.time, go_to, pairs, tostring
 -- `session_regenerate` beside `session_destroy`, and for the reason the block
 -- above spells out: `module()` replaces this file's environment, so a bare
 -- global here is nil. It was written as a bare call first and the guard around

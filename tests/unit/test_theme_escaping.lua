@@ -53,9 +53,6 @@ end
 local XSS = '<img src=x onerror=alert(1)>'
 
 _G.settings = {sessionapi = {enabled = true}, file = {}, site = {files_path = '/tmp'}}
-_G.seawolf = {
-  variable = {empty = function(v) return v == nil or v == '' end},
-}
 _G.header = function() end
 package.loaded['includes.random'] = {
   hex = function() return 'token' end,

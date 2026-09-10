@@ -59,23 +59,6 @@ local function setup_env(scheme)
   }
   env.settings = _G.settings
 
-  _G.seawolf = {
-    variable = {empty = function(v) return v == nil or v == '' or v == 0 or v == false end},
-    text = {
-      trim = function(s) return (s or ''):match('^%s*(.-)%s*$') end,
-      explode = function(sep, s)
-        local t = {}
-        for w in s:gmatch('[^' .. sep .. ']+') do t[#t+1] = w end
-        return t
-      end,
-    },
-    fs = {
-      dirname = function(s) return s:match('^(.+)/[^/]*$') or '' end,
-      basename = function(s) return s:match('[^/]+$') or s end,
-    },
-    contrib = {parse_date = function() return 0 end},
-  }
-  env.seawolf = _G.seawolf
   _G.socket = {url = {unescape = function(s) return s end}}
   env.socket = _G.socket
 

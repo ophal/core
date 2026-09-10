@@ -21,8 +21,6 @@ do
   end
 end
 
-seawolf = require 'seawolf'
-seawolf.__build('variable', 'contrib', 'fs')
 
 -- Bootstrap loads includes/pager.lua before any module, and the content and tag
 -- modules localize `pager_current_page` from it at load time. Load it here for

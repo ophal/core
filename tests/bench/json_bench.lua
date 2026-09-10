@@ -28,15 +28,27 @@ Ophal ran every service response, every job payload and -- once the session
   already records: a harness that always exits 0 is a test that cannot fail the
   build.
 
+  **The `table_dump` half of this bench is retired**, as of 2026-09-10. It timed
+  Lua's own serializer against JSON for the session file, because that was the
+  one case where JSON *replaced* something rather than being chosen over another
+  spelling of itself. The store landed, so the comparison is history rather than
+  a decision, and `tests/unit/test_session.lua` measures the real thing now.
+  Its numbers, for the record -- a session round trip, decode in and encode out:
+
+      table_dump + loadstring   3,508 ns
+      cjson                     1,190 ns   (2.9x faster)
+      dkjson                    8,139 ns
+
+  Keeping it would have meant vendoring `seawolf.contrib` for one timing, and
+  the format was chosen for **safety** rather than speed: a session file stopped
+  being executable Lua. That does not need a stopwatch.
+
   Run: bash tests/bench/run_json_bench.sh
 ]]
 
 package.path = './?.lua;./?/init.lua;' .. package.path
 
 local ITERATIONS = tonumber(os.getenv('OPHAL_BENCH_ITERATIONS') or '') or 100000
-
-local contrib = require 'seawolf.contrib'
-local table_dump = contrib.table_dump
 
 local dkjson = require 'dkjson'
 local cjson = require 'cjson.safe'
@@ -170,43 +182,6 @@ local BODY = cjson.encode{
 
 -- ------------------------------------------ the session's current format ----
 
---[[ Exactly what `session_write_close()` does today, at
-  `includes/session.lua:322` -- the `'return '` prefix, the accumulating table,
-  the `tconcat`. Timing `table_dump` alone would flatter it by the concat.
-]]
-local function dump_encode(value)
-  local raw = {'return '}
-  local dumped, err = pcall(table_dump, value, function (s)
-    raw[#raw + 1] = s
-  end)
-
-  if not dumped then return nil, err end
-
-  return concat(raw)
-end
-
---[[ And what `session_start()` does at `includes/session.lua:281`: `loadstring`,
-  an empty environment, and a `pcall` of the result.
-
-  The bytecode guard above it is part of the cost of this format existing, so it
-  is measured with it. A JSON parser needs no such check, which is most of the
-  argument for the change.
-]]
-local function dump_decode(text)
-  if text:byte(1) == 27 then return nil, 'binary bytecode in session data' end
-
-  local fn, err = loadstring(text)
-
-  if not fn then return nil, err end
-
-  setfenv(fn, {})
-
-  local parsed, value = pcall(fn)
-
-  if not parsed then return nil, value end
-
-  return type(value) == 'table' and value or {}
-end
 
 -- ------------------------------------------------- the candidate null strip ----
 
@@ -245,13 +220,8 @@ end
 
 local SERVICE_ITERATIONS = math.max(1, math.floor(ITERATIONS / 20))
 
-local session_dump = dump_encode(SESSION)
 local session_cjson = cjson.encode(SESSION)
 local session_dkjson = dkjson.encode(SESSION)
-
-timed('encode: session (signed in)', 'table_dump + concat', ITERATIONS, function()
-  return dump_encode(SESSION)
-end, format('%d bytes', #session_dump))
 
 timed('encode: session (signed in)', 'cjson', ITERATIONS, function()
   return cjson.encode(SESSION)
@@ -261,9 +231,6 @@ timed('encode: session (signed in)', 'dkjson', ITERATIONS, function()
   return dkjson.encode(SESSION)
 end, format('%d bytes', #session_dkjson))
 
-timed('encode: session (token only)', 'table_dump + concat', ITERATIONS, function()
-  return dump_encode(SESSION_SMALL)
-end)
 
 timed('encode: session (token only)', 'cjson', ITERATIONS, function()
   return cjson.encode(SESSION_SMALL)
@@ -271,10 +238,6 @@ end)
 
 timed('encode: session (token only)', 'dkjson', ITERATIONS, function()
   return dkjson.encode(SESSION_SMALL)
-end)
-
-timed('decode: session', 'loadstring + setfenv', ITERATIONS, function()
-  return dump_decode(session_dump)
 end)
 
 timed('decode: session', 'cjson', ITERATIONS, function()
@@ -287,9 +250,6 @@ end)
 
 --[[ The round trip is the number the store is actually judged on: a resumed
   session decodes on the way in and encodes on the way out, once each. ]]
-timed('round trip: session', 'table_dump + loadstring', ITERATIONS, function()
-  return dump_decode(dump_encode(SESSION))
-end)
 
 timed('round trip: session', 'cjson', ITERATIONS, function()
   return cjson.decode(cjson.encode(SESSION))

@@ -1089,7 +1089,7 @@ report_ok() {
 # to come back from each; a profile that ran fewer would otherwise disappear
 # into a single global total, which is the failure the count exists to catch.
 EXPECTED_BASE_SCENARIOS=32
-EXPECTED_DB_SCENARIOS=87
+EXPECTED_DB_SCENARIOS=90
 SCENARIO_COUNT=0
 
 # Reset per profile by `db_profile_begin`; the label prefixes each `ok` line so

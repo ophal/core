@@ -774,6 +774,7 @@ assert_contains "$AUTHORED_UPDATED_BODY"
 assert_query_budget 2 1
 report_ok "db_content_page_after_update (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
+
 # The tag listing has to show the authored article too, or the tag rows the
 # save wrote never reached the listing projection. This is the only assertion
 # that covers the tag half of `entity_after_save()` end to end.
@@ -1276,6 +1277,66 @@ if [[ "$(wc -c < "$SMOKE_DB_FILES/.incoming/$ordered_id")" != '4104' ]]; then
   fail "out-of-order upload lost a chunk: $(wc -c < "$SMOKE_DB_FILES/.incoming/$ordered_id") bytes"
 fi
 report_ok db_media_ordered_kept_both
+
+#[[ Unpublished content is not readable by a visitor who does not own it.
+#
+# Near the end of the profile, above the injection probe and below every pinned
+# budget, because it **creates content**: the first version of this sat after
+# `db_content_page_after_update` and moved `db_tag_after_update` from 1
+# normalized read to 4, by invalidating the tag projection the scenario below it
+# was measuring warm.
+#
+# `modules/content`'s `entity_page()` guards the render with
+#
+#   if not empty(entity.status) or entity.user_id == account.id
+#     or user_mod.access 'administer content' then
+#
+# and `status` is 0 for an unpublished node. The whole guard therefore rests on
+# **`empty(0)` being true** -- PHP semantics that `includes/util.lua` reproduces
+# deliberately. Make `empty(0)` false and the first clause passes for every
+# visitor, so every draft on the site becomes world-readable, silently and in
+# the permissive direction.
+#
+# That row of the truth table was pinned only in `tests/unit/test_util.lua`
+# until 2026-09-10: dropping it turned three assertions red there and nothing
+# else -- not the permission suite, not one smoke scenario. These three are the
+# end-to-end statement of what it protects.
+#
+# The seeded anonymous role holds `access content` and nothing else, so the
+# second and third clauses cannot grant here: the author is user 2 and an
+# anonymous visitor is user 0.
+UNPUBLISHED_TITLE='SMOKE_UNPUBLISHED_TITLE_MARKER'
+UNPUBLISHED_BODY='SMOKE_UNPUBLISHED_BODY_MARKER'
+
+run_request db_content_create_unpublished -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  -H "X-CSRF-Token: $author_csrf" \
+  --data-binary "{\"title\":\"$UNPUBLISHED_TITLE\",\"teaser\":\"$UNPUBLISHED_BODY\",\"body\":\"$UNPUBLISHED_BODY\",\"status\":false,\"promote\":false}" \
+  "$DB_URL/content/save"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"success" *: *true'
+unpublished_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\).*/\1/p' | tail -n 1)
+[[ -n "$unpublished_id" ]] || fail 'unpublished content save reported no id'
+report_ok db_content_create_unpublished
+
+# The author owns it, so they can read it. Without this, a guard that denied
+# everyone would pass the assertion below.
+run_request db_unpublished_content_visible_to_its_author \
+  -c "$author_cookie" -b "$author_cookie" "$DB_URL/content/$unpublished_id"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains "$UNPUBLISHED_BODY"
+report_ok db_unpublished_content_visible_to_its_author
+
+# And an anonymous visitor is refused, body and all.
+run_request db_unpublished_content_denied_anonymously \
+  "$DB_URL/content/$unpublished_id"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 401'
+assert_not_contains "$UNPUBLISHED_BODY"
+assert_not_contains "$UNPUBLISHED_TITLE"
+report_ok db_unpublished_content_denied_anonymously
 
 # The injection probe, against this profile's backend.
 #

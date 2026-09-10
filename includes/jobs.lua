@@ -13,7 +13,7 @@
 local M = {}
 
 local projection = require 'includes.projection'
-local json = require 'dkjson'
+local json = require 'includes.json'
 local time = os.time
 local type, pcall, tostring, tonumber = type, pcall, tostring, tonumber
 local ipairs, error = ipairs, error
@@ -136,7 +136,18 @@ function M.enqueue(kind, dedup_key, payload, priority)
   if payload == nil then
     encoded = nil
   else
-    encoded = json.encode(payload)
+    --[[ An unencodable payload is the caller's error and is reported as one.
+
+      `dkjson.encode` *raises* on a cycle, on an unsupported type and on
+      infinity, so this used to throw out of `enqueue` -- past a contract that
+      already says how to report a failure. The shim answers `nil, err`, and
+      the queue's own error path is where that belongs.
+    ]]
+    encoded, err = json.encode(payload)
+
+    if encoded == nil then
+      return nil, ('a job payload must be encodable as JSON: %s'):format(tostring(err))
+    end
   end
 
   rs, err = run('jobs.enqueue',
@@ -264,16 +275,20 @@ function M.fail(id, job_error, attempts)
   return status
 end
 
-local function decode_payload(job)
-  local decoded
+--[[ A job's payload, or nil when it has none.
 
+  Answers `nil, err` for a payload that will not decode. A job with no payload
+  at all is ordinary -- most kinds carry their identity in `active_key` -- so
+  absence and corruption have to be told apart, and the second used to be
+  discarded: the handler was called with nil and ran as though the row had
+  never had a payload.
+]]
+local function decode_payload(job)
   if job.payload == nil or job.payload == '' then
     return nil
   end
 
-  decoded = json.decode(job.payload, 1, nil)
-
-  return decoded
+  return json.decode(job.payload)
 end
 
 --[[ Claim and run whatever is waiting.
@@ -303,14 +318,26 @@ function M.run_pending(options)
       M.fail(job.id, ('no handler registered for job kind %q'):format(tostring(job.kind)), job.attempts)
       failed = failed + 1
     else
-      ok, handler_err = pcall(handler, decode_payload(job), job)
+      local payload, payload_err = decode_payload(job)
 
-      if ok and handler_err ~= false then
-        M.complete(job.id)
-        ran = ran + 1
-      else
-        M.fail(job.id, ok and 'handler declined the job' or handler_err, job.attempts)
+      if payload_err ~= nil then
+        -- Not the handler's problem, and not something a retry can fix: the
+        -- row is what it is. Fail it by name so the payload is the thing the
+        -- job row accuses, rather than whatever the handler does with nil.
+        M.fail(job.id,
+          ('job payload will not decode: %s'):format(tostring(payload_err)),
+          job.attempts)
         failed = failed + 1
+      else
+        ok, handler_err = pcall(handler, payload, job)
+
+        if ok and handler_err ~= false then
+          M.complete(job.id)
+          ran = ran + 1
+        else
+          M.fail(job.id, ok and 'handler declined the job' or handler_err, job.attempts)
+          failed = failed + 1
+        end
       end
     end
   end

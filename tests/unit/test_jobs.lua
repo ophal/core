@@ -380,6 +380,65 @@ do
   assert_eq('complete_allows_requeue', #state.rows, 2)
 end
 
+io.write '\n-- payloads that will not survive JSON --\n'
+
+do
+  --[[ An unencodable payload is reported, not raised.
+
+    `dkjson.encode` raises on a cycle, on an unsupported type and on infinity,
+    so this used to throw out of `enqueue` -- past a contract two lines above it
+    that already says how a failure is reported. Nothing caught it, because
+    every payload the codebase queues today is a flat table of strings.
+  ]]
+  local state = new_state()
+  install_db(state)
+  local jobs = load_jobs()
+
+  jobs.registry_clear()
+  jobs.register('rebuild', function() return true end)
+
+  local cyclic = {}
+  cyclic.self = cyclic
+
+  local queued, err = jobs.enqueue('rebuild', 'a', cyclic)
+
+  assert_eq('enqueue_refuses_unencodable_payload', queued, nil)
+  assert_match('enqueue_names_the_payload', err, 'must be encodable as JSON')
+  assert_eq('enqueue_wrote_no_row', #state.rows, 0)
+end
+
+do
+  --[[ And a payload that will not decode fails its own job.
+
+    It used to be discarded: `decode_payload()` dropped the error and the
+    handler was called with nil, so a corrupt row ran as though it had never
+    carried a payload -- which for a rebuild job means rebuilding the wrong
+    thing and reporting success.
+  ]]
+  local state = new_state()
+  install_db(state)
+  local jobs = load_jobs()
+  local reached = 0
+
+  jobs.registry_clear()
+  jobs.register('rebuild', function()
+    reached = reached + 1
+    return true
+  end)
+
+  jobs.enqueue('rebuild', 'a', {key = 'alpha'})
+  state.rows[1].payload = '{not json'
+
+  local summary = jobs.run_pending{worker_id = 'runner'}
+
+  assert_eq('undecodable_payload_fails_the_job', summary.failed, 1)
+  assert_eq('undecodable_payload_runs_nothing', summary.ran, 0)
+  assert_eq('undecodable_payload_never_reaches_the_handler', reached, 0)
+  assert_match('undecodable_payload_names_itself',
+    tostring(state.rows[1].last_error), 'will not decode')
+end
+
+
 do
   local state = new_state()
   install_db(state)

@@ -1,6 +1,25 @@
-local seawolf = require 'seawolf'.__build('maths', 'fs')
 local pairs, tcon, date, time = pairs, table.concat, os.date, os.time
-local lfs, json, round = lfs, require 'includes.json', seawolf.maths.round
+local floor, ceil = math.floor, math.ceil
+local lfs, json = lfs, require 'includes.json'
+
+--[[ Half-away-from-zero rounding, to `places` decimals.
+
+  This was `seawolf.maths.round`, and it was **nil at runtime**: `seawolf.maths`
+  requires an undeclared rock named `random` at its first line, `__build`'s
+  `pcall` stores the resulting error *string* in the slot rather than leaving it
+  nil, and indexing a string is legal -- so `round` silently resolved to nil and
+  `format_size()` raised "attempt to call a nil value" on every call.
+  `theme.file_info` renders it, so a file's size has never displayed.
+]]
+local function round(value, places)
+  local scale = 10 ^ (places or 0)
+
+  if value >= 0 then
+    return floor(value * scale + 0.5) / scale
+  end
+
+  return ceil(value * scale - 0.5) / scale
+end
 local str_replace = require('includes.text').replace
 local request_state = require 'includes.request_state'
 

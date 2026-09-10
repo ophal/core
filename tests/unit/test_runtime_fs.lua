@@ -116,6 +116,29 @@ local function setup_env()
   return counts
 end
 
+io.write '\n-- format_size --\n'
+
+--[[ It has never worked.
+
+  `format_size()` calls `round()`, which was `seawolf.maths.round` -- and
+  `seawolf.maths` requires an undeclared rock named `random` at its first line.
+  `__build`'s `pcall` stores the resulting error *string* in the slot rather
+  than leaving it nil, indexing a string is legal in Lua, so `round` resolved to
+  nil with no complaint and every call raised "attempt to call a nil value".
+  `theme.file_info` renders this, so a file's size has never displayed.
+
+  These assertions are red on any tree where `round` is not a real function.
+]]
+do
+  setup_env()
+
+  assert_eq('format_size_zero', format_size(0), '0 B')
+  assert_eq('format_size_bytes', format_size(512), '512 B')
+  assert_eq('format_size_rounds_to_two_places', format_size(1536), '1.5 KB')
+  assert_eq('format_size_megabytes', format_size(5242880), '5 MB')
+  assert_eq('format_size_of_nil_is_zero', format_size(nil), '0 B')
+end
+
 io.write '\n-- asset stat cache --\n'
 
 do

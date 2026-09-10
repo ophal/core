@@ -1,6 +1,13 @@
 local route_register_alias, url, theme = route_register_alias, url, theme
 local page_set_title, l = page_set_title, l
 local env, format, tonumber = env, string.format, tonumber
+-- `module()` below replaces this file's environment, so a bare global resolves
+-- to nil. `html_safe` was not captured, so `page()` raised on every request --
+-- the dispatcher's pcall turned that into an error string and the page was
+-- served as a 200 with this file's own path in the body. `index_frontpage`
+-- passed throughout, because it asserts the title, which is set from the route
+-- before the callback runs.
+local html_safe = html_safe
 
 module 'ophal.modules.lorem_ipsum'
 

@@ -82,7 +82,14 @@ local function reset_all()
 
   -- Stub globals needed by entity module at load time
   t = function(s) return s end
-  l = function(text) return text end
+  -- `l()` returns just its text, as it always has, but records the path it was
+  -- given: `modules/entity` captures `l` at load time, so a stub cannot change
+  -- shape later, and the *URL* is what several assertions below are about.
+  link_log = {}
+  l = function(text, path)
+    link_log[#link_log + 1] = {text = text, path = path}
+    return text
+  end
   theme = setmetatable({}, {__call = function() return '' end})
   route_arg = function() return nil end
   header = function() end
@@ -759,6 +766,135 @@ end
 assert_eq('tag_service_delete_allows_delete_owner', got_401_39, false)
 assert_eq('tag_service_delete_owner_success', result39.success, true)
 
+
+-- ============================================== BLOCKS_ALTER (add child)
+
+io.write('-- blocks_alter --\n')
+
+--[[ The "add new <type>" block, which had never rendered.
+
+  `blocks_alter()` walks `settings.entity.<type>.parents` and offers a create
+  link when the request is on one of those parents. It was written with
+  seawolf's `table_each`, which passes `(key, value)` to a callback -- so the
+  single parameter bound the numeric index and `route_arg(0) == parent_type`
+  compared a route segment against `1`. Never true, so the block never
+  appeared, for as long as the entity module has existed.
+
+  The fixture at the top of this file has declared
+  `parents = {'parent_alpha', 'parent_beta'}` the whole time, which is what says
+  the value was meant rather than the key.
+]]
+do
+  setup_entity_env_with_route_arg(function(n)
+    if n == 0 then return 'parent_alpha' end
+    if n == 1 then return '7' end
+    return nil
+  end)
+
+  -- `get_entity_type_info()` asks `module_invoke_all`, which walks the modules
+  -- `settings.modules` enables -- and it memoizes, so the cache has to be
+  -- dropped after registering one.
+  settings.modules.testchild = true
+  ophal.modules.testchild = {
+    entity_type_info = function()
+      return {
+        testchild = {name = {'child', plural = 'children'}, module = 'testchild'},
+      }
+    end,
+  }
+  ophal.modules.entity.entity_type_info_cache_clear()
+
+  local blocks = {}
+
+  ophal.modules.entity.blocks_alter(blocks)
+
+  assert_eq('blocks_alter_offers_the_child_block',
+    blocks.add_testchild ~= nil, true)
+  assert_eq('blocks_alter_block_id',
+    blocks.add_testchild and blocks.add_testchild.id, 'add_testchild')
+  assert_eq('blocks_alter_block_region',
+    blocks.add_testchild and blocks.add_testchild.region, 'sidebar_last')
+
+  -- The link has to name the parent the visitor is actually on, and its id.
+  assert_match('blocks_alter_link_names_the_parent_type',
+    link_log[#link_log] and link_log[#link_log].path or '',
+    'parent_type=parent_alpha')
+  assert_match('blocks_alter_link_names_the_parent_id',
+    link_log[#link_log] and link_log[#link_log].path or '',
+    'parent_id=7')
+  assert_match('blocks_alter_link_creates_the_child_type',
+    link_log[#link_log] and link_log[#link_log].path or '',
+    'entity/create/testchild')
+end
+
+--[[ And the second parent in the list works too.
+
+  `ipairs` stopping after the first element would pass every assertion above.
+]]
+do
+  setup_entity_env_with_route_arg(function(n)
+    if n == 0 then return 'parent_beta' end
+    if n == 1 then return '9' end
+    return nil
+  end)
+
+  -- `get_entity_type_info()` asks `module_invoke_all`, which walks the modules
+  -- `settings.modules` enables -- and it memoizes, so the cache has to be
+  -- dropped after registering one.
+  settings.modules.testchild = true
+  ophal.modules.testchild = {
+    entity_type_info = function()
+      return {
+        testchild = {name = {'child', plural = 'children'}, module = 'testchild'},
+      }
+    end,
+  }
+  ophal.modules.entity.entity_type_info_cache_clear()
+
+  local blocks = {}
+
+  ophal.modules.entity.blocks_alter(blocks)
+
+  assert_eq('blocks_alter_offers_the_block_for_a_later_parent',
+    blocks.add_testchild ~= nil, true)
+  assert_match('blocks_alter_later_parent_named',
+    link_log[#link_log] and link_log[#link_log].path or '',
+    'parent_type=parent_beta')
+end
+
+--[[ A request that is not on one of the declared parents gets nothing.
+
+  Without this, "always offer the block" would pass the two above.
+]]
+do
+  setup_entity_env_with_route_arg(function(n)
+    if n == 0 then return 'somewhere_else' end
+    if n == 1 then return '7' end
+    return nil
+  end)
+
+  local blocks = {}
+
+  ophal.modules.entity.blocks_alter(blocks)
+
+  assert_eq('blocks_alter_is_silent_off_the_parent_route',
+    blocks.add_testchild, nil)
+end
+
+--[[ And so does a parent route with no id -- `entity/create` needs one. ]]
+do
+  setup_entity_env_with_route_arg(function(n)
+    if n == 0 then return 'parent_alpha' end
+    return nil
+  end)
+
+  local blocks = {}
+
+  ophal.modules.entity.blocks_alter(blocks)
+
+  assert_eq('blocks_alter_is_silent_without_a_parent_id',
+    blocks.add_testchild, nil)
+end
 
 -- ================================================================ summary
 

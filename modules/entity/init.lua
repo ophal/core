@@ -87,22 +87,22 @@ end
 ]]
 function _M.blocks_alter(blocks)
   for entity_type, v in pairs(config) do
-    --[[ `parent_type` is the **key**, not the value, and that is preserved
-      deliberately.
+    --[[ `parents` is a list of parent type *names*, so the value is what is
+      wanted here and the key is an index.
 
       This was `xtable(v.parents):each(function(parent_type) ... end)`, and
       seawolf's `table_each` passes `(key, value)` -- so the callback's single
-      parameter bound the numeric index of `v.parents`, never a parent type
-      string, and `route_arg(0) == parent_type` compares a string against a
-      number. The block this guards has therefore never rendered.
+      parameter bound the numeric index, `route_arg(0) == parent_type` compared
+      a string against a number, and **this block had never rendered**. The
+      shape is not in doubt: the body below interpolates `parent_type` into
+      `?parent_type=`, and `tests/unit/test_entity_contract.lua` has declared
+      `parents = {'parent_alpha', 'parent_beta'}` all along.
 
-      Translating the loop is not the place to change that: it is a defect in
-      `modules/entity`, which is being kept and extended, so it should be fixed
-      where somebody is looking at the entity model rather than silently here.
-      The callback also never returned a value, so `table_each`'s break-on-truthy
-      is not in play and a plain `for` is exact.
+      `ipairs` rather than `pairs`, because that is the shape: a hash there
+      would put `true` in `parent_type` and be just as broken, so iterating the
+      array part says what is expected instead of half-tolerating what is not.
     ]]
-    for parent_type in pairs(v.parents) do
+    for _, parent_type in ipairs(v.parents) do
       if route_arg(0) == parent_type and not empty(route_arg(1)) then
         local info = _M.get_entity_type_info(entity_type)
         if info and _M.entity_access({type = entity_type}, 'create') then

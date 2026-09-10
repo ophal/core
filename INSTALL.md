@@ -107,8 +107,9 @@ Required for any site:
 
 MySQL needs nothing installed: `lua-resty-mysql` ships with OpenResty.
 
-No cryptography library is needed. See the note in `README.md`: SHA-256 is the
-default password algorithm and a pure-Lua implementation ships with Ophal.
+No cryptography rock is needed for passwords, whichever algorithm you pick:
+`includes/digest.lua` uses the MD5 and SHA-2 bindings that ship with OpenResty.
+See the note in `README.md`.
 
 ### Debian
 
@@ -733,7 +734,9 @@ Run the following SQL queries in strict order:
   Alternatively, you can run the following lua code:
 
   ```sh
-  > print(require 'lsha2'.hash256 'mypassword')
+  $ resty -e "print(require('resty.string').to_hex(
+      (function(d) d:update('mypassword') return d:final() end)(
+        require('resty.sha256'):new())))"
   89e01536ac207279409d4de1e5253e01f4a1769e696db0d6062ca9b8f56767c8
   ```
 

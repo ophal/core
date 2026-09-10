@@ -2,16 +2,15 @@
 
   Ophal hashes passwords by iterating a digest 10,000 times, and it resolved
   that digest through a chain of optional rocks -- `md5`, `sha1`, `lsha2`,
-  `sha2` -- falling through to the pure-Lua `includes/sha256.lua` that ships
-  with it. `README.md` said so as a feature: "no cryptography library is
+  `sha2` -- falling through to a pure-Lua SHA-256 that shipped with it, now
+  `tests/bench/sha256_pure.lua` and vendored for this file and nothing else. `README.md` said so as a feature: "no cryptography library is
   needed". It was never needed, because OpenResty has shipped `resty.sha256`
   the whole time and nothing asked it.
 
   So the shipped, documented, default configuration ran ten thousand rounds of
   interpreted SHA-256 inside a request. This file is the measurement that gates
-  replacing it, and it is kept afterwards for the reason `json_bench.lua` is
-  kept: the argument is only checkable with both implementations in front of
-  you.
+  replaced it, and it is kept for the reason `json_bench.lua` is kept: the
+  argument is only checkable with both implementations in front of you.
 
   Two questions.
 
@@ -46,7 +45,7 @@ package.path = './?.lua;./?/init.lua;' .. package.path
 
 local ITERATIONS = tonumber(os.getenv('OPHAL_BENCH_ITERATIONS') or '') or 10000
 
-local pure = require 'includes.sha256'
+local pure = require 'tests.bench.sha256_pure'
 local resty_string = require 'resty.string'
 
 local format, clock = string.format, os.clock

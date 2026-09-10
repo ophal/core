@@ -30,15 +30,18 @@ JSON needs no dependency: Ophal uses `cjson`, which ships with OpenResty.
 Ophal runs on OpenResty and its LuaJIT only -- the `ophal` command line runs
 under `resty` as well, so there is one runtime rather than two.
 
-The user module needs no cryptography library. Passwords are hashed with
-SHA-256 by default and `includes/sha256.lua` is a pure-Lua implementation that
-ships with Ophal, so the module works on a runtime with no digest bindings at
-all -- which is how the smoke suite exercises sign-in.
+The user module needs no cryptography rock, and neither does any other
+algorithm it offers. Passwords are hashed through `includes/digest.lua`, which
+uses the `resty.md5`, `resty.sha1` and `resty.sha224` through `resty.sha512`
+bindings that ship with OpenResty -- so every value
+`settings.user.password_hash.algorithm` accepts works out of the box.
 
-Other digest algorithms are optional and each needs its own module, not a
-single one: `md5` for md5, `sha1` for sha1, `lsha2` for sha224, and `sha2` for
-sha384 and sha512. Install one only if you set
-`settings.user.password_hash.algorithm` to something other than `sha256`.
+This used to say the same thing for a different reason: a pure-Lua SHA-256
+shipped with Ophal and no binding was needed. It was also the *live* path,
+because nothing asked OpenResty, and a 10,000-iteration hash cost 676 ms of
+blocked worker per sign-in against 5.2 ms now. The digests are identical, so
+hashes stored by older versions still verify.
+`tests/bench/digest_bench.lua` is the measurement.
 
 ## OpenResty runtime model
 

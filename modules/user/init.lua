@@ -1,4 +1,4 @@
-local seawolf = require 'seawolf'.__build('other', 'variable', 'contrib')
+local seawolf = require 'seawolf'.__build('variable', 'contrib')
 local json, require, tonumber = require 'includes.json', require, tonumber
 
 require 'modules.user.statements'
@@ -29,6 +29,13 @@ local secure_equals = secure_equals
 -- global because `includes/random.lua` is a plain module: password salts came
 -- from `uuid.new()`, whose strength is the installed uuid binding's default.
 local random = require 'includes.random'
+-- And the digest layer beside it. Passwords were hashed through a chain of
+-- optional rocks that fell through to a pure-Lua SHA-256 when none was
+-- installed -- which was every documented install, so a 10,000-iteration hash
+-- cost 676 ms of blocked worker per sign-in. `includes/digest.lua` answers from
+-- OpenResty's own bindings at 5.2 ms, with a byte-identical digest, which is
+-- what let it replace this without touching a stored hash.
+local digest = require 'includes.digest'
 
 --[[ This request's session and query arguments.
 
@@ -88,58 +95,21 @@ module 'ophal.modules.user'
 
 local db_connection
 local password_hash_prefix = 'ophal$1$'
-local hash
 
-do
-  local digest_modules = {}
+--[[ One digest call, where a rock chain used to be.
 
-  local function load_digest_module(name)
-    if digest_modules[name] == nil then
-      local ok, module_impl = pcall(require, name)
-      digest_modules[name] = ok and module_impl or false
-    end
+  What stood here resolved `md5`, `sha1`, `lsha2` or `sha2` by algorithm, cached
+  the result, and fell through to the bundled pure-Lua SHA-256 at the `sha256`
+  default. Above it sat a preference for `seawolf.other.hash`, guarded with
+  `type(...) == 'function'` -- and `seawolf.other` requires `md5` and `lsha2`
+  unguarded, so it never loaded, so the guard silently selected the fallback on
+  every install. That is how the slowest available implementation became the
+  shipped one without anybody choosing it.
 
-    return digest_modules[name] or nil
-  end
-
-  local function fallback_hash(algo, data, raw_output)
-    local digest
-
-    if raw_output then
-      error(('[user] raw hash output is unsupported for algorithm "%s"'):format(algo))
-    end
-
-    if algo == 'md5' then
-      local md5 = load_digest_module('md5')
-      digest = md5 and md5.sumhexa
-    elseif algo == 'sha1' then
-      local sha1 = load_digest_module('sha1')
-      digest = sha1 and sha1.sha1
-    elseif algo == 'sha224' then
-      local lsha2 = load_digest_module('lsha2')
-      digest = lsha2 and lsha2.hash224
-    elseif algo == 'sha256' then
-      local lsha2 = load_digest_module('lsha2')
-      local sha2 = load_digest_module('sha2')
-      local sha256 = load_digest_module('includes.sha256')
-      digest = lsha2 and lsha2.hash256 or sha2 and sha2.sha256hex or sha256 and sha256.hash256
-    elseif algo == 'sha384' then
-      local sha2 = load_digest_module('sha2')
-      digest = sha2 and sha2.sha384hex
-    elseif algo == 'sha512' then
-      local sha2 = load_digest_module('sha2')
-      digest = sha2 and sha2.sha512hex
-    end
-
-    if nil == digest then
-      error(('[user] unknown hash algorithm "%s"'):format(algo))
-    end
-
-    return digest(data)
-  end
-
-  hash = seawolf.other and type(seawolf.other.hash) == 'function' and seawolf.other.hash or fallback_hash
-end
+  `raw_output` went with it. The old signature took a third argument and raised
+  on it; nothing in the repo ever passed one.
+]]
+local hash = digest.hex
 
 local function redirect_authority(target)
   if type(target) ~= 'string' or target == '' then

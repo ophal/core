@@ -187,15 +187,19 @@ function M.disable()
 end
 
 local function digest(value)
-  -- `ngx.md5` is a C call and is what serves the web runtime. The bundled
-  -- pure-Lua sha256 covers anything else; neither is a security boundary here,
-  -- because an ETag is not a secret and forging one only misleads the forger's
-  -- own cache.
+  -- `ngx.md5` is a C call and is what serves the web runtime. An ETag is not a
+  -- secret and forging one only misleads the forger's own cache, so this is a
+  -- fingerprint rather than a security boundary.
+  --
+  -- There used to be a pure-Lua sha256 behind this for "anything else". There
+  -- is no anything else: Ophal is OpenResty-only and the unit suite runs under
+  -- `resty`, so `ngx` is always here. `includes/digest.lua` is what a caller
+  -- that needs a real digest uses.
   if ngx ~= nil and type(ngx.md5) == 'function' then
     return ngx.md5(value)
   end
 
-  return require('includes.sha256').hash256(value):sub(1, 32)
+  return require('includes.digest').hex('sha256', value):sub(1, 32)
 end
 
 local function fingerprint(current)

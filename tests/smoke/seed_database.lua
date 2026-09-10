@@ -89,11 +89,10 @@ end
 
 local registry = require 'includes.database.registry'
 local router = require 'includes.database.router'
--- The digest `modules/user` resolves for `sha256` under this vendor runtime,
--- where neither `lsha2` nor `sha2` is installed and `seawolf.other` does not
--- build. Requiring it here is what lets the seed store a password the real
--- `password_verify()` accepts without this file restating a hashing scheme.
-local sha256 = require 'includes.sha256'
+-- The same digest layer `modules/user` hashes with. Requiring it here is what
+-- lets the seed store a password the real `password_verify()` accepts without
+-- this file restating a hashing scheme.
+local digest = require 'includes.digest'
 require 'includes.database.statements'
 
 --[[ The seeder's own statements, declared the way every other statement is.
@@ -637,7 +636,7 @@ VALUES(1, 'root', 'root@example.com', 'x', 1, ?)]], now},
   -- only exercise `password_rehash_account()` gets against a real database.
   {[[INSERT INTO users(id, name, mail, pass, active, created)
 VALUES(2, ?, 'author@example.com', ?, 1, ?)]],
-    fixtures.author_name, sha256.hash256(fixtures.author_pass), now},
+    fixtures.author_name, digest.hex('sha256', fixtures.author_pass), now},
 
   {[[INSERT INTO role(id, name, active, weight) VALUES('anonymous', 'Anonymous user', 1, 1)]]},
   {[[INSERT INTO role(id, name, active, weight) VALUES('authenticated', 'Authenticated user', 1, 2)]]},

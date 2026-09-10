@@ -79,13 +79,13 @@ local function cache_clear(options)
 end
 
 local function legacy_sha256(password)
-  local ok, sha256 = pcall(require, 'includes.sha256')
+  local ok, digest = pcall(require, 'includes.digest')
 
   if not ok then
-    return nil, sha256
+    return nil, digest
   end
 
-  return sha256.hash256(password or '')
+  return digest.hex('sha256', password or '')
 end
 
 local function copy_table(values)

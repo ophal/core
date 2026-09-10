@@ -124,13 +124,13 @@ reaches every other cjson user in the worker and the shim must leave it alone.
 bash tests/bench/run_digest_bench.sh
 ```
 
-Runs under `resty`. Needs nothing vendored — both implementations are in the
-tree.
+Runs under `resty`. Needs nothing vendored: `tests/bench/sha256_pure.lua` is the
+retired pure-Lua implementation, kept here so the comparison stays checkable.
 
 This is the measurement that retired the pure-Lua SHA-256 from the password
 path. Ophal iterates a digest 10,000 times by default and resolved that digest
-through a chain of optional rocks before falling through to
-`includes/sha256.lua`, so the shipped configuration ran ten thousand rounds of
+through a chain of optional rocks before falling through to a bundled pure-Lua
+implementation, so the shipped configuration ran ten thousand rounds of
 interpreted SHA-256 inside a request. `README.md` presented that as a feature —
 "no cryptography library is needed" — and it was true only because nothing ever
 asked OpenResty, which has shipped `resty.sha256` all along.

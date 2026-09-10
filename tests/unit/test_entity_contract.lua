@@ -1,4 +1,4 @@
-#!/usr/bin/env lua5.1
+#!/usr/bin/env resty
 --
 -- Standalone unit tests for the entity contract:
 -- type info discovery, access control nil-safety, deletion relation cleanup,

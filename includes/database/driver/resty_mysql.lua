@@ -94,9 +94,10 @@ end
   path for the reason spelled out in `includes/database/driver/init.lua`.
 
   `ngx` is read here rather than captured at the top of the file on purpose:
-  `tests/unit/test_query_layer.lua` requires this module under plain `lua5.1` to
-  compile statements for the MySQL dialect, where there is no `ngx` to capture
-  and nothing that escapes anything.
+  `tests/unit/test_query_layer.lua` compiles statements for the MySQL dialect
+  with `ngx` cleared, to drive the branch that answers a missing binding. A
+  load-time capture would freeze whatever was there when the module was first
+  required, which is the one thing that test needs to vary.
 ]]
 function M.escape(value)
   local kind = type(value)

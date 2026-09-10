@@ -25,7 +25,7 @@ local M = {}
   can repair either.
 
   It was kept for one job, and that job turned out not to need it. The `ophal`
-  CLI runs under `lua5.1` with no cosockets, so the reading was that PostgreSQL
+  CLI ran under `lua5.1` with no cosockets, so the reading was that PostgreSQL
   needed a blocking driver there. pgmoon is not one: it takes
   `socket_type = 'luasocket'` and works, migrations and all. What actually stood
   in the way was `includes/migrate.lua` branching on the *driver* name as if it

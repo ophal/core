@@ -27,7 +27,7 @@
     OPHAL_SMOKE_DB_USER
     OPHAL_SMOKE_DB_PASS
 
-  Usage: lua5.1 tests/smoke/seed_database.lua
+  Usage: resty tests/smoke/seed_database.lua
 ]]
 
 package.path = './?.lua;./?/init.lua;' .. package.path

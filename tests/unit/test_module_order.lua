@@ -1,4 +1,4 @@
-#!/usr/bin/env lua5.1
+#!/usr/bin/env resty
 --
 -- Standalone unit tests for module resolution order, route build order,
 -- route conflict detection, and route freeze.

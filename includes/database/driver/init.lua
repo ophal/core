@@ -17,11 +17,12 @@
     quote_identifier  a table or column name, quoted for this backend
     escape(value)     only for a driver that cannot bind
 
-  `dialect` is separate from `name` on purpose. `pgmoon` and
-  `luadbi_postgresql` are two drivers over one dialect, so they share every
-  compiled statement's overrides -- which is what lets the OpenResty runtime and
-  the `lua5.1` CLI reach one database through different drivers without a
-  statement being written twice.
+  `dialect` is separate from `name` on purpose: two drivers over one dialect
+  share every compiled statement's overrides, so a second binding for a backend
+  Ophal already speaks costs no statement being written twice. That once served
+  a second *runtime* -- the `lua5.1` CLI reaching PostgreSQL through a blocking
+  driver -- and since 2026-09-10 there is one runtime, so what it buys now is a
+  second binding rather than a second interpreter.
 ]]
 
 local M = {}

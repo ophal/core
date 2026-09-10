@@ -117,3 +117,42 @@ reaches every other cjson user in the worker and the shim must leave it alone.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `OPHAL_BENCH_ITERATIONS` | 100000 | operations per candidate; the service phase runs a twentieth of it |
+
+## Digest benchmark
+
+```sh
+bash tests/bench/run_digest_bench.sh
+```
+
+Runs under `resty`. Needs nothing vendored — both implementations are in the
+tree.
+
+This is the measurement that retired the pure-Lua SHA-256 from the password
+path. Ophal iterates a digest 10,000 times by default and resolved that digest
+through a chain of optional rocks before falling through to
+`includes/sha256.lua`, so the shipped configuration ran ten thousand rounds of
+interpreted SHA-256 inside a request. `README.md` presented that as a feature —
+"no cryptography library is needed" — and it was true only because nothing ever
+asked OpenResty, which has shipped `resty.sha256` all along.
+
+It reports timings at 1, 100 and 10,000 iterations and **exits non-zero** on any
+assertion, of which there are two kinds and they prove different things.
+
+**Agreement** is what gates the swap. `password_verify()` re-derives the whole
+stored string and `secure_equals` it, so a digest differing by one nibble locks
+out every existing account. Agreement is asserted over the iteration chain
+rather than over a single call, because each round feeds the previous round's
+hex back in — an implementation that diverged only on an empty input would pass
+a single-shot comparison. The block boundaries either side of 64 bytes are
+checked for the same reason: that is where a padding bug lives.
+
+**Vectors** say each algorithm name is wired to the right implementation, which
+agreement cannot. The digests of `"abc"` are cross-checked against `openssl
+dgst` rather than against the bindings under test — a vector taken from the
+thing being tested proves only that it agrees with itself. Pointing `sha384` at
+`resty.sha512` turns exactly one assertion red, and nothing in Ophal would
+otherwise notice, since no site configures those algorithms.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OPHAL_BENCH_ITERATIONS` | 10000 | the largest iteration count timed; the shipped default for `settings.user.password_hash.iterations` |

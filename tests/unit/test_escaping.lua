@@ -70,7 +70,7 @@ end
 local function setup_env()
   local seawolf = require 'seawolf'
 
-  seawolf.__build('maths', 'text', 'fs', 'variable', 'contrib')
+  seawolf.__build('maths', 'fs', 'variable', 'contrib')
 
   _G.settings = {
     slash = '/',

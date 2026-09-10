@@ -10,7 +10,10 @@ end
 local modules, config = ophal.modules, settings.tag or {}
 local theme, env, add_css, slash, l = theme, env, add_css, settings.slash, l
 local tinsert, tconcat, pairs, ophal = table.insert, table.concat, pairs, ophal
-local add_js, route_arg, trim, header = add_js, route_arg, seawolf.text.trim, header
+local add_js, route_arg, header = add_js, route_arg, header
+-- `includes/text.lua` rather than `seawolf.text`, and required above the
+-- `module()` call below like every other capture in this file.
+local trim = require('includes.text').trim
 local page_set_title, json, time = page_set_title, require 'includes.json', os.time
 local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
 local tonumber, ceil = tonumber, math.ceil

@@ -22,7 +22,7 @@ do
 end
 
 seawolf = require 'seawolf'
-seawolf.__build('text', 'variable', 'contrib', 'fs')
+seawolf.__build('variable', 'contrib', 'fs')
 
 local pass_count, fail_count = 0, 0
 

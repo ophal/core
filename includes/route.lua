@@ -3,7 +3,7 @@ if not ophal.aliases.alias then ophal.aliases.alias = {} end
 if not ophal.redirects.source then ophal.redirects.source = {} end
 if not ophal.redirects.target then ophal.redirects.target = {} end
 
-local explode = seawolf.text.explode
+local explode = require('includes.text').split
 local table_shift = seawolf.contrib.table_shift
 local aliases = ophal.aliases
 local redirects = ophal.redirects

@@ -146,7 +146,7 @@ function bootstrap(phase, main)
       env.lpeg = require 'lpeg'
       env.uuid = require 'uuid'
 
-      env.seawolf = require 'seawolf'.__build('variable', 'fs', 'text', 'behaviour', 'contrib')
+      env.seawolf = require 'seawolf'.__build('variable', 'fs', 'behaviour', 'contrib')
     end,
 
     -- 2. Debug API

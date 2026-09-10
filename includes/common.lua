@@ -1,7 +1,7 @@
-local seawolf = require 'seawolf'.__build('maths', 'text', 'fs')
+local seawolf = require 'seawolf'.__build('maths', 'fs')
 local pairs, tcon, date, time = pairs, table.concat, os.date, os.time
 local lfs, json, round = lfs, require 'includes.json', seawolf.maths.round
-local str_replace = seawolf.text.str_replace
+local str_replace = require('includes.text').replace
 local request_state = require 'includes.request_state'
 
 if type(html_url_escape) ~= 'function' then

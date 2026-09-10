@@ -105,7 +105,7 @@ end
 
 -- Load seawolf into globals (same as the framework does)
 seawolf = require 'seawolf'
-seawolf.__build('text', 'variable', 'contrib', 'fs')
+seawolf.__build('variable', 'contrib', 'fs')
 
 -- Initial load
 reset_globals()

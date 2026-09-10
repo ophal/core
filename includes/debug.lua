@@ -1,4 +1,3 @@
-local print_r = seawolf.variable.print_r
 local temp_dir = seawolf.behaviour.temp_dir
 
 --[[

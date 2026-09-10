@@ -139,7 +139,7 @@ check_dependencies() {
   probe_file=$(mktemp)
   cat >"$probe_file" <<'LUA'
 local missing = {}
-for _, name in ipairs({'lfs', 'lpeg', 'uuid', 'seawolf', 'cjson', 'lsqlite3'}) do
+for _, name in ipairs({'lfs', 'uuid', 'seawolf', 'cjson', 'lsqlite3'}) do
   local ok = pcall(require, name)
   if not ok then
     missing[#missing + 1] = name

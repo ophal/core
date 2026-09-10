@@ -21,7 +21,6 @@ RUN apt-get update && apt-get install -y \
   luarocks \
   && rm -rf /var/lib/apt/lists/*
 
-RUN luarocks install lpeg
 RUN luarocks install dkjson
 RUN luarocks install luafilesystem
 RUN luarocks install luasocket

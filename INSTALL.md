@@ -96,7 +96,6 @@ JSON needs no rock: Ophal uses `cjson`, which ships with OpenResty.
 
 Required for any site:
 
-- LPeg
 - LuaFilesystem
 - luuid
 - LuaSocket
@@ -115,7 +114,6 @@ See the note in `README.md`.
 
 ```sh
 $ sudo apt-get install uuid-dev libsqlite3-dev libpq-dev
-$ sudo luarocks install lpeg
 $ sudo luarocks install luafilesystem
 $ sudo luarocks install luuid
 $ sudo luarocks install luasocket

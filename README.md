@@ -20,7 +20,6 @@ deployment and the OpenResty-based example Docker image in
 Ophal has the following dependencies:
 
 - Seawolf (http://github.com/ophal/seawolf)
-- LPEG
 - LuaFilesystem
 - lsqlite3 (SQLite) or pgmoon (PostgreSQL); MySQL uses the `lua-resty-mysql`
   that ships with OpenResty

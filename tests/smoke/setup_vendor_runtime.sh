@@ -13,7 +13,7 @@ SEAWOLF_REF="${SEAWOLF_REF:-master}"
 # cjson, which ships with OpenResty. It stays vendored for one reason:
 # `tests/bench/json_bench.lua` is the measurement that chose cjson, and a
 # comparison needs both sides of it.
-PACKAGES=(lua-filesystem lua-lpeg lua-socket lua-dkjson)
+PACKAGES=(lua-filesystem lua-socket lua-dkjson)
 LSQLITE_REF="${LSQLITE_REF:-master}"
 LSQLITE_TARBALL="https://github.com/LuaDist/lsqlite3/archive/refs/heads/$LSQLITE_REF.tar.gz"
 # The headers lsqlite3 compiles against. Taken from the pool directory rather

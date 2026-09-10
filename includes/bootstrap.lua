@@ -40,7 +40,6 @@ env = {
   _SESSION = nil,
   _VERSION = _VERSION,
   lfs = nil,
-  lpeg = nil,
   uuid = nil,
   socket = nil,
   theme = {},
@@ -140,10 +139,9 @@ function bootstrap(phase, main)
   end
 
   local phases = {
-    -- 1. Lua and Seawolf libraries
+    -- 1. Lua libraries
     function ()
       env.lfs = require 'lfs'
-      env.lpeg = require 'lpeg'
       env.uuid = require 'uuid'
 
       env.seawolf = require 'seawolf'.__build('variable', 'fs', 'behaviour', 'contrib')

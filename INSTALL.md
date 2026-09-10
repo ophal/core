@@ -317,6 +317,38 @@ the two sit exactly on top of each other; raise the nginx limit if you raise the
 chunk size.
 
 
+### Sessions
+
+`settings.sessionapi` turns the session layer on and configures where session
+files live and how long they last.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | — | any truthy value turns the session layer on |
+| `path` | the system temp directory | where session files are written |
+| `ttl` | 86400 | seconds before cron reaps an idle session |
+| `lock_ttl` | 120 | **inert**; see below |
+
+`path` must be on a filesystem the worker can write to, and one it can rename
+within: a session is saved by writing a temp file beside its target and renaming
+it into place, so the write is atomic and a reader never sees a half-written
+session. That is the same constraint as uploads, above, and for the same reason.
+
+Session files hold JSON. They used to hold Lua, read back with `loadstring`, and
+a file written by Ophal 0.1 will not parse — such a session reads as **no
+session**, so everybody signs in once after upgrading and nobody sees an error.
+
+`lock_ttl` no longer does anything. Sessions were guarded by a lock file, which
+raced on acquisition, blocked the whole worker while it waited, and was reaped by
+cron on age alone — while a request still held it. There is no lock now; two
+writes to one session resolve last-writer-wins, which is what a session holds and
+what it can afford to lose. The key is still accepted so that an existing
+settings file keeps loading, and cron still sweeps `.ophal.lock` files left by an
+older release.
+
+`/cron` is what reaps expired sessions, alongside the deferred work above.
+
+
 ### Performance settings
 
 Every key below is optional and has a working default, so a site that sets none

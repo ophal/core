@@ -9,7 +9,7 @@ require 'modules.entity.statements'
 
 local t, module_invoke_all, route_arg = t, module_invoke_all, route_arg
 local l, theme, empty = l, theme, require('includes.util').empty
-local xtable, config = seawolf.contrib.seawolf_table, settings.entity
+local util, config = require 'includes.util', settings.entity
 local csrf_token, csrf_validate_request, csrf_denied = csrf_token, csrf_validate_request, csrf_denied
 
 local user_mod, db_connection
@@ -87,7 +87,22 @@ end
 ]]
 function _M.blocks_alter(blocks)
   for entity_type, v in pairs(config) do
-    xtable(v.parents):each(function(parent_type)
+    --[[ `parent_type` is the **key**, not the value, and that is preserved
+      deliberately.
+
+      This was `xtable(v.parents):each(function(parent_type) ... end)`, and
+      seawolf's `table_each` passes `(key, value)` -- so the callback's single
+      parameter bound the numeric index of `v.parents`, never a parent type
+      string, and `route_arg(0) == parent_type` compares a string against a
+      number. The block this guards has therefore never rendered.
+
+      Translating the loop is not the place to change that: it is a defect in
+      `modules/entity`, which is being kept and extended, so it should be fixed
+      where somebody is looking at the entity model rather than silently here.
+      The callback also never returned a value, so `table_each`'s break-on-truthy
+      is not in play and a plain `for` is exact.
+    ]]
+    for parent_type in pairs(v.parents) do
       if route_arg(0) == parent_type and not empty(route_arg(1)) then
         local info = _M.get_entity_type_info(entity_type)
         if info and _M.entity_access({type = entity_type}, 'create') then
@@ -99,7 +114,7 @@ function _M.blocks_alter(blocks)
           }
         end
       end
-    end)
+    end
   end
 end
 
@@ -195,7 +210,10 @@ end
 ]]
 function _M.route_alter(entity_type, items)
   local info = _M.get_entity_type_info(entity_type)
-  local it = xtable(items)
+  -- `local it = xtable(items)` stood here. `it` was never read; its only effect
+  -- was attaching seawolf's table metatable to the caller's route table, which
+  -- made that table answer a *function* for keys named `concat`, `sort`, `keys`
+  -- and eight others instead of nil. Nothing wanted either half.
   local entity_class = ophal.modules[entity_type]
 
   if entity_class and empty(items[entity_type]) then
@@ -268,7 +286,7 @@ function _M.delete_page()
           entity.title or entity.id
         )
         page_set_title(title)
-        return (xtable{
+        return util.concat_deep{
           '<h1>', html_escape(title), '</h1>',
           '<div>', html_escape(t('Are you sure?')), '</div>',
           ('<form method="POST" action="%s">'):format(html_url_escape(url(('entity/delete/%s/%s/confirm'):format(entity.type, entity.id)))),
@@ -277,7 +295,7 @@ function _M.delete_page()
           '</form>',
           ' ',
           l('Cancel', ('%s/%s'):format(entity.type, entity.id)),
-        }):concat()
+        }
       end
     end
   end

@@ -4,7 +4,7 @@ if not ophal.redirects.source then ophal.redirects.source = {} end
 if not ophal.redirects.target then ophal.redirects.target = {} end
 
 local explode = require('includes.text').split
-local table_shift = seawolf.contrib.table_shift
+local table_shift = require('includes.util').rest
 local aliases = ophal.aliases
 local redirects = ophal.redirects
 local route_set_title, pcall = route_set_title, pcall

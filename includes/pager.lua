@@ -1,19 +1,23 @@
 local tconcat, floor = table.concat, math.floor
-local seawolf = require 'seawolf'.__build('contrib')
+local util = require 'includes.util'
 
+--[[ `util.concat_deep` rather than `table.concat`, because the parts below are
+  nested: `{'?page=', page}` is a table, and flattening it is what turns it back
+  into `?page=2`. That descent is the one behaviour of seawolf's table metatable
+  Ophal actually depended on.
+]]
 function pager_url(path, page, selector)
-  local result = seawolf.contrib.seawolf_table()
-
-  result:append(url(path))
+  local result = {url(path)}
 
   if page > 1 then
-    result:append{'?page=', page}
+    result[#result + 1] = {'?page=', page}
+
     if selector then
-      result:append{'#', selector}
+      result[#result + 1] = {'#', selector}
     end
   end
 
-  return result:concat()
+  return util.concat_deep(result)
 end
 
 -- Normalize a caller-supplied `?page=` value into a whole page number within

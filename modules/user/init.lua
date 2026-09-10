@@ -18,7 +18,6 @@ local session_regenerate = session_regenerate
 local request_get_body, ophal, pcall = request_get_body, ophal, pcall
 local route_execute_callback = route_execute_callback
 local _SERVER = _SERVER
-local xtable = seawolf.contrib.seawolf_table
 local settings, floor = settings, math.floor
 -- From `includes/security.lua`, which bootstrap requires before
 -- `module_load_all()`. It is captured here, at load time, because `module()`
@@ -548,7 +547,10 @@ do
 
       -- Load permissions from database storage
       if config.permissions_storage then
-        local roles = xtable(get_user_roles(user_id) or {})
+        -- A plain table: the `roles:concat()` this wrapper existed for was
+        -- replaced by bound parameters on 2026-09-08, and the values are
+        -- gathered with `pairs` below.
+        local roles = get_user_roles(user_id) or {}
 
         --[[ Declared and variadic, reached with `db:list()`.
 

@@ -1,4 +1,3 @@
-local xtable = seawolf.contrib.seawolf_table
 local tinsert = table.insert
 
 do
@@ -81,7 +80,7 @@ function module_resolve_order(enabled)
   end
 
   -- Start output with system
-  local output = xtable{'system'}
+  local output = {'system'}
   in_deg['system'] = -1 -- mark processed
 
   -- Release dependents of system
@@ -100,7 +99,7 @@ function module_resolve_order(enabled)
   -- Process ready queue
   while #ready > 0 do
     local name = table.remove(ready, 1)
-    output:append(name)
+    output[#output + 1] = name
     for _, dependent in ipairs(adj[name] or {}) do
       in_deg[dependent] = in_deg[dependent] - 1
       if in_deg[dependent] == 0 then
@@ -120,7 +119,7 @@ function module_resolve_order(enabled)
     end
     for _, name in ipairs(enabled) do
       if in_deg[name] and in_deg[name] > 0 then
-        output:append(name)
+        output[#output + 1] = name
       end
     end
   end
@@ -140,10 +139,10 @@ do
       settings.modules.system = nil
 
       -- Collect enabled module names
-      local enabled = xtable{'system'}
+      local enabled = {'system'}
       for name, weight in pairs(settings.modules) do
         if weight ~= false then
-          enabled:append(name)
+          enabled[#enabled + 1] = name
         end
       end
 

@@ -2,7 +2,7 @@ local slash, tinsert, tconcat = settings.slash, table.insert, table.concat
 local pcall, settings, empty = pcall, settings, require('includes.util').empty
 local assert, error, setfenv = assert, error, setfenv
 local time = os.time
-local currentdir, xtable = lfs.currentdir() .. slash, seawolf.contrib.seawolf_table
+local currentdir = lfs.currentdir() .. slash
 local l = l
 
 if type(html_escape) ~= 'function' then
@@ -17,7 +17,6 @@ else
 end
 
 -- Load themes/%/settings.lua
-local seawolf = require 'seawolf'.__build('variable', 'contrib')
 
 if settings.template_env == nil then settings.template_env = {} end
 
@@ -38,11 +37,15 @@ do
   setmetatable(settings.theme, mt)
 end
 
+--[[ Plain tables. They used to carry seawolf's table metatable, which added
+  `append`, `concat`, `each` and eight more methods -- and nothing ever called
+  one: no shipped theme has a `settings.lua`, and `includes/common.lua` reads
+  both with `pairs`. It also meant these tables answered a *function* for keys
+  named `sort`, `concat`, `keys`, `has` and the rest instead of nil, which is
+  the sort of thing an `empty()` check reads wrongly.
+]]
 if settings.theme.css == nil then settings.theme.css = {} end
-setmetatable(settings.theme.css, seawolf.contrib.metahelper)
-
 if settings.theme.js == nil then settings.theme.js = {} end
-setmetatable(settings.theme.js, seawolf.contrib.metahelper)
 
 local _, settings_builder = pcall(require, ('themes.%s.settings'):format(settings.theme.name))
 if type(settings_builder) == 'function' then
@@ -400,11 +403,11 @@ function theme_regions_load()
   -- Default regions
   ophal.regions.sidebar_first = {
     id = 'sidebar_first',
-    blocks = xtable(),
+    blocks = {},
   }
   ophal.regions.sidebar_last = {
     id = 'sidebar_last',
-    blocks = xtable(),
+    blocks = {},
   }
 
   module_invoke_all('regions_alter', ophal.regions)

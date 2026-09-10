@@ -344,18 +344,53 @@ function render_t(arg)
   return theme(arg)
 end
 
+--[[ Render a service response as JSON.
+
+  `variables.status` is `route_execute_callback`'s pcall result, so `false`
+  means the page callback *raised* and `variables.content` is the error string
+  rather than a response.
+
+  Two things follow from that and neither used to happen. An error response is
+  never cacheable: it says nothing about the projections whose versions make up
+  the validator, so a shared cache could hold one and re-serve it. And a raise
+  is a server error, which is what it now answers -- it used to answer **200**,
+  which is how `GET /comment/save` came to be a publicly cacheable 200 carrying
+  a dkjson source path. `false` is tested rather than falsiness, because the
+  `handler.error` branch above leaves `status` nil while having already set its
+  own status, and a 404 must not be overwritten with a 500.
+]]
 function theme.json(variables)
-  local json = require 'dkjson'
+  local json = require 'includes.json'
+  local http_cache = require 'includes.http_cache'
   local content = variables.content
+  local output, err
 
   if not variables.status then
     content = {error = content}
+    http_cache.disable()
+
+    if variables.status == false then
+      header('status', 500)
+    end
   end
 
-  local output = json.encode(content)
+  output, err = json.encode(content)
+
+  --[[ The encoder declines rather than raising now, so this is reachable where
+    it previously would have thrown out of the renderer and been caught by the
+    same pcall that produced the leak. Nothing about the failed value goes into
+    the body: it is the response that could not be encoded, so quoting it back
+    is exactly what should not happen.
+  ]]
+  if output == nil then
+    http_cache.disable()
+    header('status', 500)
+    output = '{"error":"the response could not be encoded as JSON"}'
+    log_error('json response encoding failed', {event = 'json_encode_failed', error = err})
+  end
 
   header('content-type', 'application/json; charset=utf-8')
-  header('content-length', (output or ''):len())
+  header('content-length', output:len())
 
   theme_print(output)
 end

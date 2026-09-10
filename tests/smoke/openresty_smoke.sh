@@ -1034,7 +1034,37 @@ run_request() {
 # been. Since stage 8.7 there is a database profile per backend -- lists that
 # have to stay in step, where a profile quietly running half its scenarios is
 # exactly what "it passes on PostgreSQL too" would otherwise mean.
+#[[ No response may carry a Lua source path, and this is checked everywhere.
+
+# A handler that raises is caught by `route_execute_callback`'s pcall, which
+# turns the raise into a string -- and a Lua error string begins with the source
+# file and line it was raised at. `theme.json` renders that string into the
+# response body, so a raise anywhere in a service became an absolute filesystem
+# path on the wire. `GET /comment/save` was the live instance: a bodyless
+# request reached `dkjson.decode(nil, ...)`, which raises, and the answer was
+# HTTP 200 carrying `.../dkjson.lua:403`.
+#
+# Fixing the one service that reached it would leave the class open, so the
+# check is here rather than in a scenario: every scenario that reports success
+# has its last response scanned, and a leak fails the scenario that produced it
+# by name. A body that legitimately needs to name a Lua file would have to say
+# so, which is the point.
+assert_no_source_path() {
+  local name=$1
+
+  # Only an HTTP response, which is what the concern is about. Some scenarios
+  # leave a harness program's own output in `LAST_OUTPUT` -- the injection probe
+  # reports its assertions with file and line, as it should.
+  printf '%s\n' "$LAST_OUTPUT" | head -1 | grep -Eq '^HTTP/1\.[01] ' || return 0
+
+  if printf '%s\n' "$LAST_OUTPUT" | grep -Eq '[A-Za-z0-9_/.-]+\.lua:[0-9]+'; then
+    fail "$name: response carries a Lua source path: $(printf '%s\n' "$LAST_OUTPUT" | grep -Eo '[A-Za-z0-9_/.-]+\.lua:[0-9]+' | head -1)"
+  fi
+}
+
 report_ok() {
+  assert_no_source_path "$1"
+
   SCENARIO_COUNT=$((SCENARIO_COUNT + 1))
   PROFILE_COUNT=$((PROFILE_COUNT + 1))
 
@@ -1056,8 +1086,8 @@ report_ok() {
 # scenarios are one sourced file run once per backend, so the *same* number has
 # to come back from each; a profile that ran fewer would otherwise disappear
 # into a single global total, which is the failure the count exists to catch.
-EXPECTED_BASE_SCENARIOS=31
-EXPECTED_DB_SCENARIOS=82
+EXPECTED_BASE_SCENARIOS=32
+EXPECTED_DB_SCENARIOS=84
 SCENARIO_COUNT=0
 
 # Reset per profile by `db_profile_begin`; the label prefixes each `ok` line so
@@ -1072,6 +1102,19 @@ check_dependencies
 check_openresty
 prepare_tree
 start_openresty
+
+#[[ The JSON backend the worker resolved, which the fallback would hide.
+
+# `includes/json.lua` answers the same values through `dkjson` as through
+# `cjson`, so a worker demoted to the fallback passes every other assertion in
+# this suite and is about nine times slower encoding a service response. This is
+# in the base profile because it is a property of the runtime rather than of a
+# database.
+run_request json_backend "$BASE_URL/__smoke__?scenario=json_backend"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_JSON_BACKEND=cjson'
+report_ok json_backend
 
 run_request index_frontpage "$BASE_URL/"
 assert_status_zero

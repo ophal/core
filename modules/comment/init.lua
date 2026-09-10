@@ -4,7 +4,7 @@ local config = settings.comment or {}
 if config.render_handler == nil then config.render_handler = 'onload' end
 local add_js, theme, header, arg, env, l = add_js, theme, header, route_arg, env, l
 local modules, tonumber, empty = ophal.modules, tonumber, seawolf.variable.empty
-local request_get_body, json, type = request_get_body, require 'dkjson', type
+local request_get_body, json, type = request_get_body, require 'includes.json', type
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 local time, module_invoke_all = os.time, module_invoke_all
 local pairs, render_t, url = pairs, render_t, url
@@ -180,16 +180,31 @@ function fetch_service()
 end
 
 function save_service()
-  local _, input, parsed, pos, err, output, account, action, id
-  
+  local _, input, parsed, err, output, account, action, id
+
   id = tonumber(arg(2) or '')
   action = empty(id) and 'create' or 'update'
   output = {success = false}
 
   input = request_get_body()
-  parsed, pos, err = json.decode(input, 1, nil)
+  parsed, err = json.decode(input)
 
+  --[[ A body that will not parse is the client's error, and it is answered as
+    one. It used to answer **200**, and worse than that: `request_get_body()`
+    is nil for a method with no body, `dkjson.decode(nil, ...)` *raises* on it,
+    and the dispatcher's pcall turned the raise into an error string carrying
+    a dkjson source path -- which `theme.json` rendered into the body. So
+    `GET /comment/save` disclosed the filesystem layout at HTTP 200, and
+    because the status was 200 the cache layer marked it `public` with a
+    validator, which is what let a shared cache keep it.
+
+    `comment/save` is where this was reachable anonymously: `content/save`
+    answers 401 before it looks at a body, and `tag/save` 404s. The shim
+    refuses a non-string at source, so the raise is gone; the status is what
+    makes the answer honest.
+  ]]
   if err then
+    header('status', 400)
     output.error = err
   elseif not csrf_validate_request(parsed) then
     csrf_denied(output)

@@ -301,6 +301,26 @@ local scenarios = {
       write(render{'SMOKE_CSRF_TOKEN=' .. (csrf_token() or '')})
     end)
   end,
+  --[[ Which JSON backend the worker actually resolved.
+
+    `includes/json.lua` falls back to `dkjson` when `cjson` is not reachable,
+    and the fallback is *correct* -- it answers the same values, so nothing
+    fails and no test notices. It is only slower: about nine times, on a service
+    response, measured in `tests/bench/json_bench.lua`. A regression that is
+    correct and slower is the kind that survives forever, and a
+    `lua_package_cpath` edit is all it takes.
+
+    It is asserted for a second reason too. The two backends disagree about a
+    nil input -- `cjson.safe` declines and `dkjson` raises -- so which one is
+    live decides whether the shim's own guard is the thing standing between a
+    bodyless request and a rendered stack trace, or merely a second lock on the
+    same door.
+  ]]
+  json_backend = function()
+    return run_bootstrap(function()
+      write(render{'SMOKE_JSON_BACKEND=' .. require('includes.json').backend()})
+    end)
+  end,
   --[[ Who does this request think it is, asked two ways.
 
     `modules/user` answers from whatever `_SESSION` it is holding; the second

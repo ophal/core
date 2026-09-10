@@ -652,6 +652,38 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 401'
 report_ok db_comment_create_anonymous
 
+#[[ A bodyless request to a JSON service, which used to be a cacheable 200.
+
+# `request_get_body()` answers nil for a method with no body, and
+# `dkjson.decode(nil, ...)` raises on it. `route_execute_callback`'s pcall turned
+# that raise into a string -- and a Lua error string starts with the file and
+# line it was raised at -- which `theme.json` rendered into the response. The
+# status stayed 200, so the cache layer marked it `public` with a validator and
+# a shared cache could hold it and re-serve it to anyone.
+#
+# `comment/save` is where this was reachable without an account: `content/save`
+# answers 401 before it reads a body and `tag/save` 404s. The path leak itself
+# is caught everywhere by `assert_no_source_path` in `report_ok`; what is
+# asserted here is the rest of the answer -- a client error, and nothing a cache
+# may keep.
+run_request db_comment_save_bodyless "$DB_URL/comment/save"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 400'
+assert_not_regex 'cache-control:.*public'
+assert_not_regex '[Ee][Tt]ag:'
+report_ok db_comment_save_bodyless
+
+# And the same for a body that is present but will not parse, which is the case
+# that reaches the decoder rather than the guard in front of it.
+run_request db_comment_save_malformed \
+  -H 'Content-Type: application/json' \
+  --data-binary '{not json' \
+  "$DB_URL/comment/save"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 400'
+assert_not_regex 'cache-control:.*public'
+report_ok db_comment_save_malformed
+
 measure_request db_content_page_after_update "$DB_URL/content/$authored_id"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'

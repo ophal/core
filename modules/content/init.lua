@@ -11,7 +11,7 @@ local pager, l, page_set_title, arg = pager, l, page_set_title, route_arg
 local pager_current_page = pager_current_page
 local tonumber, format_date = tonumber, format_date
 local empty, add_js, ophal, t = seawolf.variable.empty, add_js, ophal, t
-local header, json, type, time = header, require 'dkjson', type, os.time
+local header, json, type, time = header, require 'includes.json', type, os.time
 local print_t, require, modules = print_t, require, ophal.modules
 local module_invoke_all, request_get_body = module_invoke_all, request_get_body
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
@@ -364,7 +364,7 @@ function _M.entity_type_info()
 end
 
 function save_service()
-  local input, parsed, pos, err, output, account, action, id
+  local input, parsed, err, output, account, action, id
   local entity
 
   if not user_mod.is_logged_in() then
@@ -385,8 +385,12 @@ function save_service()
 
     output.success = false
     input = request_get_body()
-    parsed, pos, err = json.decode(input, 1, nil)
+    parsed, err = json.decode(input)
     if err then
+      -- A body that will not parse is the client's error. This answered 200
+      -- until 2026-09-10, which is what let the same shape on `comment/save`
+      -- be marked publicly cacheable.
+      header('status', 400)
       output.error = err
     elseif not csrf_validate_request(parsed) then
       csrf_denied(output)

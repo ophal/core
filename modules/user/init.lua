@@ -1,5 +1,5 @@
 local seawolf = require 'seawolf'.__build('other', 'variable', 'contrib')
-local json, require, tonumber = require 'dkjson', require, tonumber
+local json, require, tonumber = require 'includes.json', require, tonumber
 
 require 'modules.user.statements'
 local print, exit, config = print, exit, settings.user or {}
@@ -735,7 +735,7 @@ end
 
 
 function auth_service()
-  local input, parsed, pos, err, account, authenticated, needs_rehash
+  local input, parsed, err, account, authenticated, needs_rehash
   local output = {authenticated = false}
 
   input = request_get_body()
@@ -745,10 +745,22 @@ function auth_service()
     return output
   end
 
-  parsed, pos, err = json.decode(input, 1, nil)
+  parsed, err = json.decode(input)
 
+  --[[ A body that will not parse is answered, not raised.
+
+    `error(err)` re-raised the parser's message -- and `error` stamps the file
+    and line it was called from onto a string argument, so the response carried
+    `modules/user/init.lua:<line>` where the parse error alone carried nothing.
+    The dispatcher's pcall caught it and `theme.json` rendered it at HTTP 200.
+    This is the sign-in endpoint, reachable by anyone.
+
+    The `input == nil` guard above is why a bodyless GET here never showed the
+    defect the way `comment/save` did; a malformed body always would have.
+  ]]
   if err then
-    error(err)
+    header('status', 400)
+    output.error = err
   elseif
     'table' == type(parsed) and not empty(parsed.user) and
     not empty(parsed.pass)

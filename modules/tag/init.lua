@@ -11,7 +11,7 @@ local modules, config = ophal.modules, settings.tag or {}
 local theme, env, add_css, slash, l = theme, env, add_css, settings.slash, l
 local tinsert, tconcat, pairs, ophal = table.insert, table.concat, pairs, ophal
 local add_js, route_arg, trim, header = add_js, route_arg, seawolf.text.trim, header
-local page_set_title, json, time = page_set_title, require 'dkjson', os.time
+local page_set_title, json, time = page_set_title, require 'includes.json', os.time
 local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
 local tonumber, ceil = tonumber, math.ceil
 local floor, ipairs, unpack = math.floor, ipairs, unpack
@@ -637,7 +637,7 @@ end
   "not there", and the branch that says which had never run.
 ]]
 function _M.save_service()
-  local input, data, pos, err, action, entity, rs
+  local input, data, err, action, entity, rs
   local output = {success = false}
   local id = tonumber(route_arg(2))
 
@@ -651,9 +651,13 @@ function _M.save_service()
     end
 
     input = request_get_body()
-    data, pos, err = json.decode(input, 1, nil)
+    data, err = json.decode(input)
 
     if err then
+      -- The client's error, answered as one. `data.action` two branches below
+      -- indexes what this returns, which is the second reason the shim refuses
+      -- a body that is valid JSON but not an object.
+      header('status', 400)
       output.error = err
     elseif not csrf_validate_request(data) then
       csrf_denied(output)

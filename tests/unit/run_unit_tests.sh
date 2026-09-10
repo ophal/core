@@ -22,34 +22,45 @@ fi
 
 cd "$ROOT"
 
-lua5.1 "$ROOT/tests/unit/test_module_order.lua"
-lua5.1 "$ROOT/tests/unit/test_entity_contract.lua"
-lua5.1 "$ROOT/tests/unit/test_request_reset.lua"
-lua5.1 "$ROOT/tests/unit/test_cache.lua"
-lua5.1 "$ROOT/tests/unit/test_database_result.lua"
-lua5.1 "$ROOT/tests/unit/test_database_driver_lsqlite3.lua"
-lua5.1 "$ROOT/tests/unit/test_query_layer.lua"
-lua5.1 "$ROOT/tests/unit/test_sql_surface.lua"
-lua5.1 "$ROOT/tests/unit/test_json.lua"
-lua5.1 "$ROOT/tests/unit/test_random.lua"
-lua5.1 "$ROOT/tests/unit/test_theme_escaping.lua"
-lua5.1 "$ROOT/tests/unit/test_cookie_security.lua"
-lua5.1 "$ROOT/tests/unit/test_csrf.lua"
-lua5.1 "$ROOT/tests/unit/test_fs_stats.lua"
-lua5.1 "$ROOT/tests/unit/test_session.lua"
-lua5.1 "$ROOT/tests/unit/test_http_cache.lua"
-lua5.1 "$ROOT/tests/unit/test_file_post_process.lua"
-lua5.1 "$ROOT/tests/unit/test_password_hashing.lua"
-lua5.1 "$ROOT/tests/unit/test_logging.lua"
-lua5.1 "$ROOT/tests/unit/test_cli.lua"
-lua5.1 "$ROOT/tests/unit/test_install.lua"
-lua5.1 "$ROOT/tests/unit/test_migrate.lua"
-lua5.1 "$ROOT/tests/unit/test_projection_runtime.lua"
-lua5.1 "$ROOT/tests/unit/test_jobs.lua"
-lua5.1 "$ROOT/tests/unit/test_user_permissions.lua"
-lua5.1 "$ROOT/tests/unit/test_escaping.lua"
-lua5.1 "$ROOT/tests/unit/test_runtime_fs.lua"
-lua5.1 "$ROOT/tests/unit/test_settings_loader.lua"
-lua5.1 "$ROOT/tests/unit/test_pager.lua"
+#[[ The suite runs under `resty`, which is LuaJIT with OpenResty's libraries.
+#
+# It ran under `lua5.1` until 2026-09-10, which meant every assertion in it was
+# a statement about a VM Ophal does not run on. The two differ in ways that
+# reach this codebase: PUC Lua accepts unknown string escapes that LuaJIT
+# rejects, `pairs` visits keys in a different order, and `tostring` on a number
+# formats differently. Two tests were passing only under PUC when the move was
+# made, and one of them -- `ident_left_out_of_the_order` -- was pinned to
+# PUC's `pairs` order over a two-key table and asserted the wrong one of two
+# possible errors.
+
+resty "$ROOT/tests/unit/test_module_order.lua"
+resty "$ROOT/tests/unit/test_entity_contract.lua"
+resty "$ROOT/tests/unit/test_request_reset.lua"
+resty "$ROOT/tests/unit/test_cache.lua"
+resty "$ROOT/tests/unit/test_database_result.lua"
+resty "$ROOT/tests/unit/test_database_driver_lsqlite3.lua"
+resty "$ROOT/tests/unit/test_query_layer.lua"
+resty "$ROOT/tests/unit/test_sql_surface.lua"
+resty "$ROOT/tests/unit/test_json.lua"
+resty "$ROOT/tests/unit/test_random.lua"
+resty "$ROOT/tests/unit/test_theme_escaping.lua"
+resty "$ROOT/tests/unit/test_cookie_security.lua"
+resty "$ROOT/tests/unit/test_csrf.lua"
+resty "$ROOT/tests/unit/test_fs_stats.lua"
+resty "$ROOT/tests/unit/test_session.lua"
+resty "$ROOT/tests/unit/test_http_cache.lua"
+resty "$ROOT/tests/unit/test_file_post_process.lua"
+resty "$ROOT/tests/unit/test_password_hashing.lua"
+resty "$ROOT/tests/unit/test_logging.lua"
+resty "$ROOT/tests/unit/test_cli.lua"
+resty "$ROOT/tests/unit/test_install.lua"
+resty "$ROOT/tests/unit/test_migrate.lua"
+resty "$ROOT/tests/unit/test_projection_runtime.lua"
+resty "$ROOT/tests/unit/test_jobs.lua"
+resty "$ROOT/tests/unit/test_user_permissions.lua"
+resty "$ROOT/tests/unit/test_escaping.lua"
+resty "$ROOT/tests/unit/test_runtime_fs.lua"
+resty "$ROOT/tests/unit/test_settings_loader.lua"
+resty "$ROOT/tests/unit/test_pager.lua"
 
 printf 'all unit tests passed\n'

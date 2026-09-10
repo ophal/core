@@ -5,6 +5,22 @@
   and closure locals, making lua_code_cache on safe in persistent runtimes.
 ]]
 
+--[[ The real `os.exit`, captured before anything replaces it.
+
+  This file `dofile`s `includes/server/init.lua`, which assigns
+  `os.exit = server_exit` -- so the `os.exit(1)` in the summary below was the
+  adapter's exit, not the interpreter's, and it did not set a failing status.
+  The file printed "N passed, 1 failed" and exited **0**, and
+  `run_unit_tests.sh` reported "all unit tests passed" over the top of it.
+
+  `test_cookie_security.lua` loads the same file and already did this; this one
+  did not. The project's own "did it actually run?" audit checked that every
+  test file exits non-zero on failure and concluded they all do -- which was
+  true of the source and false of the behaviour, because the call is right and
+  the function underneath it is not.
+]]
+local real_os_exit = os.exit
+
 local pass_count, fail_count = 0, 0
 
 local function assert_eq(label, got, expected)
@@ -403,6 +419,21 @@ do
   ophal.regions = {content = 'html'}
   env.output_buffer[1] = 'stale output'
 
+  --[[ Start this simulated request with no cached route arguments.
+
+    `route_arg()` memoizes into `state.route_arguments`, and in production a new
+    request means a new `ngx.ctx`, so that cache is empty by construction. This
+    file simulates several requests inside one process against one state table,
+    so the block above -- which parsed `admin` -- leaves its arguments behind.
+    The setup has to do what a new request does.
+
+    This assertion had been failing -- on both VMs, not only on LuaJIT -- and
+    nobody saw it, because this file's `os.exit(1)` had been replaced by the
+    adapter's and the suite read its exit status as success. It surfaced during
+    the move to LuaJIT only because that move made someone read the output.
+  ]]
+  route_arg_reset()
+
   -- Parse route for first request
   assert_eq('pre_reset_arg', route_arg(0), 'content')
 
@@ -754,5 +785,5 @@ end
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then
-  os.exit(1)
+  real_os_exit(1)
 end

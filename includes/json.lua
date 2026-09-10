@@ -1,165 +1,105 @@
---[[ One JSON layer, over whichever backend the runtime actually has.
+--[[ One JSON layer, over OpenResty's cjson.
 
-  OpenResty ships `cjson` -- C, and about nine times faster on a service
-  response than the pure-Lua `dkjson` this codebase used everywhere -- but the
-  `lua5.1` the command line names has no `cjson` at all. So neither library can
-  simply replace the other, and every call site would otherwise have to know
-  which one it got.
+  Ophal runs on OpenResty and nothing else, so `cjson` is always there and this
+  file does not choose a backend. What it does is hold the four places cjson's
+  behaviour and this codebase's assumptions disagree, in one file, instead of at
+  eight call sites:
 
-  The two disagree in four ways that a straight swap would have changed
-  silently, which is most of the reason this file exists rather than a
-  `require` at each call site. Every one of them is measured and pinned in
-  `tests/bench/json_bench.lua`; the short version:
-
-  - **An empty table.** dkjson writes `[]`, cjson writes `{}`. Lua has one table
-    type, so both are guesses, and there is no flag that reconciles them --
-    cjson's `encode_empty_table_as_object` is already at the value that produces
-    this. `M.array()` and `M.object()` let a caller state its shape instead of
-    inheriting a guess, and they apply the tag the **live** backend understands:
-    the metatables are not interchangeable, and cjson answers `{}` for a table
-    carrying dkjson's array tag.
-  - **`null`.** cjson decodes it to a lightuserdata sentinel; dkjson, called
-    with `nullval = nil` as this codebase always called it, drops the key. The
-    sentinel is neither `nil` nor `false`, so it is *truthy*, and
-    `seawolf.variable.empty` reports it non-empty -- a body sending
-    `{"pass": null}` would satisfy every presence check in the codebase and
-    arrive at `password_verify`, at `secure_equals`, and at a bound SQL
-    parameter. `M.decode` strips them, so both backends answer "absent".
-  - **The decode signature.** dkjson answers `value, position, message` and
-    cjson answers `value, message`. Read cjson's two returns into the three
-    names the old call sites used and the message lands in `pos` while `err`
-    stays nil, so `if err then` stops firing. `M.decode` answers
-    `value, err` -- two, on both backends, forever.
+  - **`null`.** cjson decodes it to a lightuserdata sentinel, which is neither
+    `nil` nor `false` and is therefore *truthy* -- `seawolf.variable.empty`
+    reports it non-empty. A body sending `{"pass": null}` would satisfy every
+    presence check in the codebase and arrive at `password_verify`, at
+    `secure_equals`, and at a bound SQL parameter as an opaque userdata nothing
+    downstream expects. `M.decode` strips them, so a null reads as an absent
+    key.
+  - **The empty table.** Lua has one table type, so `{}` is both an empty list
+    and an empty object and an encoder has to guess. cjson guesses object.
+    `M.array()` and `M.object()` let a caller state its shape rather than
+    inherit the guess -- a browser doing `for (const c of list)` throws on `{}`,
+    which makes it a bug that only appears on a page with nothing on it.
   - **A nil input.** `request_get_body()` answers nil for a method with no body.
-    dkjson *raises* on it and `cjson.safe` declines, so a bare swap would have
-    fixed one runtime and left the other. `M.decode` refuses a non-string before
-    either backend sees it.
+    `M.decode` refuses a non-string rather than passing it down, so the answer
+    does not depend on how a particular library feels about nil.
+  - **A valid scalar.** Every consumer here indexes what it gets back -- four
+    request bodies and a job payload -- so `5` decoding to a number is an
+    "attempt to index a number" raise rather than a wrong answer. `M.decode`
+    refuses it.
 
-  **Nothing here raises.** dkjson raises from `encode` on a cycle, on an
-  unsupported type and on infinity, and from `decode` on a nil input; `pcall`
-  above a raise turns it into an error string carrying a source path, and this
-  codebase renders a service error into the response body. That is exactly how
-  `GET /comment/save` came to answer HTTP 200 with a dkjson path in it. So every
-  function here answers `value, err` and every error string is safe to render:
-  the source prefix Lua puts on a raise is removed before it is returned.
+  `decode` answers `value, err`. Two values, never three: the five call sites
+  this replaced were written `parsed, pos, err = decode(input, 1, nil)` against
+  dkjson's three, and reading two returns into three names puts the message in
+  `pos` and leaves `err` nil -- which silences the guard on four parsers whose
+  input is a request body.
 
   One thing this file deliberately does **not** do: touch
-  `encode_escape_forward_slash`. cjson escapes `/` as `\/` by default and dkjson
-  does not -- both are valid JSON and decode identically -- but that setting is
-  shared between `cjson` and `cjson.safe`, so it is VM-global state reaching
-  every other cjson user in the worker. `encode_empty_table_as_object` is *not*
-  shared, which is the trap in the other direction: configure the exact module
-  you encode with.
+  `encode_escape_forward_slash`. cjson escapes `/` as `\/`, which is valid JSON
+  and decodes identically, and that setting is shared between `cjson` and
+  `cjson.safe` -- so it is VM-global state reaching every other cjson user in
+  the worker. `encode_empty_table_as_object` is *not* shared, which is the trap
+  in the other direction: configure the exact module you encode with.
 ]]
 
-local pcall, type, pairs, tostring = pcall, type, pairs, tostring
-local setmetatable, require = setmetatable, require
+local type, pairs, setmetatable = type, pairs, setmetatable
+
+--[[ cjson ships with OpenResty, so a failure here is not a missing rock.
+
+  Same shape as `driver/lsqlite3.lua` and `driver/resty_mysql.lua`: name the
+  thing that is actually wrong rather than dumping a search path. Ophal is an
+  OpenResty application and the command line runs under `resty` for the same
+  reason the worker does.
+]]
+local resolved, cjson = pcall(require, 'cjson.safe')
+
+if not resolved or type(cjson) ~= 'table' or type(cjson.decode) ~= 'function' then
+  error('cjson is not available. It ships with OpenResty, so this process is\n'
+    .. 'probably not OpenResty -- Ophal runs its command line under resty too:\n'
+    .. '  resty -c 512 ./ophal migrate apply\n'
+    .. 'More: https://github.com/ophal/core', 0)
+end
+
+local NULL = cjson.null
+local ARRAY_MT = cjson.empty_array_mt
 
 local M = {}
 
-local decode_raw, encode_raw, strip, ARRAY_MT, OBJECT_MT, BACKEND
-
---[[ Lua puts `<source>:<line>: ` on the front of a raise, and the source is an
-  absolute path. The message after it is the useful part and carries nothing
-  about the filesystem -- "table overflow", "reference cycle" -- so the prefix
-  is removed rather than the whole string being discarded.
+--[[ In place. `pairs` allows clearing a field it has already visited, decoded
+  JSON cannot hold a cycle, and cjson's own `decode_max_depth` bounds the
+  recursion.
 ]]
-local function without_source(message)
-  if type(message) ~= 'string' then
-    return 'cannot encode as JSON'
-  end
-
-  return (message:gsub('^.-:%d+:%s*', ''))
-end
-
-local resolved, cjson = pcall(require, 'cjson.safe')
-
-if resolved and type(cjson) == 'table' and type(cjson.decode) == 'function' then
-  BACKEND = 'cjson'
-
-  local NULL = cjson.null
-
-  -- In place, and `pairs` allows clearing a field it has already visited.
-  -- Decoded JSON cannot hold a cycle, and the backend's own depth limit bounds
-  -- the recursion.
-  local function strip_nulls(value)
-    for k, v in pairs(value) do
-      if v == NULL then
-        value[k] = nil
-      elseif type(v) == 'table' then
-        strip_nulls(v)
-      end
+local function strip_nulls(value)
+  for k, v in pairs(value) do
+    if v == NULL then
+      value[k] = nil
+    elseif type(v) == 'table' then
+      strip_nulls(v)
     end
-
-    return value
   end
 
-  strip = strip_nulls
-
-  decode_raw = cjson.decode
-  encode_raw = cjson.encode
-
-  -- An empty table is already an object here, so `object()` needs no tag; an
-  -- array needs cjson's own marker, which it compares by identity.
-  ARRAY_MT, OBJECT_MT = cjson.empty_array_mt, nil
-else
-  local dkjson = require 'dkjson'
-
-  BACKEND = 'dkjson'
-
-  -- `nullval = nil` is the third argument, and it is what makes a JSON null
-  -- read as an absent key. It is the call this codebase has always made; it is
-  -- spelled once here so no call site can forget it.
-  decode_raw = function(input)
-    local value, _, err = dkjson.decode(input, 1, nil)
-
-    return value, err
-  end
-
-  -- dkjson raises where cjson declines, so the contract is restored here.
-  encode_raw = function(value)
-    local ok, result = pcall(dkjson.encode, value)
-
-    if not ok then
-      return nil, without_source(result)
-    end
-
-    return result
-  end
-
-  -- Nothing to strip: `nullval = nil` already dropped it.
-  strip = function(value) return value end
-
-  ARRAY_MT = {__jsontype = 'array'}
-  OBJECT_MT = {__jsontype = 'object'}
+  return value
 end
 
 --[[ Parse JSON into a table.
 
-  Answers `table` or `nil, err`, and never raises. A non-string input, an empty
-  one, and a document that is valid JSON but not an object are all refused:
-  every consumer in this codebase indexes what it gets back -- four request
-  bodies and a job payload -- so a scalar reaching one of them is an
-  "attempt to index a number" raise rather than a wrong answer. Something that
-  genuinely wants a bare JSON value can have a `decode_value` beside this; the
-  point is that it would have to say so.
+  Answers `table` or `nil, err`, and never raises. `cjson.safe` declines rather
+  than raising, and the guards above it refuse the inputs it would accept but
+  no caller here can use.
 ]]
 function M.decode(input)
   if type(input) ~= 'string' or input == '' then
     return nil, 'no JSON input'
   end
 
-  local value, err = decode_raw(input)
+  local value, err = cjson.decode(input)
 
   if err ~= nil then
-    return nil, without_source(err)
+    return nil, err
   end
 
   if type(value) ~= 'table' then
     return nil, 'expected a JSON object'
   end
 
-  return strip(value)
+  return strip_nulls(value)
 end
 
 --[[ Serialize a value as JSON.
@@ -167,10 +107,10 @@ end
   Answers `string` or `nil, err`, and never raises.
 ]]
 function M.encode(value)
-  local encoded, err = encode_raw(value)
+  local encoded, err = cjson.encode(value)
 
   if encoded == nil then
-    return nil, without_source(err)
+    return nil, err or 'cannot encode as JSON'
   end
 
   return encoded
@@ -178,40 +118,34 @@ end
 
 --[[ Tag a table so an *empty* one encodes as `[]` rather than `{}`.
 
-  Both tags go inert once the table has entries, so a collection that is usually
-  populated can be tagged where it is created rather than where it is found to
-  be empty.
+  The tag goes inert once the table has entries, so a collection that is
+  usually populated can be tagged where it is built rather than where it turns
+  out to be empty.
 ]]
 function M.array(value)
   return setmetatable(value or {}, ARRAY_MT)
 end
 
---[[ And the other way: an empty table that must encode as `{}`.
+--[[ And the other way: a table that must encode as `{}`.
 
-  `OBJECT_MT` is nil on the cjson branch, because an empty table is already an
-  object there. It is tested rather than passed straight to `setmetatable`,
-  which would *remove* whatever metatable the caller's table already had -- the
-  call sites tag tables they did not create.
+  There is nothing to apply -- an empty table is already an object to cjson --
+  so this states the intent at the call site and returns the table unchanged.
+  It deliberately does not clear an existing metatable: the call sites tag
+  tables they did not create.
 ]]
 function M.object(value)
-  value = value or {}
-
-  if OBJECT_MT ~= nil then
-    setmetatable(value, OBJECT_MT)
-  end
-
-  return value
+  return value or {}
 end
 
---[[ Which backend resolved: `cjson` or `dkjson`.
+--[[ The backend, which is always `cjson`.
 
-  Exposed because the fallback is correct and slower, which is the kind of
-  regression that hides forever -- a `lua_package_cpath` edit would demote a
-  production worker to dkjson with nothing to show for it. The smoke suite
-  asserts this reads `cjson`.
+  Kept because the smoke suite asserts it, and what that assertion is really
+  about is that the worker is a real OpenResty with its bundled libraries
+  reachable -- a `lua_package_cpath` edit is all it takes to break that, and
+  everything else about the site would go on working.
 ]]
 function M.backend()
-  return BACKEND
+  return 'cjson'
 end
 
 return M

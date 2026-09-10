@@ -15,7 +15,7 @@ local add_js, route_arg, header = add_js, route_arg, header
 -- `module()` call below like every other capture in this file.
 local trim = require('includes.text').trim
 local page_set_title, json, time = page_set_title, require 'includes.json', os.time
-local type, empty, error, go_to = type, seawolf.variable.empty, error, go_to
+local type, empty, error, go_to = type, require('includes.util').empty, error, go_to
 local tonumber, ceil = tonumber, math.ceil
 local floor, ipairs, unpack = math.floor, ipairs, unpack
 local pager, print_t, request_get_body = pager, print_t, request_get_body

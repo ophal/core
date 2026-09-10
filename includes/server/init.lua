@@ -14,7 +14,7 @@ end
 
 local time, date = os.time, os.date
 local tinsert = table.insert
-local empty = seawolf.variable.empty
+local empty = require('includes.util').empty
 local trim, dirname = require('includes.text').trim, seawolf.fs.dirname
 local tconcat, lower = table.concat, string.lower
 

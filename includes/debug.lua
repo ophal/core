@@ -1,10 +1,15 @@
 local temp_dir = seawolf.behaviour.temp_dir
+local util = require 'includes.util'
 
---[[
-  Wrapper of function print_r() from Nutria Seawolf.
+--[[ A value rendered for a browser.
+
+  This wrapped `seawolf.variable.print_r`, which printed rather than returned
+  unless its second argument was truthy -- and decided truthiness with
+  `empty()`, so `print_r(t, 0)` and `print_r(t, '')` printed. `util.dump()`
+  always returns a string and this decides what to do with it.
 ]]
 function debug.print_r(val, return_)
-  local result = ('<pre>%s</pre>'):format(seawolf.variable.print_r(val, true))
+  local result = ('<pre>%s</pre>'):format(util.dump(val))
 
   if return_ then
     return result

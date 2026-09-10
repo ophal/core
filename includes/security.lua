@@ -1,4 +1,4 @@
-local empty = seawolf.variable.empty
+local empty = require('includes.util').empty
 local lower = string.lower
 local random = require 'includes.random'
 

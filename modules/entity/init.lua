@@ -8,7 +8,7 @@ end
 require 'modules.entity.statements'
 
 local t, module_invoke_all, route_arg = t, module_invoke_all, route_arg
-local l, theme, empty = l, theme, seawolf.variable.empty
+local l, theme, empty = l, theme, require('includes.util').empty
 local xtable, config = seawolf.contrib.seawolf_table, settings.entity
 local csrf_token, csrf_validate_request, csrf_denied = csrf_token, csrf_validate_request, csrf_denied
 

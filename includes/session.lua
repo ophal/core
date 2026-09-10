@@ -2,7 +2,7 @@ local temp_dir = seawolf.behaviour.temp_dir
 local safe_open, safe_write = seawolf.fs.safe_open, seawolf.fs.safe_write
 local safe_close, table_dump = seawolf.fs.safe_close, seawolf.contrib.table_dump
 local time, rawset, tconcat = os.time, rawset, table.concat
-local format, empty = string.format, seawolf.variable.empty
+local format, empty = string.format, require('includes.util').empty
 --[[ Session ids come from the CSPRNG, not from `uuid.new()`.
 
   `uuid` here is whatever binding is installed -- production is told to install

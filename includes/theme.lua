@@ -1,5 +1,5 @@
 local slash, tinsert, tconcat = settings.slash, table.insert, table.concat
-local pcall, settings, empty = pcall, settings, seawolf.variable.empty
+local pcall, settings, empty = pcall, settings, require('includes.util').empty
 local assert, error, setfenv = assert, error, setfenv
 local time = os.time
 local currentdir, xtable = lfs.currentdir() .. slash, seawolf.contrib.seawolf_table

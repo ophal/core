@@ -3,7 +3,7 @@ require 'modules.comment.statements'
 local config = settings.comment or {}
 if config.render_handler == nil then config.render_handler = 'onload' end
 local add_js, theme, header, arg, env, l = add_js, theme, header, route_arg, env, l
-local modules, tonumber, empty = ophal.modules, tonumber, seawolf.variable.empty
+local modules, tonumber, empty = ophal.modules, tonumber, require('includes.util').empty
 local request_get_body, json, type = request_get_body, require 'includes.json', type
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied
 local time, module_invoke_all = os.time, module_invoke_all

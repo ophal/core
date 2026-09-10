@@ -1,4 +1,4 @@
-local module_invoke_all, empty, l = module_invoke_all, seawolf.variable.empty, l
+local module_invoke_all, empty, l = module_invoke_all, require('includes.util').empty, l
 local tconcat, tinsert, theme, pairs = table.concat, table.insert, theme, pairs
 local type, tsort, render_attributes = type, table.sort, render_attributes
 

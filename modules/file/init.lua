@@ -8,7 +8,7 @@ end
 local config, theme, header = settings.file or {}, theme, header
 local tinsert, tconcat, lfs, env = table.insert, table.concat, lfs, env
 local is_dir, is_file, add_js = seawolf.fs.is_dir, seawolf.fs.is_file, add_js
-local empty = seawolf.variable.empty
+local empty = require('includes.util').empty
 local request_get_body, io_open, tonumber, type = request_get_body, io.open, tonumber, type
 local request_get_body_file = request_get_body_file
 local files_path = settings.site.files_path

@@ -6,8 +6,8 @@
   eight call sites:
 
   - **`null`.** cjson decodes it to a lightuserdata sentinel, which is neither
-    `nil` nor `false` and is therefore *truthy* -- `seawolf.variable.empty`
-    reports it non-empty. A body sending `{"pass": null}` would satisfy every
+    `nil` nor `false` and is therefore *truthy* -- `util.empty()` reports it
+    non-empty. A body sending `{"pass": null}` would satisfy every
     presence check in the codebase and arrive at `password_verify`, at
     `secure_equals`, and at a bound SQL parameter as an opaque userdata nothing
     downstream expects. `M.decode` strips them, so a null reads as an absent

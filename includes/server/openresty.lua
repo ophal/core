@@ -1,4 +1,4 @@
-local empty = seawolf.variable.empty
+local empty = require('includes.util').empty
 local ngx_print, ngx_var, ngx_req = ngx.print, ngx.var, ngx.req
 local HTTP_OK = ngx.HTTP_OK or 200
 local HTTP_MOVED_TEMPORARILY = ngx.HTTP_MOVED_TEMPORARILY or 302

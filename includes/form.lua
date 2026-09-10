@@ -1,4 +1,4 @@
-local empty, tinsert, os_date = seawolf.variable.empty, table.insert, os.date
+local empty, tinsert, os_date = require('includes.util').empty, table.insert, os.date
 local tsort, tconcat, os_time = table.sort, table.concat, os.time
 local lower = string.lower
 

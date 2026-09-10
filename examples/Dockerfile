@@ -12,16 +12,14 @@ RUN apt-get update && apt-get install -y \
   make \
   gcc \
   libc-dev \
-  libpcre3-dev \
   libssl-dev \
-  uuid-dev \
   sqlite3 \
   libsqlite3-dev \
   libpq-dev \
   luarocks \
   && rm -rf /var/lib/apt/lists/*
 
-RUN luarocks install dkjson
+# lfs is the only rock Ophal requires outside a database binding.
 RUN luarocks install luafilesystem
 # SQLite goes through lsqlite3; `lsqlite3complete` links SQLite statically.
 RUN luarocks install lsqlite3complete

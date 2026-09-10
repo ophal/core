@@ -1,10 +1,12 @@
 --[[ What a JSON backend costs, and where the two disagree.
 
-  Ophal runs every service response, every job payload and -- once the session
+Ophal ran every service response, every job payload and -- once the session
   store lands -- every session file through `dkjson`, which is pure Lua, while
-  OpenResty's C `cjson` sits unused in the same process. Swapping them is
-  obvious enough that it deserves the same gate stages 8.3 and 8.4 got: a
-  number, before anything moves.
+  OpenResty's C `cjson` sat unused in the same process. Swapping them was
+  obvious enough that it deserved the same gate stages 8.3 and 8.4 got: a
+  number, before anything moved. This file is that number, and it is kept
+  because the reasoning behind `includes/json.lua` is only checkable with both
+  libraries side by side -- `dkjson` is vendored for this and nothing else.
 
   Two questions, and the second one is the reason this file is longer than a
   timing harness needs to be.

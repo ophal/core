@@ -25,7 +25,10 @@ Ophal has the following dependencies:
 - lsqlite3 (SQLite) or pgmoon (PostgreSQL); MySQL uses the `lua-resty-mysql`
   that ships with OpenResty
 - luuid
-- dkjson
+
+JSON needs no dependency: Ophal uses `cjson`, which ships with OpenResty.
+Ophal runs on OpenResty and its LuaJIT only -- the `ophal` command line runs
+under `resty` as well, so there is one runtime rather than two.
 
 The user module needs no cryptography library. Passwords are hashed with
 SHA-256 by default and `includes/sha256.lua` is a pure-Lua implementation that

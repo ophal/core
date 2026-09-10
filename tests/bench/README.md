@@ -83,9 +83,13 @@ bash tests/smoke/setup_vendor_runtime.sh   # once, for dkjson and seawolf
 bash tests/bench/run_json_bench.sh
 ```
 
-Runs under `resty`, because `cjson` ships with OpenResty and is absent from the
-`lua5.1` the CLI names. That split is the whole reason `includes/json.lua`
-exists, so the harness has to run where both backends are reachable.
+Runs under `resty`, which is the only runtime Ophal supports.
+
+This is the measurement that retired `dkjson`: it is no longer a dependency, and
+`includes/json.lua` is cjson with four of its behaviours pinned down. The bench
+is kept rather than deleted because the argument for that choice is only
+checkable with both libraries in front of you, and `setup_vendor_runtime.sh`
+still vendors `dkjson` for exactly this.
 
 It reports two things and **exits non-zero on the second**.
 

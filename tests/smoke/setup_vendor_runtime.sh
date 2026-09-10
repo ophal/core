@@ -9,6 +9,10 @@ VENDOR_SEAWOLF="$VENDOR_ROOT/seawolf"
 SEAWOLF_REF="${SEAWOLF_REF:-master}"
 # No database binding here: SQLite is lsqlite3, built below, and PostgreSQL and
 # MySQL are pgmoon and the bundled `lua-resty-mysql`. LuaDBI is gone.
+# `lua-dkjson` is no longer a dependency of Ophal -- `includes/json.lua` is
+# cjson, which ships with OpenResty. It stays vendored for one reason:
+# `tests/bench/json_bench.lua` is the measurement that chose cjson, and a
+# comparison needs both sides of it.
 PACKAGES=(lua-filesystem lua-lpeg lua-socket lua-dkjson)
 LSQLITE_REF="${LSQLITE_REF:-master}"
 LSQLITE_TARBALL="https://github.com/LuaDist/lsqlite3/archive/refs/heads/$LSQLITE_REF.tar.gz"
@@ -69,7 +73,7 @@ LUA
 # because the development symlink is not on the loader path.
 #
 # It is built against the LuaJIT headers and loads under both `resty` and
-# `/usr/bin/lua5.1` -- one binding for the worker and the command line.
+# LuaJIT -- one binding for the worker and the command line, both `resty`.
 build_lsqlite3() {
   local target="$VENDOR_UNPACK/usr/lib/x86_64-linux-gnu/lua/5.1/lsqlite3.so"
   local src="$VENDOR_DEBS/lsqlite3-$LSQLITE_REF"

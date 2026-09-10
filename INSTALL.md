@@ -87,15 +87,18 @@ OpenResty plus PostgreSQL assumptions for this line:
 
 ### OpenResty and Lua modules
 
-Ophal targets the OpenResty runtime and its bundled LuaJIT environment. Install
-the required Lua modules for that runtime.
+Ophal runs on OpenResty and its bundled LuaJIT, and on nothing else. That
+applies to the `ophal` command line too: it is `#!/usr/bin/env -S resty`, so
+there is one interpreter and one set of libraries for the worker and the CLI
+alike. Install the required Lua modules for that runtime.
+
+JSON needs no rock: Ophal uses `cjson`, which ships with OpenResty.
 
 Required for any site:
 
 - LPeg
 - LuaFilesystem
 - luuid
-- dkjson
 - LuaSocket
 - lsqlite3, for SQLite
 - pgmoon, for PostgreSQL
@@ -114,7 +117,6 @@ $ sudo apt-get install uuid-dev libsqlite3-dev libpq-dev
 $ sudo luarocks install lpeg
 $ sudo luarocks install luafilesystem
 $ sudo luarocks install luuid
-$ sudo luarocks install dkjson
 $ sudo luarocks install luasocket
 $ cd /tmp
 $ git clone --depth=1 https://github.com/ophal/seawolf.git
@@ -130,8 +132,8 @@ $ sudo luarocks install lsqlite3complete
 ```
 
 PostgreSQL goes through `pgmoon`, which serves both the OpenResty worker and the
-`ophal` command line -- it uses cosockets under OpenResty and LuaSocket under
-plain `lua5.1`, and picks between them itself:
+`ophal` command line -- both of which are OpenResty, so it uses cosockets in
+each:
 
 ```sh
 $ sudo luarocks install pgmoon
@@ -147,17 +149,19 @@ $ sudo luarocks install luaossl
 
 MySQL needs no rock at all: `lua-resty-mysql` ships with OpenResty.
 
-It has **no blocking mode**, though, which is the one way a MySQL site differs
-from the other two in operation. The `ophal` script is `#!/usr/bin/env lua5.1`,
-which has no cosockets, so on MySQL the command line runs under `resty` --
-which ships with OpenResty as well -- instead:
+It has **no blocking mode**, which used to be the one way a MySQL site differed
+from the other two in operation: the `ophal` script named `lua5.1`, which has no
+cosockets, so MySQL alone had to be driven under `resty`. That difference is
+gone -- the script names `resty` for every backend now -- and the command line
+is the same everywhere:
 
 ```sh
-$ resty -c 512 ./ophal migrate apply
+$ ./ophal migrate apply
 ```
 
-Everything else is the same, and the migrations carry a MySQL branch. There is
-one behavioural difference worth knowing before you write a module: that driver
+The migrations carry a MySQL branch. There is one behavioural difference worth
+knowing before you write a module, and it is about data rather than the
+interpreter: that driver
 converts every numeric column type to a Lua number *except* `BIGINT`, which it
 leaves as a string, because a 64-bit integer does not fit a Lua number exactly.
 The shipped schema uses `INT` for every id and foreign key for that reason, so

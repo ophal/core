@@ -238,8 +238,6 @@ local function setup_common_env()
   sw.fs.is_file = function() return false end
   sw.__build = function() return sw end
   package.loaded['seawolf'] = sw
-  -- Stub dkjson for require
-  package.loaded['dkjson'] = {encode = function() return '{}' end, decode = function() return {} end}
 
   -- lfs stub
   _G.lfs = {attributes = function() return {} end, dir = function() return function() end end}
@@ -316,22 +314,14 @@ do
     return 'token-from-the-session'
   end
 
-  -- The shared stub encodes every table as `{}`, which is enough for the
-  -- namespace assertions above and would let a token that never reaches the
-  -- page pass here. This one echoes the fields.
-  package.loaded['dkjson'] = {
-    encode = function(value)
-      local parts = {}
+  --[[ The settings block is encoded by the real `includes/json.lua`.
 
-      for key, field in pairs(value or {}) do
-        parts[#parts + 1] = ('"%s":"%s"'):format(tostring(key), tostring(field))
-      end
-
-      return '{' .. table.concat(parts, ',') .. '}'
-    end,
-    decode = function() return {} end,
-  }
-
+    This used to stub `dkjson` with an encoder that echoed its fields, because
+    the shared stub beside it answered `{}` for everything and would have let a
+    token that never reached the page pass this assertion. Neither stub is
+    reachable now: `includes/common.lua` encodes through the shim, which is
+    cjson, so the token either survives into the rendered page or it does not.
+  ]]
   dofile('includes/common.lua')
 
   common_reset_request()
@@ -366,7 +356,6 @@ do
   sw.maths = {round = function(n) return math.floor(n + 0.5) end}
   sw.__build = function() return sw end
   package.loaded['seawolf'] = sw
-  package.loaded['dkjson'] = {encode = function() return '{}' end, decode = function() return {} end}
   _G.lfs = {attributes = function() return {} end, dir = function() return function() end end}
   env.lfs = _G.lfs
   _G.theme = {name = 'basic', settings = {js = {}, css = {}, head = {}}}

@@ -5,9 +5,9 @@
 #   bash tests/smoke/setup_vendor_runtime.sh   # once, for dkjson and seawolf
 #   bash tests/bench/run_json_bench.sh
 #
-# Runs under `resty` because `cjson` ships with OpenResty and is absent from the
-# `lua5.1` the CLI names -- which is the split the shim exists to span, so the
-# harness has to run where both backends are reachable.
+# Runs under `resty`, which is the only runtime Ophal supports. `dkjson` is no
+# longer a dependency -- this is the measurement that retired it, kept because
+# the reasoning is only checkable against both libraries.
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)

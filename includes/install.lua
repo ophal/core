@@ -17,7 +17,10 @@ local DEPENDENCIES = {
   {machine_name = 'lsqlite3', name = 'lsqlite3 (SQLite)', required = false},
   {machine_name = 'pgmoon', name = 'pgmoon (PostgreSQL)', required = false},
   {machine_name = 'lpeg', name = 'LPEG', required = true},
-  {machine_name = 'dkjson', name = "David Kolf's JSON", required = true},
+  -- cjson ships with OpenResty rather than being installed, so a miss here
+  -- means the process is not OpenResty. Ophal is LuaJIT-only as of 2026-09-10
+  -- and `includes/json.lua` says the same thing at the point of use.
+  {machine_name = 'cjson', name = 'cjson (OpenResty)', required = true},
   {machine_name = 'seawolf.variable', name = 'Seawolf: variable', required = true},
   {machine_name = 'seawolf.fs', name = 'Seawolf: filesystem', required = true},
   {machine_name = 'seawolf.text', name = 'Seawolf: text', required = true},

@@ -15,8 +15,11 @@ bash tests/smoke/setup_vendor_runtime.sh
 ```
 
 The setup script downloads and unpacks the packaged Lua modules used by the
-harnesses, and builds `lsqlite3`
-shim used by session startup.
+harnesses and builds `lsqlite3` from source.
+
+It fetches two packages: `lua-filesystem`, which Ophal requires, and
+`lua-dkjson`, which it does not — that one is vendored solely for
+`tests/bench/json_bench.lua`, the measurement that retired it.
 
 Requirements:
 

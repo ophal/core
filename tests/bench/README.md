@@ -93,11 +93,17 @@ still vendors `dkjson` for exactly this.
 
 It reports two things and **exits non-zero on the second**.
 
-The timings cover the two workloads that matter: a session payload, where JSON
-replaces `table_dump` plus `loadstring` rather than another JSON library, and a
-service response at the shape `comment/fetch` returns. The service phase runs at
-three row counts, so a ratio that holds across them says the difference is per
-byte rather than a fixed cost being amortised.
+The timings cover a session payload and a service response at the shape
+`comment/fetch` returns. The service phase runs at three row counts, so a ratio
+that holds across them says the difference is per byte rather than a fixed cost
+being amortised.
+
+The session phase used to time `table_dump` plus `loadstring` as a third
+candidate, because the session file was the one place JSON *replaced* something
+rather than being chosen over another spelling of itself. That comparison is
+retired — the store landed, `tests/unit/test_session.lua` measures the real
+thing, and keeping it meant vendoring `seawolf.contrib` for one timing. Its
+numbers are recorded in `json_bench.lua`'s header.
 
 The assertions cover where two backends **disagree**, which is the part a
 timing harness would miss: the empty table encodes as `[]` on one and `{}` on

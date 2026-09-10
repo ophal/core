@@ -626,7 +626,12 @@ return function(settings, vault)
   -- path instead of being a code path only the unit tests ever reach.
   settings.route_aliases_storage = true
   settings.route_aliases_prepend_language = false
-  settings.route_redirects_storage = false
+  -- On here since 2026-09-10. `route_redirect` had no schema in INSTALL.md, in
+  -- the migrations or in this seeder, so turning the setting on errored out of
+  -- bootstrap phase 12 on every request -- and nothing exercised the six
+  -- `route.redirect_*` statements, one of which named a column the table does
+  -- not have.
+  settings.route_redirects_storage = true
   settings.route_redirects_prepend_language = false
 
   settings.modules = {
@@ -1052,7 +1057,7 @@ report_ok() {
 # to come back from each; a profile that ran fewer would otherwise disappear
 # into a single global total, which is the failure the count exists to catch.
 EXPECTED_BASE_SCENARIOS=31
-EXPECTED_DB_SCENARIOS=79
+EXPECTED_DB_SCENARIOS=82
 SCENARIO_COUNT=0
 
 # Reset per profile by `db_profile_begin`; the label prefixes each `ok` line so

@@ -908,6 +908,65 @@ Now add the following to settings.lua:
 ```
 
 
+### (Optional) Configure route redirects storage
+
+Redirects are the other half of route storage and are stored separately from
+aliases: an alias is a second name for a page Ophal serves, a redirect sends the
+visitor somewhere else. `type` is the HTTP status the redirect answers with --
+301 for a permanent move, 302 for a temporary one -- and an empty column is
+served as 302.
+
+Run the following SQL queries in strict order:
+
+####SQLite
+```SQL
+CREATE TABLE route_redirect(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source VARCHAR(255),
+  target VARCHAR(255),
+  language VARCHAR(12),
+  type INTEGER
+);
+CREATE INDEX idx_route_redirect_source_language_id ON route_redirect (source, language, id);
+CREATE INDEX idx_route_redirect_target_language_id ON route_redirect (target, language, id);
+```
+
+####PostgreSQL
+```SQL
+CREATE TABLE route_redirect(
+  id integer NOT NULL,
+  source character varying(255),
+  target character varying(255),
+  language character varying(12),
+  type integer
+);
+CREATE SEQUENCE route_redirect_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE route_redirect_id_seq OWNED BY route_redirect.id;
+ALTER TABLE ONLY route_redirect ALTER COLUMN id SET DEFAULT nextval('route_redirect_id_seq'::regclass);
+ALTER TABLE ONLY route_redirect ADD CONSTRAINT route_redirect_pkey PRIMARY KEY (id);
+CREATE INDEX idx_route_redirect_source_language_id ON route_redirect USING btree (source, language, id);
+CREATE INDEX idx_route_redirect_target_language_id ON route_redirect USING btree (target, language, id);
+```
+
+####MySQL
+```SQL
+CREATE TABLE route_redirect(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  source VARCHAR(255),
+  target VARCHAR(255),
+  language VARCHAR(12),
+  type INT,
+  KEY idx_route_redirect_source_language_id (source, language, id),
+  KEY idx_route_redirect_target_language_id (target, language, id)
+);
+```
+
+Now add the following to settings.lua:
+```Lua
+  settings.route_redirects_storage = true
+```
+
+
 ### (Optional) Configure the File module
 
 Run the following SQL queries in strict order:

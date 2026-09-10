@@ -90,6 +90,30 @@ local scenarios = {
       })
     end)
   end,
+  -- The redirect counterpart, and the first thing ever to run
+  -- `route.redirect_create`. `route_redirect` had no schema anywhere until
+  -- 2026-09-10, so every statement naming it was unexecuted code -- which is
+  -- how one of them came to name a column called `alias` on a table that has
+  -- only `target`.
+  create_redirect = function()
+    return run_bootstrap(function()
+      local source = query_arg('source') or 'moved-page'
+      local target = query_arg('target') or 'content/1'
+      local status = tonumber(query_arg('status') or '')
+
+      route_create_redirect{
+        source = source,
+        target = target,
+        language = 'all',
+        type = status,
+      }
+
+      write(render{
+        'SMOKE_REDIRECT_CREATED=' .. source,
+        'SMOKE_REDIRECT_TARGET=' .. target,
+      })
+    end)
+  end,
   -- What a site whose cron has never run looks like to the next request: the
   -- rebuild is still on the queue, and the marker that was suppressing further
   -- deferrals has lapsed. Backdating `created_at` to the epoch is the age; the

@@ -230,6 +230,18 @@ local sqlite_schema = {
   [[CREATE INDEX idx_route_alias_alias_language_id ON route_alias (alias, language, id)]],
   [[CREATE INDEX idx_route_alias_source_language_id ON route_alias (source, language, id)]],
 
+  -- Route redirect storage. `type` is the HTTP status the redirect answers
+  -- with; an empty column is served as 302.
+  [[CREATE TABLE route_redirect(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source VARCHAR(255),
+  target VARCHAR(255),
+  language VARCHAR(12),
+  type INTEGER
+)]],
+  [[CREATE INDEX idx_route_redirect_source_language_id ON route_redirect (source, language, id)]],
+  [[CREATE INDEX idx_route_redirect_target_language_id ON route_redirect (target, language, id)]],
+
   -- File storage. These are the columns `modules/file` actually reads and
   -- writes, which are not the ones INSTALL.md documents for this table. The
   -- code is what the smoke suite has to agree with, because the code is what
@@ -398,6 +410,19 @@ local postgresql_schema = {
   [[ALTER TABLE ONLY route_alias ADD CONSTRAINT route_alias_pkey PRIMARY KEY (id)]],
   [[CREATE INDEX idx_route_alias_alias_language_id ON route_alias USING btree (alias, language, id)]],
   [[CREATE INDEX idx_route_alias_source_language_id ON route_alias USING btree (source, language, id)]],
+  [[CREATE TABLE route_redirect(
+  id integer NOT NULL,
+  source character varying(255),
+  target character varying(255),
+  language character varying(12),
+  type integer
+)]],
+  [[CREATE SEQUENCE route_redirect_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1]],
+  [[ALTER SEQUENCE route_redirect_id_seq OWNED BY route_redirect.id]],
+  [[ALTER TABLE ONLY route_redirect ALTER COLUMN id SET DEFAULT nextval('route_redirect_id_seq'::regclass)]],
+  [[ALTER TABLE ONLY route_redirect ADD CONSTRAINT route_redirect_pkey PRIMARY KEY (id)]],
+  [[CREATE INDEX idx_route_redirect_source_language_id ON route_redirect USING btree (source, language, id)]],
+  [[CREATE INDEX idx_route_redirect_target_language_id ON route_redirect USING btree (target, language, id)]],
   [[CREATE TABLE file(
   id integer NOT NULL,
   user_id bigint,
@@ -527,6 +552,16 @@ local mysql_schema = {
   language VARCHAR(12),
   KEY idx_route_alias_alias_language_id (alias, language, id),
   KEY idx_route_alias_source_language_id (source, language, id)
+)]],
+
+  [[CREATE TABLE route_redirect(
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  source VARCHAR(255),
+  target VARCHAR(255),
+  language VARCHAR(12),
+  type INT,
+  KEY idx_route_redirect_source_language_id (source, language, id),
+  KEY idx_route_redirect_target_language_id (target, language, id)
 )]],
 
   -- File storage.

@@ -822,6 +822,8 @@ report_ok "db_frontpage_after_rebuild (total=$MEASURED_TOTAL normalized=$MEASURE
 # write moves both versions, and the guard reads them before it reuses
 # anything.
 SEED_LATE_ALIAS='late-smoke-alias'
+SEED_REDIRECT_SOURCE='smoke-redirect-source'
+SEED_REDIRECT_MOVED='smoke-redirect-moved'
 
 run_request db_alias_created \
   "$DB_URL/__smoke__?scenario=create_alias&source=content/1&alias=$SEED_LATE_ALIAS"
@@ -854,6 +856,49 @@ assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$SEED_CONTENT_TITLE"
 assert_query_budget 0 0
 report_ok "db_late_alias_reused (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+#[[ Redirects, which had never run at all.
+#
+# `route_redirect` was created by no schema -- not INSTALL.md, not the
+# migrations, not this seeder -- while `examples/settings.lua` and the installer
+# both wrote `settings.route_redirects_storage` out as an ordinary toggle. So
+# turning it on called `route_redirects_load()` from bootstrap phase 12, which
+# has no missing-table tolerance, and 500'd every request on the site. The
+# schema landed on 2026-09-10 and the profile has the setting on, so these three
+# scenarios are the first execution of `route.redirect_create`,
+# `route.redirects_all` and the redirect projection.
+run_request db_redirect_created \
+  "$DB_URL/__smoke__?scenario=create_redirect&source=$SEED_REDIRECT_SOURCE&target=tag/1"
+assert_status_zero
+assert_contains "SMOKE_REDIRECT_CREATED=$SEED_REDIRECT_SOURCE"
+report_ok db_redirect_created
+
+# Same reason as the alias above: a version is a unix second, so the write and
+# the load that notices it have to land in different seconds.
+sleep 1
+
+# The default status. `route_create_redirect()` used to default `type` to the
+# string 'route_redirect', which is handed to `go_to()` as an HTTP status code
+# and reaches `ngx.status` -- unnoticeable while nothing could call it.
+run_request db_redirect_resolves "$DB_URL/$SEED_REDIRECT_SOURCE"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 302'
+assert_regex '[Ll]ocation:.*/tag/1'
+report_ok db_redirect_resolves
+
+# And an explicit one, because a redirect that cannot be permanent is not much
+# of a redirect. This also pins that the column survives the projection: the
+# status is read back through `route_index`, not from the row that was written.
+run_request db_redirect_permanent \
+  "$DB_URL/__smoke__?scenario=create_redirect&source=$SEED_REDIRECT_MOVED&target=tag/1&status=301"
+assert_status_zero
+assert_contains "SMOKE_REDIRECT_CREATED=$SEED_REDIRECT_MOVED"
+sleep 1
+run_request db_redirect_permanent_resolves "$DB_URL/$SEED_REDIRECT_MOVED"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 301'
+assert_regex '[Ll]ocation:.*/tag/1'
+report_ok db_redirect_permanent
 
 # A queue nobody is draining, end to end. This is the one failure the version
 # algebra cannot see: pages stay correct the entire time, served from the

@@ -560,7 +560,19 @@ function route_redirects_load()
     if (row.language or 'all') ~= 'all' and settings.route_redirects_prepend_language then
       target = row.language .. '/' .. target
     end
-    route_register_redirect(row.source, target, row.type)
+    --[[ `http_code` here, `type` in the normalized reader above.
+
+      The projection spells this column `http_code`; `route_redirect` spells it
+      `type`. Reading `row.type` off a projection row answers nil, and nil
+      reaches `go_to()` as "no status given", which defaults to 302 -- so every
+      redirect served from the projection was a 302 whatever it was stored as,
+      and a 301 was indistinguishable from a working one until something
+      asserted on the status rather than on the location.
+
+      It could not have been noticed before 2026-09-10: no schema created
+      `route_redirect`, so this loop had never run.
+    ]]
+    route_register_redirect(row.source, target, row.http_code)
   end
 
   route_projection_record_loaded('redirect', observed, false)
@@ -574,7 +586,18 @@ function route_create_redirect(entity)
   local rs
   local db = db_connection()
 
-  if entity.type == nil then entity.type = 'route_redirect' end
+  --[[ `type` is the HTTP status this redirect answers with, not a name.
+
+    It defaulted to the string 'route_redirect', which reads as an entity type
+    and is not one: the column is handed to `route_register_redirect()` as its
+    `http_code` and reaches `go_to(target, code)` and then `ngx.status`. A
+    string there is not a status. It could never have been noticed, because no
+    schema created this table until now and so this function had never run.
+
+    302 rather than 301, matching `go_to()`'s own default: a redirect a site can
+    edit out of a table should not be the one browsers cache forever.
+  ]]
+  if entity.type == nil then entity.type = 302 end
   local updated_at = time()
 
   if entity.id then

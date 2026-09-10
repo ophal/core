@@ -1,4 +1,11 @@
-# Query-layer benchmark
+# Benchmarks
+
+Two harnesses live here. `run_bench.sh` and `run_layer_bench.sh` measure the
+database path; `run_json_bench.sh` measures the JSON backend. All three answer
+the same kind of question, which is what gates a dependency change in this
+project: a number, before anything moves.
+
+## Query-layer benchmark
 
 Measures what each candidate database driver costs, so the query layer and the
 per-backend drivers behind it are chosen on numbers rather than on argument.
@@ -68,3 +75,41 @@ four questions -- `point`, `page`, `insert`, `update` -- in whatever dialect and
 parameter style that driver is best at. That is deliberate: forcing one dialect
 on all of them would measure the dialect. Add an entry to `M.candidates` with a
 `build` function and it joins the table.
+
+## JSON benchmark
+
+```sh
+bash tests/smoke/setup_vendor_runtime.sh   # once, for dkjson and seawolf
+bash tests/bench/run_json_bench.sh
+```
+
+Runs under `resty`, because `cjson` ships with OpenResty and is absent from the
+`lua5.1` the CLI names. That split is the whole reason `includes/json.lua`
+exists, so the harness has to run where both backends are reachable.
+
+It reports two things and **exits non-zero on the second**.
+
+The timings cover the two workloads that matter: a session payload, where JSON
+replaces `table_dump` plus `loadstring` rather than another JSON library, and a
+service response at the shape `comment/fetch` returns. The service phase runs at
+three row counts, so a ratio that holds across them says the difference is per
+byte rather than a fixed cost being amortised.
+
+The assertions cover where two backends **disagree**, which is the part a
+timing harness would miss: the empty table encodes as `[]` on one and `{}` on
+the other, `null` decodes to a truthy sentinel on one and to an absent key on
+the other, `decode` answers three values on one and two on the other, and a nil
+input raises on one and is declined by the other. Each of those is a silent
+output change under a naive swap -- nothing raises, nothing is slower, and the
+bytes are not the same bytes -- so they are pinned here and this harness fails
+when a backend upgrade moves one.
+
+Two facts about cjson's configuration are asserted for the same reason:
+`encode_empty_table_as_object` is **not** shared between `cjson` and
+`cjson.safe`, so configure the exact module you encode with, and
+`encode_escape_forward_slash` **is** shared, so it is VM-global state that
+reaches every other cjson user in the worker and the shim must leave it alone.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OPHAL_BENCH_ITERATIONS` | 100000 | operations per candidate; the service phase runs a twentieth of it |

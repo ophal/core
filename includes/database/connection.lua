@@ -27,6 +27,7 @@ local registry = require 'includes.database.registry'
 local request_state = require 'includes.request_state'
 local stats = require 'includes.database.stats'
 local db_result = require 'includes.database.result'
+local http_cache = require 'includes.http_cache'
 
 local setmetatable, select, type, ipairs = setmetatable, select, type, ipairs
 local unpack = unpack or table.unpack
@@ -129,6 +130,39 @@ end
 local function run_compiled(s, compiled, ...)
   local handle = s.handle or connect(s)
   local res, err
+
+  --[[ A response built from a normalized table cannot carry a projection
+    validator, so reading one takes this request out of the cacheable set.
+
+    Phase 9's rule is "cacheable if the request observed at least one projection
+    version", and routing observes one on **every** request -- so that guard was
+    always satisfied and nothing checked the response's *content* was described
+    by the versions in the validator. `comment/fetch` is the case that showed
+    it: it reads the normalized `comment` table, which has no projection and
+    therefore no version, and it was served `public` with an ETag that never
+    moved. Change the comment, ask again with `If-None-Match`, get **304**, and
+    a shared cache holds the old list until some unrelated projection version
+    happens to change.
+
+    This is the same argument stage 8.6b made about identifiers: refusing the
+    *class* here is what stops the next module that reads a normalized table
+    reintroducing it. A `http_cache.disable()` at each service is the
+    patch-by-patch shape and would be forgotten once.
+
+    It sits beside `record_bucket` rather than inside it because that function
+    returns early when `settings.performance.query_stats` is off, which is the
+    default -- `stats_enabled()` gates the *counting*, not the classification.
+    A declared statement carries `bucket` from compile time, so this costs a
+    string comparison.
+
+    The cost is real and bounded: a response served from a projection's
+    normalized fallback loses caching for the length of a deferred window.
+    `db_frontpage_stale` is that scenario and its budget already says two
+    normalized reads.
+  ]]
+  if compiled.bucket == 'normalized' then
+    http_cache.disable()
+  end
 
   stats.record_bucket(compiled.bucket, compiled.tables)
 

@@ -636,7 +636,58 @@ measure_request db_comment_fetch "$DB_URL/comment/fetch/1"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$COMMENT_BODY"
+#[[ And it carries no validator, because it is built from a normalized table.
+#
+# Phase 9's rule is "cacheable if the request observed at least one projection
+# version", and routing observes one on every request -- so the guard was always
+# satisfied and nothing checked the response's *content* was described by the
+# versions in the ETag. This service reads normalized `comment`, which has no
+# projection and therefore no version, and it was served `public` with an ETag
+# that never moved.
+#
+# `run_compiled()` takes a request out of the cacheable set when a statement's
+# bucket is `normalized`. Removing that turns these two red, and
+# `db_comment_stale_read_is_refused` below red as well.
+assert_not_regex '[Ee][Tt]ag:'
+assert_not_regex 'cache-control:.*public'
 report_ok "db_comment_fetch (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+#[[ The end-to-end half: a changed comment is never answered with a 304.
+#
+# This is the original repro. Take whatever validator the fetch offers, change
+# the comment through the application, then ask again presenting that validator.
+# The answer has to be 200 carrying the new body.
+#
+# With the fix there is no validator to present, so the conditional header is
+# omitted and the second read is an ordinary 200. Without it the fetch hands
+# back an ETag that survives the edit, Ophal answers **304**, and a shared cache
+# holds the old comment list until some unrelated projection version happens to
+# move. `must-revalidate` does not save it: the cache does revalidate, and Ophal
+# says "not modified" about something that was.
+comment_etag=$(printf '%s\n' "$LAST_OUTPUT" |
+  sed -n 's/^[Ee][Tt]ag: *\(.*\)$/\1/p' | tr -d '\r' | head -1)
+COMMENT_BODY_EDITED='SMOKE_COMMENT_BODY_EDITED_MARKER'
+
+run_request db_comment_edit -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  --data-binary "{\"entity_id\":1,\"body\":\"$COMMENT_BODY_EDITED\",\"csrf_token\":\"$author_csrf\"}" \
+  "$DB_URL/comment/save/$comment_id"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"success" *: *true'
+report_ok db_comment_edit
+
+if [[ -n "$comment_etag" ]]; then
+  run_request db_comment_stale_read_is_refused \
+    -H "If-None-Match: $comment_etag" "$DB_URL/comment/fetch/1"
+else
+  run_request db_comment_stale_read_is_refused "$DB_URL/comment/fetch/1"
+fi
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_not_regex '^HTTP/1\.[01] 304'
+assert_contains "$COMMENT_BODY_EDITED"
+report_ok "db_comment_stale_read_is_refused (validator=${comment_etag:-none})"
 
 # 404 rather than 401, and this is the assertion the module was missing. It
 # checked access before existence, so `comment_access(nil, 'update')` compared

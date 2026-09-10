@@ -225,8 +225,23 @@ do
       perm_query ~= nil and #perm_query.params, 2)
     assert_eq('perm_query_omits_value_from_sql',
       perm_query ~= nil and perm_query.sql:find('editor', 1, true) == nil, true)
-    assert_eq('perm_query_passes_value_as_parameter',
-      perm_query ~= nil and perm_query.params[1], 'editor')
+    --[[ The role is *among* the bound parameters, not at a fixed position.
+
+      `get_user_roles()` returns a mixed table -- numeric role ids alongside the
+      `anonymous` and `authenticated` string markers -- and the binder walks it
+      with `pairs`, whose order is not defined and differs between PUC Lua and
+      LuaJIT. An `IN` list is order-independent, so pinning position 1 asserted
+      the iteration order of a table rather than anything about the query. It
+      held under PUC and broke on the VM Ophal actually runs on.
+    ]]
+    local bound = {}
+
+    for _, param in ipairs(perm_query ~= nil and perm_query.params or {}) do
+      bound[param] = true
+    end
+
+    assert_eq('perm_query_passes_value_as_parameter', bound['editor'], true)
+    assert_eq('perm_query_passes_the_marker_too', bound['authenticated'], true)
   end
 
   mark = #state.queries

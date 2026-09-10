@@ -261,12 +261,17 @@ local function runtime_warning_for_driver(driver)
     return 'SQLite3 is supported for development, CLI, tests, and low-scale compatibility. PostgreSQL is the required production backend for the performance architecture.'
   end
 
-  -- The one operational difference a MySQL site has, said where somebody
-  -- choosing MySQL will read it: `lua-resty-mysql` is a cosocket driver with no
-  -- blocking mode, so the command line cannot run under the `lua5.1` the
-  -- `ophal` script names.
+  --[[ What is left of MySQL's difference, said where somebody choosing MySQL
+    will read it.
+
+    It used to lead with the interpreter: `lua-resty-mysql` is cosockets down to
+    the socket and has no blocking mode, so the command line could not run under
+    the `lua5.1` the `ophal` script named. That stopped being a MySQL problem on
+    2026-09-10, when Ophal became LuaJIT-only and the `ophal` script started
+    naming `resty` for every backend. The data difference is real and remains.
+  ]]
   if name == 'MySQL' then
-    return 'MySQL is supported, but lua-resty-mysql has no blocking mode: run the ophal command line under resty, as in "resty -c 512 ./ophal migrate apply". A BIGINT column also reads back as a string, so compare one with tonumber.'
+    return 'MySQL is supported. Note that lua-resty-mysql leaves a BIGINT column as a string, so compare one with tonumber: arithmetic coerces and comparison does not.'
   end
 end
 

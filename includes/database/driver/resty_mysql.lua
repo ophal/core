@@ -32,17 +32,17 @@ local concat = table.concat
   nothing to install that would fix it either, because the driver is cosockets
   all the way down and has no blocking mode -- the fix is the interpreter.
 
-  That is the one operational difference a MySQL site has, and this is where a
-  person meets it: `ophal migrate apply` under the `lua5.1` the `ophal` script
-  names. Same reason `driver/lsqlite3.lua` answers its own missing binding --
-  a failure that names the thing that changed rather than the search path.
+  Same reason `driver/lsqlite3.lua` answers its own missing binding: a failure
+  that names the thing that changed rather than the search path. The `ophal`
+  script names `resty` itself, so reaching this branch means the script was run
+  through some other interpreter.
 ]]
 local function missing_binding()
   if rawget(_G, 'ngx') == nil then
     return 'lua-resty-mysql needs OpenResty. It is a cosocket driver with no\n'
-      .. 'blocking mode, so the ophal command line runs under resty rather\n'
-      .. 'than under lua5.1:\n'
-      .. '  resty -c 512 ./ophal migrate apply\n'
+      .. 'blocking mode, and Ophal is an OpenResty application: the command\n'
+      .. 'line runs under resty, which the ophal script already names.\n'
+      .. '  ./ophal migrate apply\n'
       .. 'More: https://github.com/ophal/core'
   end
 

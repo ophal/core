@@ -1,4 +1,4 @@
-#!/usr/bin/env lua5.1
+#!/usr/bin/env -S resty --errlog-level=error
 
 local cli = require 'includes.cli'
 

@@ -300,9 +300,14 @@ do
 
   assert_eq('check_mysql_driver', result.database_driver, 'MySQL')
   assert_eq('check_mysql_ok', result.ok, true)
-  -- The operational difference stage 8.7 landed: no blocking mode, so the
-  -- command line runs under resty.
-  assert_match('check_mysql_warning', result.runtime_warning or '', 'under resty')
+  --[[ What is left of MySQL's difference once the interpreter is not one.
+
+    This asserted `under resty`, which was the operational difference stage 8.7
+    landed and stopped being one on 2026-09-10: every backend's command line
+    runs under resty now. The data difference is the part that is still true,
+    so it is the part pinned here.
+  ]]
+  assert_match('check_mysql_warning', result.runtime_warning or '', 'tonumber')
 end
 
 --[[ A vault naming a driver no binding answers to.

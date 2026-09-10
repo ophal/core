@@ -10,11 +10,12 @@ VENDOR_LD_LIB_DIR=''
 if [[ -n "$VENDOR_LUA_LIB_DIR" ]]; then
   VENDOR_LD_LIB_DIR=$(cd -- "$VENDOR_LUA_LIB_DIR/../.." && pwd)
 fi
-# The lab `tests/bench/setup_backends.sh` vendors carries pgmoon and, for PUC
-# Lua, the `bit` binding pgmoon needs there -- LuaJIT has it built in, which is
-# why nothing wanted it until the seeder and the migration CLI started running
-# against PostgreSQL under `lua5.1`. Appended rather than required: a checkout
-# with no lab still runs the SQLite profile, and the directories simply miss.
+# The lab `tests/bench/setup_backends.sh` vendors carries pgmoon, which the
+# seeder and the migration CLI need to reach PostgreSQL. It also carries a `bit`
+# binding, which pgmoon wanted under PUC Lua and which LuaJIT has built in --
+# dead weight since 2026-09-10 and harmless. Appended rather than required: a
+# checkout with no lab still runs the SQLite profile, and the directories simply
+# miss.
 BACKENDS_LUA="$VENDOR_ROOT/backends/lua"
 BACKENDS_LUA_SHARE="$BACKENDS_LUA/share"
 BACKENDS_LUA_LIB="$BACKENDS_LUA/usr/lib/x86_64-linux-gnu/lua/5.1"
@@ -115,7 +116,7 @@ trap cleanup EXIT
 
 
 check_dependencies() {
-  local output_file status output
+  local output_file status output probe_file
   local -a dep_env
 
   output_file=$(mktemp)
@@ -127,10 +128,18 @@ check_dependencies() {
     dep_env=("LD_LIBRARY_PATH=$VENDOR_LD_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "${dep_env[@]}")
   fi
 
-  set +e
-  env -i "${dep_env[@]}" lua5.1 - <<'LUA' >"$output_file" 2>&1
+  #[[ Checked under `resty`, because that is what runs everything now.
+  #
+  # It ran under `env -i ... lua5.1` until 2026-09-10. Neither half survives:
+  # Ophal is LuaJIT-only, and `resty` is not `env -i`-safe because it shells out
+  # to nginx -- so the probe goes to a file and the environment is added to
+  # rather than replaced. `dkjson` left the list with the JSON shim; `cjson`
+  # replaces it, and checking for it is really checking that this is a real
+  # OpenResty with its bundled libraries reachable.
+  probe_file=$(mktemp)
+  cat >"$probe_file" <<'LUA'
 local missing = {}
-for _, name in ipairs({'lfs', 'lpeg', 'uuid', 'seawolf', 'dkjson', 'lsqlite3'}) do
+for _, name in ipairs({'lfs', 'lpeg', 'uuid', 'seawolf', 'cjson', 'lsqlite3'}) do
   local ok = pcall(require, name)
   if not ok then
     missing[#missing + 1] = name
@@ -141,8 +150,12 @@ if #missing > 0 then
   os.exit(1)
 end
 LUA
+
+  set +e
+  env "${dep_env[@]}" resty --errlog-level=error "$probe_file" >"$output_file" 2>&1
   status=$?
   set -e
+  rm -f "$probe_file"
   output=$(cat "$output_file")
   rm -f "$output_file"
 
@@ -489,9 +502,6 @@ db_profile_begin() {
   SMOKE_DB_ENV_PORT=''
   SMOKE_DB_ENV_USER=''
   SMOKE_DB_ENV_PASS=''
-  # `lua5.1` unless the backend's driver has no blocking mode; see the mysql
-  # case below.
-  SMOKE_DB_CLI=lua5.1
 
   case "$backend" in
     sqlite3)
@@ -510,15 +520,6 @@ db_profile_begin() {
       SMOKE_DB_ENV_PORT=$BACKEND_MY_PORT
       SMOKE_DB_ENV_USER=$BACKEND_MY_USER
       SMOKE_DB_ENV_PASS=$BACKEND_MY_PASS
-      # MySQL has no command line.
-      #
-      # `lua-resty-mysql` has no blocking mode, so the seeder and
-      # `ophal migrate apply` cannot run under the `lua5.1` the `ophal` script
-      # names -- they run under `resty`, which has cosockets. That is a real
-      # limitation of the backend rather than a harness convenience, and it is
-      # the reason MySQL was left undecided through stage 8.6; running it here
-      # is what turns "cannot" into "under resty, like this".
-      SMOKE_DB_CLI=resty
       ;;
     *)
       fail "no database profile is defined for the $backend backend"
@@ -529,11 +530,16 @@ db_profile_begin() {
   PROFILE_LABEL="$backend"
 }
 
-# Runs a Lua program with this profile's environment, under whichever
-# interpreter the backend's driver needs. `resty` is not `env -i`-safe -- it
-# shells out to nginx -- so the variables are added to the environment rather
-# than replacing it, and every LUA_* one is set explicitly so an ambient value
-# cannot decide which modules are loaded.
+# Runs a Lua program with this profile's environment, under `resty`.
+#
+# It used to pick the interpreter per backend: `lua5.1` for most, `resty` for
+# MySQL, because `lua-resty-mysql` is cosockets down to the socket and has no
+# blocking mode. Ophal became LuaJIT-only on 2026-09-10, so there is one
+# interpreter again and it is the one the worker runs.
+#
+# `resty` is not `env -i`-safe -- it shells out to nginx -- so the variables are
+# added to the environment rather than replacing it, and every LUA_* one is set
+# explicitly so an ambient value cannot decide which modules are loaded.
 db_run_cli() {
   local -a cli_env
   local line
@@ -549,11 +555,7 @@ db_run_cli() {
     cli_env+=("$line")
   done < <(db_profile_env)
 
-  if [[ "$SMOKE_DB_CLI" == 'resty' ]]; then
-    (cd "$SMOKE_DB_DOCROOT" && env "${cli_env[@]}" resty -c 512 "$@" 2>&1)
-  else
-    (cd "$SMOKE_DB_DOCROOT" && env "${cli_env[@]}" lua5.1 "$@" 2>&1)
-  fi
+  (cd "$SMOKE_DB_DOCROOT" && env "${cli_env[@]}" resty -c 512 --errlog-level=error "$@" 2>&1)
 }
 
 # The environment both the seeder and the profile's OpenResty instance read.

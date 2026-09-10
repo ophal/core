@@ -235,10 +235,21 @@ do
     {sql = 'DELETE FROM {table}', idents = {table = true},
       order = {'table', 'column'}})
 
+  --[[ Both identifiers carry a resolver, so the ordering is the only thing
+    wrong with this declaration.
+
+    They were `true`, which is *also* refused -- and `define()` makes both
+    checks inside one `for key in pairs(decl.idents)` loop, so which of the two
+    errors surfaced depended on which key `pairs` reached first. PUC Lua 5.1
+    visited `column` and reported the ordering; LuaJIT visits `table` and
+    reports the missing resolver. The assertion passed on exactly one VM, and
+    not the one Ophal runs on.
+  ]]
   assert_raises('ident_left_out_of_the_order', 'leaves it out',
     registry.define, 'test.partial',
     {sql = 'DELETE FROM {table} WHERE {column} = ?',
-      idents = {table = true, column = true}, order = {'table'}})
+      idents = {table = registry.trusted, column = registry.trusted},
+      order = {'table'}})
 end
 
 io.write '\n-- identifiers are compile keys --\n'
@@ -970,13 +981,35 @@ io.write '\n-- a driver that is not reachable --\n'
 
 --[[ `lua-resty-mysql` ships with OpenResty rather than being installed, so
   `module 'resty.mysql' not found` and its page of search paths says the wrong
-  thing: the process is not OpenResty, and no rock would fix it. The unit suite
-  runs under `lua5.1`, so this is the failure exactly as the command line meets
-  it -- which is where a MySQL site actually hits it, since `ophal migrate
-  apply` has to run under `resty`.
+  thing: the process is not OpenResty, and no rock would fix it.
+
+  Both branches are driven **explicitly**, by making the require fail and by
+  clearing `ngx`, rather than by whatever the ambient runtime happens to be.
+  They used to be driven ambiently -- the suite ran under `lua5.1`, which has
+  neither -- and that stopped working the moment the suite moved onto the VM
+  Ophal actually runs on. An assertion about a runtime that is not this one has
+  to say so out loud, or it is really an assertion about the test harness.
 ]]
 do
   local mysql = require 'includes.database.driver.resty_mysql'
+
+  -- Make `require 'resty.mysql'` fail whatever the runtime has. `require`
+  -- consults `package.loaded` and then `package.preload` before any searcher,
+  -- so this is enough on a runtime that really does ship the binding.
+  local real_loaded = package.loaded['resty.mysql']
+  local real_preload = package.preload['resty.mysql']
+
+  package.loaded['resty.mysql'] = nil
+  package.preload['resty.mysql'] = function()
+    error('simulated missing binding', 0)
+  end
+
+  local real_ngx = rawget(_G, 'ngx')
+
+  -- Not OpenResty at all: the interpreter is what is wrong, and no rock fixes
+  -- it, so the message must name the interpreter.
+  rawset(_G, 'ngx', nil)
+
   local handle, err = mysql.connect({host = '127.0.0.1', database = 'ophal'})
 
   assert_eq('mysql_without_openresty_refuses', handle, nil)
@@ -988,6 +1021,21 @@ do
   -- the thing that is wrong.
   assert_eq('mysql_without_openresty_hides_the_search_path',
     tostring(err):match('no file') , nil)
+
+  -- OpenResty, but without the binding: a different problem with a different
+  -- answer, and the two were never distinguished before.
+  rawset(_G, 'ngx', real_ngx or {})
+
+  local _, install_err = mysql.connect({host = '127.0.0.1', database = 'ophal'})
+
+  assert_truthy('mysql_without_the_binding_names_the_rock',
+    tostring(install_err):match('luarocks install lua%-resty%-mysql'))
+  assert_eq('mysql_without_the_binding_does_not_blame_the_interpreter',
+    tostring(install_err):match('resty %-c'), nil)
+
+  rawset(_G, 'ngx', real_ngx)
+  package.preload['resty.mysql'] = real_preload
+  package.loaded['resty.mysql'] = real_loaded
 end
 
 io.write(('\n%d passed, %d failed\n'):format(passed, failed))

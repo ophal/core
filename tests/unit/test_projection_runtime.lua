@@ -206,7 +206,7 @@ local function make_db_query(state)
         return rows_result({})
       end
       return rows_result({{version = row}})
-    elseif sql:match('^INSERT INTO projection_version%\(') then
+    elseif sql:match('^INSERT INTO projection_version%(') then
       -- One upsert, matched by prefix because the statement spans lines. It
       -- replaced a DELETE and an INSERT; a touch that starts issuing two
       -- queries again shows up in the budget assertions below.
@@ -799,7 +799,7 @@ do
   }
 
   for _, query in ipairs(state.queries) do
-    if query.sql:match('^INSERT INTO content%\(') then
+    if query.sql:match('^INSERT INTO content%(') then
       insert = query
       break
     end
@@ -977,7 +977,7 @@ do
   -- Two touches for three rows: the index key and the source key, once each.
   assert_eq(
     'route_rebuild_touches_each_version_once',
-    query_count(state, '^INSERT INTO projection_version%\('),
+    query_count(state, '^INSERT INTO projection_version%('),
     2
   )
   assert_eq('route_rebuild_registered_all', ophal.aliases.source['content/3'], 'a-3')
@@ -1003,7 +1003,7 @@ do
   assert_eq('route_deferred_writes_no_rows', #state.route_index.alias, 0)
   assert_eq(
     'route_deferred_writes_no_versions',
-    query_count(state, '^INSERT INTO projection_version%\('),
+    query_count(state, '^INSERT INTO projection_version%('),
     0
   )
   assert_eq(

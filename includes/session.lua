@@ -1,4 +1,4 @@
-local temp_dir = seawolf.behaviour.temp_dir
+local temp_dir = require('includes.fs.path').temp_dir
 local safe_open, safe_write = seawolf.fs.safe_open, seawolf.fs.safe_write
 local safe_close, table_dump = seawolf.fs.safe_close, seawolf.contrib.table_dump
 local time, rawset, tconcat = os.time, rawset, table.concat

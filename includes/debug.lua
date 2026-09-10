@@ -1,4 +1,4 @@
-local temp_dir = seawolf.behaviour.temp_dir
+local temp_dir = require('includes.fs.path').temp_dir
 local util = require 'includes.util'
 
 --[[ A value rendered for a browser.

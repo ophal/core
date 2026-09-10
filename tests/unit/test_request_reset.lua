@@ -594,8 +594,25 @@ do
     os.execute(("mkdir -p '%s'"):format(path))
     return path
   end)()
-  -- Extra stubs for session.lua
-  _G.seawolf.behaviour = {temp_dir = function() return session_dir end}
+  --[[ Extra stubs for session.lua.
+
+    `temp_dir` moved from `seawolf.behaviour` to `includes/fs/path.lua`, and
+    `includes/session.lua` captures it at load -- so the stub has to be in
+    `package.loaded` before the `dofile` below, not on the `seawolf` table.
+    Only `temp_dir` is replaced; the real path helpers stay, because the adapter
+    and `modules/file` require the same module.
+  ]]
+  do
+    local real_path = require 'includes.fs.path'
+    local stubbed = {}
+
+    for key, value in pairs(real_path) do
+      stubbed[key] = value
+    end
+
+    stubbed.temp_dir = function() return session_dir end
+    package.loaded['includes.fs.path'] = stubbed
+  end
   _G.seawolf.fs.safe_open = function(path)
     opened[#opened + 1] = path
     return {close = function() end, read = function() return '' end}, 'sign'
@@ -765,7 +782,17 @@ do
   local mock_request = setup_env()
   local opened, removed, cookies_set = {}, {}, {}
 
-  _G.seawolf.behaviour = {temp_dir = function() return '/tmp' end}
+  do
+    local real_path = require 'includes.fs.path'
+    local stubbed = {}
+
+    for key, value in pairs(real_path) do
+      stubbed[key] = value
+    end
+
+    stubbed.temp_dir = function() return '/tmp' end
+    package.loaded['includes.fs.path'] = stubbed
+  end
   _G.seawolf.fs.safe_open = function(path)
     opened[#opened + 1] = path
     return {close = function() end, read = function() return '' end}, 'sign-' .. #opened

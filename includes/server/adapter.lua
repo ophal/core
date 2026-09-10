@@ -1,6 +1,7 @@
 local text = require 'includes.text'
 local trim, ltrim, rtrim = text.trim, text.ltrim, text.rtrim
-local dirname, basename = seawolf.fs.dirname, seawolf.fs.basename
+local path = require 'includes.fs.path'
+local dirname, basename = path.dirname, path.basename
 local empty = require('includes.util').empty
 local date = os.date
 local char, tonumber, type = string.char, tonumber, type

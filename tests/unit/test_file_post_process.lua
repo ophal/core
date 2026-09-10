@@ -52,34 +52,33 @@ end
 --[[ Load the file module against a controllable world.
 
   `finfo` is captured as a local when the module loads, so the stub has to be in
-  place on `seawolf.fs` before `dofile` and the module has to be reloaded to
+  `package.loaded` before the `dofile` and the module has to be reloaded to
   change it. That is the same load-time capture the rest of this file is about;
   here it is a constraint on the test rather than a bug.
+
+  It stubs **`magic`** now, not `seawolf.fs.finfo`. `seawolf.fs` used to expose
+  libmagic's binding as a member of itself when it happened to be installable,
+  so the module reached the optional dependency through the filesystem library;
+  it requires `magic` directly. The path helpers are the real ones from
+  `includes/fs/path.lua` with the two the module calls overridden, because
+  `ensure_dir()` asks about directories that do not exist in this run.
 ]]
 local function load_file_module(state)
-  -- The stubs go into `package.loaded`, not onto the seawolf table. The module
-  -- calls `__build('fs', 'behaviour', 'variable')` on its own first line, and
-  -- `__build` requires each component and overwrites whatever was there -- so
-  -- anything assigned to `seawolf.fs` beforehand is gone by the time the module
-  -- captures `finfo` from it. Seeding `package.loaded` is what makes the
-  -- require return these instead.
-  --
-  -- Only the members the module touches are provided. `__build` is also worth
-  -- knowing about for a different reason: when a component fails to load it
-  -- stores the *error string* under that name rather than leaving it nil, so a
-  -- missing C module shows up later as a string being indexed as a table.
-  package.loaded['seawolf.fs'] = {
-    is_dir = function() return true end,
-    is_file = function() return false end,
-    finfo = state.finfo,
-  }
-  package.loaded['seawolf.behaviour'] = {temp_dir = function() return '/tmp' end}
-  package.loaded['seawolf.variable'] = {
-    empty = function(v)
-      return v == nil or v == '' or v == false or
-        (type(v) == 'table' and next(v) == nil)
-    end,
-  }
+  do
+    local real_path = require 'includes.fs.path'
+    local stubbed = {}
+
+    for key, value in pairs(real_path) do
+      stubbed[key] = value
+    end
+
+    stubbed.is_dir = function() return true end
+    stubbed.is_file = function() return false end
+    stubbed.temp_dir = function() return '/tmp' end
+    package.loaded['includes.fs.path'] = stubbed
+  end
+
+  package.loaded['magic'] = state.finfo
 
   _G.settings = {file = {filedb_storage = true}, site = {files_path = '/tmp/files'}}
   _G.ophal = {modules = {}}

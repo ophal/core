@@ -171,7 +171,7 @@ function bootstrap(phase, main)
 
     -- 5. Check installer
     function ()
-      if not seawolf.fs.is_file 'settings.lua' then
+      if not require('includes.fs.path').is_file 'settings.lua' then
         header('status', '503 Service Unavailable')
         header('content-type', 'text/plain; charset=utf-8')
         print("Ophal is not installed.\nRun './ophal install init' from the project root.")

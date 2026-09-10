@@ -7,7 +7,8 @@ if type(html_escape) ~= 'function' then
 end
 local config, theme, header = settings.file or {}, theme, header
 local tinsert, tconcat, lfs, env = table.insert, table.concat, lfs, env
-local is_dir, is_file, add_js = seawolf.fs.is_dir, seawolf.fs.is_file, add_js
+local fs_path = require 'includes.fs.path'
+local is_dir, is_file, add_js = fs_path.is_dir, fs_path.is_file, add_js
 local empty = require('includes.util').empty
 local request_get_body, io_open, tonumber, type = request_get_body, io.open, tonumber, type
 local request_get_body_file = request_get_body_file
@@ -15,7 +16,23 @@ local files_path = settings.site.files_path
 require 'modules.file.statements'
 
 local os_remove, os_rename, modules, time = os.remove, os.rename, ophal.modules, os.time
-local module_invoke_all, finfo = module_invoke_all, seawolf.fs.finfo
+local module_invoke_all = module_invoke_all
+--[[ libmagic's binding, or nil.
+
+  `seawolf.fs` exposed this as `finfo` when `magic` was installable and left it
+  absent otherwise, so it is optional and always has been -- the
+  `type(finfo) ~= 'table'` guard at the one call site is what makes it so, and
+  an upload on a host without libmagic finishes with a null `filemime` rather
+  than failing. Required directly now, because there is no reason for a
+  filesystem library to be the thing that decides whether this is installed.
+]]
+local finfo
+
+do
+  local found, magic = pcall(require, 'magic')
+
+  finfo = found and magic or nil
+end
 local render_attributes, format_size = render_attributes, format_size
 local format_date = format_date
 local csrf_validate_request, csrf_denied = csrf_validate_request, csrf_denied

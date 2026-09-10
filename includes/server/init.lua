@@ -15,7 +15,8 @@ end
 local time, date = os.time, os.date
 local tinsert = table.insert
 local empty = require('includes.util').empty
-local trim, dirname = require('includes.text').trim, seawolf.fs.dirname
+local trim = require('includes.text').trim
+local dirname = require('includes.fs.path').dirname
 local tconcat, lower = table.concat, string.lower
 
 local function request_header(name)

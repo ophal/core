@@ -11,7 +11,7 @@ local is_dir, is_file, add_js = seawolf.fs.is_dir, seawolf.fs.is_file, add_js
 local temp_dir, empty = seawolf.behaviour.temp_dir, seawolf.variable.empty
 local request_get_body, io_open, tonumber, type = request_get_body, io.open, tonumber, type
 local request_get_body_file = request_get_body_file
-local json, files_path = require 'dkjson', settings.site.files_path
+local files_path = settings.site.files_path
 require 'modules.file.statements'
 
 local os_remove, os_rename, modules, time = os.remove, os.rename, ophal.modules, os.time

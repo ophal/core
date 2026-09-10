@@ -186,9 +186,21 @@ function M.array(value)
   return setmetatable(value or {}, ARRAY_MT)
 end
 
--- And the other way: an empty table that must encode as `{}`.
+--[[ And the other way: an empty table that must encode as `{}`.
+
+  `OBJECT_MT` is nil on the cjson branch, because an empty table is already an
+  object there. It is tested rather than passed straight to `setmetatable`,
+  which would *remove* whatever metatable the caller's table already had -- the
+  call sites tag tables they did not create.
+]]
 function M.object(value)
-  return setmetatable(value or {}, OBJECT_MT)
+  value = value or {}
+
+  if OBJECT_MT ~= nil then
+    setmetatable(value, OBJECT_MT)
+  end
+
+  return value
 end
 
 --[[ Which backend resolved: `cjson` or `dkjson`.

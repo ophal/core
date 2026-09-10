@@ -666,6 +666,19 @@ report_ok db_comment_create_anonymous
 # is caught everywhere by `assert_no_source_path` in `report_ok`; what is
 # asserted here is the rest of the answer -- a client error, and nothing a cache
 # may keep.
+#[[ An entity with no comments answers an empty *list*, not an empty object.
+
+# Lua has one table type, so an encoder has to guess, and the two guess
+# differently: dkjson writes `[]` and cjson writes `{}`. A browser iterating the
+# result works on one and throws on the other -- and only ever on a page that
+# has no comments yet, which is the page least likely to be tested by hand. The
+# shape is stated at the call site, and this is what says so from outside.
+run_request db_comment_fetch_empty "$DB_URL/comment/fetch/999999"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"list" *: *\[\]'
+report_ok db_comment_fetch_empty
+
 run_request db_comment_save_bodyless "$DB_URL/comment/save"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 400'

@@ -170,7 +170,15 @@ function fetch_service()
             author = theme{'author', entity = row},
           }
         end
-        output.list = list
+        --[[ A list, and it says so.
+
+          dkjson writes `[]` for an empty table and cjson writes `{}`, so an
+          entity with no comments would answer `"list":{}` on one backend and
+          `"list":[]` on the other. A browser doing `for (const c of list)`
+          works on the first and throws on the second, which makes it a bug
+          that appears only on a page with nothing on it.
+        ]]
+        output.list = json.array(list)
         output.success = true
       end
     end

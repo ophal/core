@@ -1,6 +1,6 @@
 local seawolf = require 'seawolf'.__build('maths', 'text', 'fs')
 local pairs, tcon, date, time = pairs, table.concat, os.date, os.time
-local lfs, json, round = lfs, require 'dkjson', seawolf.maths.round
+local lfs, json, round = lfs, require 'includes.json', seawolf.maths.round
 local str_replace = seawolf.text.str_replace
 local request_state = require 'includes.request_state'
 
@@ -213,7 +213,12 @@ $.extend(true, Ophal.settings, {%s: %s});
 </script>
 ]=]):format(
             ('"%s"'):format(js_escape_string(options.namespace or 'core')),
-            js_escape_json(json.encode(j) or '')
+            -- A JS settings namespace is an object, and it says so. dkjson
+            -- writes `[]` for an empty table and cjson writes `{}`, and
+            -- `$.extend(true, Ophal.settings, {core: []})` is not what any of
+            -- this means -- so the shape is stated here rather than inherited
+            -- from whichever backend resolved.
+            js_escape_json(json.encode(json.object(j)) or '')
           )
         elseif options ~= nil and options.type == 'inline' then
           output[scope][#output[scope] + 1] = ([=[<script type="text/javascript">

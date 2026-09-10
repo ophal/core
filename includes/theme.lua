@@ -10,17 +10,10 @@ if type(html_escape) ~= 'function' then
 end
 
 -- Calculate theme.name
-if
-  settings.mobile and
-  (mobile.detect.isMobile() or _SERVER 'HTTP_HOST' == settings.mobile.domain_name)
-then
-  theme.name = settings.mobile.theme
+if type(settings.theme) == 'table' then
+  theme.name = settings.theme.name
 else
-  if type(settings.theme) == 'table' then
-    theme.name = settings.theme.name
-  else
-    theme.name = settings.theme
-  end
+  theme.name = settings.theme
 end
 
 -- Load themes/%/settings.lua
@@ -179,7 +172,6 @@ local function theme_render(f, env)
     env.echo = echo
     env.base = base
     env.theme = theme
-    env.mobile = mobile
     env.print_t = print_t
     env.print_f = print_f
     env.debug = debug
@@ -190,7 +182,6 @@ local function theme_render(f, env)
     env.pairs = pairs
     env.format_date = format_date
     env._SERVER = _SERVER
-    env.mobile = mobile
     env.core_version = ophal.version
     setfenv(prog, env)
 

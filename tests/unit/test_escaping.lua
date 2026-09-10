@@ -93,11 +93,6 @@ local function setup_env()
   _G.theme = {
     settings = {js = {}, css = {}, head = {}},
   }
-  _G.mobile = {
-    detect = {
-      isMobile = function() return false end,
-    },
-  }
   _G._SERVER = function()
     return nil
   end

@@ -84,18 +84,5 @@ return function(settings, vault)
     settings.template_env.myfunction = external.library.function
   ]]
 
-  --[[ Mobile support settings
-    The mobile_detect library is a helper for mobile web development.
-    Set settings.mobile to nil to turn off mobile support.
-    Always make sure to set settings.domain_name if settings.redirect is
-    set to true.
-
-    Example:
-    settings.mobile = {
-      theme = 'mobile',
-      domain_name = 'mobile.mydomain.com',
-      redirect = true,
-    }
-  ]]
 
 end

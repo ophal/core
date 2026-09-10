@@ -44,7 +44,6 @@ env = {
   uuid = nil,
   socket = nil,
   theme = {},
-  mobile = {},
   -- `base`, `output_buffer`, `_GET` and `_SESSION` are deliberately absent, and
   -- so are the request-scoped fields of `ophal`. They are routed to the current
   -- request's state below, and `__index` only fires for a key the table does
@@ -166,20 +165,13 @@ function bootstrap(phase, main)
       require 'includes.server.openresty'
     end,
 
-    -- 4. Mobile API,
-    function ()
-      if settings.mobile then
-        require 'includes.mobile'
-      end
-    end,
-
-    -- 5. Load Ophal server API
+    -- 4. Load Ophal server API
     function ()
       require 'includes.server.init'
       build_base()
     end,
 
-    -- 6. Check installer
+    -- 5. Check installer
     function ()
       if not seawolf.fs.is_file 'settings.lua' then
         header('status', '503 Service Unavailable')
@@ -189,7 +181,7 @@ function bootstrap(phase, main)
       end
     end,
 
-    -- 7. Session API,
+    -- 6. Session API,
     function ()
       local empty = seawolf.variable.empty
       if not empty(settings.sessionapi) then
@@ -198,12 +190,12 @@ function bootstrap(phase, main)
       end
     end,
 
-    -- 8. Route API,
+    -- 7. Route API,
     function ()
       require 'includes.route'
     end,
 
-    -- 9. Core API,
+    -- 8. Core API,
     function ()
       require 'includes.escape'
       require 'includes.common'
@@ -218,17 +210,17 @@ function bootstrap(phase, main)
       end
     end,
 
-    -- 10. Modules,
+    -- 9. Modules,
     function ()
       module_load_all()
     end,
 
-    -- 11. Boot,
+    -- 10. Boot,
     function ()
       module_invoke_all 'boot'
     end,
 
-    -- 12. Database API,
+    -- 11. Database API,
     --
     -- Nothing connects here. `db_connection()` resolves an object and opens a
     -- socket on the first statement run through it, so a request that reads
@@ -248,13 +240,13 @@ function bootstrap(phase, main)
       end
     end,
 
-    -- 13. Init,
+    -- 12. Init,
     function ()
       route_redirect()
       module_invoke_all 'init'
     end,
 
-    -- 14. Full,
+    -- 13. Full,
     function ()
       -- Use cached routes when available (persistent runtimes);
       -- fall back to building fresh routes on cold start or after cache_clear_all().

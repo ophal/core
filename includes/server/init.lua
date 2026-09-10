@@ -98,17 +98,6 @@ end
   projection versions the response was actually built from.
 ]]
 
--- Redirect to mobile domain name
-if settings.mobile then
-  local domain_name = settings.mobile.domain_name
-  if settings.mobile.redirect and mobile.detect.isMobile() and request.host ~= domain_name then
-    local redirect_url = domain_name .. (request.uri or '')
-    header('location', 'http://' .. redirect_url)
-    print(('Redirecting to <a href="http://%s">http://%s</a>.'):format(redirect_url, redirect_url))
-    os.exit()
-  end
-end
-
 -- Set headers for dynamic content
 header('expires', 'Sun, 19 Jun 2011 23:09:50 GMT')
 header('last-modified', date('!%a, %d %b %Y %X GMT'))

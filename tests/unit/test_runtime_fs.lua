@@ -65,11 +65,6 @@ local function setup_env()
     modules = {},
     version = nil,
   }
-  _G.mobile = {
-    detect = {
-      isMobile = function() return false end,
-    },
-  }
   _G._SERVER = function()
     return nil
   end

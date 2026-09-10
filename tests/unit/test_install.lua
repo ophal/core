@@ -170,9 +170,16 @@ do
   local missing
   local result = install.check({
     output_dir = tmp,
+    --[[ `lfs`, because `uuid` is no longer a dependency to fail.
+
+      This forced `uuid` to be missing until 2026-09-10, when luuid left the
+      list along with seawolf, LPeg and LuaSocket. `lfs` is the last rock Ophal
+      requires outside a database binding, so it is the one entry guaranteed to
+      be there to break.
+    ]]
     require_module = function(name)
-      if name == 'uuid' then
-        error("module 'uuid' not found")
+      if name == 'lfs' then
+        error("module 'lfs' not found")
       end
       return {}
     end,
@@ -181,9 +188,9 @@ do
   assert_eq('check_missing_ok', result.ok, false)
   assert_eq('check_settings_absent', result.settings_exists, false)
   assert_eq('check_vault_absent', result.vault_exists, false)
-  missing = find_dependency(result, 'uuid')
+  missing = find_dependency(result, 'lfs')
   assert_eq('check_missing_dependency_found', missing ~= nil, true)
-  assert_match('check_missing_dependency', missing and missing.machine_name or '', 'uuid')
+  assert_match('check_missing_dependency', missing and missing.machine_name or '', 'lfs')
   assert_eq('check_missing_found_false', missing and missing.found, false)
 end
 

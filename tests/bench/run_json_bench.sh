@@ -2,7 +2,7 @@
 #
 # Measures what a JSON backend costs, and asserts where two of them disagree.
 #
-#   bash tests/smoke/setup_vendor_runtime.sh   # once, for dkjson and seawolf
+#   bash tests/smoke/setup_vendor_runtime.sh   # once, for dkjson
 #   bash tests/bench/run_json_bench.sh
 #
 # Runs under `resty`, which is the only runtime Ophal supports. `dkjson` is no

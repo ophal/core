@@ -15,7 +15,7 @@ bash tests/smoke/setup_vendor_runtime.sh
 ```
 
 The setup script downloads and unpacks the packaged Lua modules used by the
-harnesses, vendors a fresh `seawolf` checkout, and writes the local `uuid.lua`
+harnesses, and builds `lsqlite3`
 shim used by session startup.
 
 Requirements:

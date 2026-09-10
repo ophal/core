@@ -79,7 +79,7 @@ on all of them would measure the dialect. Add an entry to `M.candidates` with a
 ## JSON benchmark
 
 ```sh
-bash tests/smoke/setup_vendor_runtime.sh   # once, for dkjson and seawolf
+bash tests/smoke/setup_vendor_runtime.sh   # once, for dkjson
 bash tests/bench/run_json_bench.sh
 ```
 

@@ -23,8 +23,6 @@ RUN apt-get update && apt-get install -y \
 
 RUN luarocks install dkjson
 RUN luarocks install luafilesystem
-RUN luarocks install luasocket
-RUN luarocks install luuid
 # SQLite goes through lsqlite3; `lsqlite3complete` links SQLite statically.
 RUN luarocks install lsqlite3complete
 # pgmoon serves both the worker and the command line: cosockets under
@@ -33,7 +31,6 @@ RUN luarocks install lsqlite3complete
 RUN luarocks install pgmoon
 RUN luarocks install luaossl
 
-RUN git clone --depth=1 https://github.com/ophal/seawolf.git /usr/local/share/lua/5.1/seawolf
 
 WORKDIR /var/www/ophal
 

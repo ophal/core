@@ -97,12 +97,9 @@ JSON needs no rock: Ophal uses `cjson`, which ships with OpenResty.
 Required for any site:
 
 - LuaFilesystem
-- luuid
-- LuaSocket
 - lsqlite3, for SQLite
 - pgmoon, for PostgreSQL
 - luaossl, only if your PostgreSQL server authenticates with a password
-- Seawolf
 
 MySQL needs nothing installed: `lua-resty-mysql` ships with OpenResty.
 
@@ -113,13 +110,8 @@ See the note in `README.md`.
 ### Debian
 
 ```sh
-$ sudo apt-get install uuid-dev libsqlite3-dev libpq-dev
+$ sudo apt-get install libsqlite3-dev libpq-dev
 $ sudo luarocks install luafilesystem
-$ sudo luarocks install luuid
-$ sudo luarocks install luasocket
-$ cd /tmp
-$ git clone --depth=1 https://github.com/ophal/seawolf.git
-$ sudo mv seawolf /usr/local/share/lua/5.1/
 ```
 
 Then the database bindings. SQLite goes through `lsqlite3`, and

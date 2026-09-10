@@ -10,7 +10,6 @@ Options +FollowSymLinks
 
 local DEPENDENCIES = {
   {machine_name = 'lfs', name = 'LuaFilesystem', required = true},
-  {machine_name = 'uuid', name = 'luuid', required = true},
   -- The database bindings are per backend, so none of them is unconditionally
   -- required: a PostgreSQL site needs pgmoon and no SQLite binding, and a MySQL
   -- site needs neither because `lua-resty-mysql` ships with OpenResty.
@@ -20,10 +19,6 @@ local DEPENDENCIES = {
   -- means the process is not OpenResty. Ophal is LuaJIT-only as of 2026-09-10
   -- and `includes/json.lua` says the same thing at the point of use.
   {machine_name = 'cjson', name = 'cjson (OpenResty)', required = true},
-  {machine_name = 'seawolf.variable', name = 'Seawolf: variable', required = true},
-  {machine_name = 'seawolf.fs', name = 'Seawolf: filesystem', required = true},
-  {machine_name = 'seawolf.behaviour', name = 'Seawolf: behaviour', required = true},
-  {machine_name = 'seawolf.contrib', name = 'Seawolf: contrib', required = true},
 }
 
 local DEFAULT_MODULES = {

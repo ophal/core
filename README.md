@@ -19,11 +19,9 @@ deployment and the OpenResty-based example Docker image in
 
 Ophal has the following dependencies:
 
-- Seawolf (http://github.com/ophal/seawolf)
 - LuaFilesystem
 - lsqlite3 (SQLite) or pgmoon (PostgreSQL); MySQL uses the `lua-resty-mysql`
   that ships with OpenResty
-- luuid
 
 JSON needs no dependency: Ophal uses `cjson`, which ships with OpenResty.
 Ophal runs on OpenResty and its LuaJIT only -- the `ophal` command line runs

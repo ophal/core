@@ -5,15 +5,21 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 VENDOR_ROOT="$ROOT/tests/smoke/vendor"
 VENDOR_DEBS="$VENDOR_ROOT/debs"
 VENDOR_UNPACK="$VENDOR_ROOT/unpack"
-VENDOR_SEAWOLF="$VENDOR_ROOT/seawolf"
-SEAWOLF_REF="${SEAWOLF_REF:-master}"
-# No database binding here: SQLite is lsqlite3, built below, and PostgreSQL and
-# MySQL are pgmoon and the bundled `lua-resty-mysql`. LuaDBI is gone.
-# `lua-dkjson` is no longer a dependency of Ophal -- `includes/json.lua` is
-# cjson, which ships with OpenResty. It stays vendored for one reason:
-# `tests/bench/json_bench.lua` is the measurement that chose cjson, and a
-# comparison needs both sides of it.
-PACKAGES=(lua-filesystem lua-socket lua-dkjson)
+# Two packages, and only one of them is a dependency of Ophal.
+#
+# `lua-filesystem` is: `lfs` is the last rock Ophal requires, beside a database
+# binding. `lua-dkjson` is not -- `includes/json.lua` is cjson, which ships with
+# OpenResty -- and it stays vendored for one reason: `tests/bench/json_bench.lua`
+# is the measurement that chose cjson, and a comparison needs both sides of it.
+#
+# What left on 2026-09-10: `lua-lpeg`, `lua-socket`, the `seawolf` checkout and
+# the `uuid.lua` shim. `seawolf` is what required the other three -- its `fs`
+# component requires `socket.sleep` and `uuid` at load, and its `text` component
+# is the only thing that ever wanted LPeg.
+#
+# No database binding here either: SQLite is lsqlite3, built below, and
+# PostgreSQL and MySQL are pgmoon and the bundled `lua-resty-mysql`.
+PACKAGES=(lua-filesystem lua-dkjson)
 LSQLITE_REF="${LSQLITE_REF:-master}"
 LSQLITE_TARBALL="https://github.com/LuaDist/lsqlite3/archive/refs/heads/$LSQLITE_REF.tar.gz"
 # The headers lsqlite3 compiles against. Taken from the pool directory rather
@@ -29,38 +35,6 @@ require_command() {
   }
 }
 
-write_uuid_shim() {
-  cat > "$VENDOR_ROOT/uuid.lua" <<'LUA'
-local M = {}
-
-local function kernel_uuid()
-  local fh = io.open('/proc/sys/kernel/random/uuid', 'r')
-  if not fh then
-    return nil
-  end
-
-  local value = fh:read('*l')
-  fh:close()
-  return value
-end
-
-function M.new()
-  local value = kernel_uuid()
-  assert(value and value ~= '', 'unable to generate uuid')
-  return value
-end
-
-function M.isvalid(value)
-  if type(value) ~= 'string' then
-    return false
-  end
-
-  return value:match('^[%x][%x][%x][%x][%x][%x][%x][%x]%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$') ~= nil
-end
-
-return M
-LUA
-}
 
 #[[ Build lsqlite3 into the vendored tree.
 #
@@ -126,15 +100,7 @@ main() {
     dpkg-deb -x "$deb" "$VENDOR_UNPACK"
   done
 
-  if [[ -d "$VENDOR_SEAWOLF/.git" ]]; then
-    git -C "$VENDOR_SEAWOLF" fetch --depth=1 origin "$SEAWOLF_REF"
-    git -C "$VENDOR_SEAWOLF" checkout --detach FETCH_HEAD
-  else
-    git clone --depth=1 --branch "$SEAWOLF_REF" https://github.com/ophal/seawolf.git "$VENDOR_SEAWOLF"
-  fi
-
   build_lsqlite3
-  write_uuid_shim
 
   printf 'smoke vendor runtime prepared under %s\n' "$VENDOR_ROOT"
 }

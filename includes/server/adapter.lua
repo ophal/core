@@ -1,20 +1,42 @@
-local explode = seawolf.text.explode
-local trim, ltrim, rtrim = seawolf.text.trim, seawolf.text.ltrim, seawolf.text.rtrim
+local text = require 'includes.text'
+local trim, ltrim, rtrim = text.trim, text.ltrim, text.rtrim
 local dirname, basename = seawolf.fs.dirname, seawolf.fs.basename
 local empty = seawolf.variable.empty
 local date = os.date
-local char, tonumber = string.char, tonumber
+local char, tonumber, type = string.char, tonumber, type
+local gmatch, tostring = string.gmatch, tostring
+
+--[[ Percent-decoding, through nginx where nginx is available.
+
+  `ngx.unescape_uri` is a C call and is 15x the `gsub`-with-a-callback below it:
+  77 ns against 1,198 for a 26-byte value, measured 2026-09-10. It is called
+  twice per query argument and twice per cookie, so it is the single hottest
+  string operation on the request path.
+
+  The pure-Lua spelling stays because this file is the *runtime adapter* and is
+  loaded by the unit suite without an `ngx`. Both are pinned in
+  `tests/unit/test_request_parsing.lua`.
+
+  Note `ngx.unescape_uri` also turns `+` into a space, which is the
+  query-string rule -- so the two spellings agree only when `plus_as_space` is
+  true. The cookie path below does not want that and does not take it.
+]]
+local unescape_uri
+
+local decode_args
+
+if ngx ~= nil and type(ngx.unescape_uri) == 'function' then
+  unescape_uri = ngx.unescape_uri
+end
+
+if ngx ~= nil and type(ngx.decode_args) == 'function' then
+  decode_args = ngx.decode_args
+end
 
 ophal.runtime = ophal.runtime or {}
 local runtime = ophal.runtime
 
-local function decode_component(value, plus_as_space)
-  value = tostring(value or '')
-
-  if plus_as_space then
-    value = value:gsub('+', ' ')
-  end
-
+local function decode_percent(value)
   return (value:gsub('%%(%x%x)', function(hex)
     local byte = tonumber(hex, 16)
 
@@ -24,6 +46,20 @@ local function decode_component(value, plus_as_space)
 
     return char(byte)
   end))
+end
+
+local function decode_component(value, plus_as_space)
+  value = tostring(value or '')
+
+  if plus_as_space then
+    if unescape_uri ~= nil then
+      return unescape_uri(value)
+    end
+
+    value = value:gsub('%+', ' ')
+  end
+
+  return decode_percent(value)
 end
 
 local function split_pair(value)
@@ -75,39 +111,95 @@ function server_get_request(reset)
   return ophal.request
 end
 
+--[[ Ophal's `_GET`: every argument a string, last one wins.
+
+  `ngx.decode_args` is a C call and is 13x the hand-rolled parser this replaced
+  -- 636 ns against 8,374 for a four-argument query string, measured
+  2026-09-10. It answers a shape `_GET` consumers do not expect, though, so it
+  is normalized here rather than at ninety call sites:
+
+  - **A valueless argument** (`?flag`) decodes to the boolean `true`. Every
+    consumer here treats a query argument as a string, so it becomes `''` --
+    which is what the old parser produced, because `split_pair` returned an
+    empty value for a pair with no `=`.
+  - **A repeated argument** (`?page=1&page=2`) decodes to a *table*. The old
+    parser overwrote, so the last one won; take the last element to keep that.
+    Handing a table to `tonumber` in `pager_current_page()` would answer nil,
+    which is a different page rather than an error.
+
+  The 100-argument cap is `ngx.decode_args`'s default and it is **kept on
+  purpose**. A query string is request input and this table is built from it,
+  so an unbounded one is an unbounded allocation; past the cap the extra
+  arguments are dropped rather than raising, which is the safe direction for
+  something nothing legitimate reaches.
+]]
+local function normalize_arg(value)
+  if value == true then
+    return ''
+  end
+
+  if type(value) == 'table' then
+    local last = value[#value]
+
+    return last == true and '' or tostring(last or '')
+  end
+
+  return value
+end
+
 function server_parse_query(query_string)
   local parsed = {}
-  local list = explode('&', query_string or '')
 
-  if list then
-    local key, value
-    for _, v in pairs(list) do
-      if #v > 0 then
-        key, value = split_pair(v)
-        key = decode_component(key, true)
-        value = decode_component(value, true)
-        parsed[key] = value
-      end
+  if empty(query_string) then
+    return parsed
+  end
+
+  if decode_args ~= nil then
+    for key, value in pairs(decode_args(query_string)) do
+      parsed[key] = normalize_arg(value)
+    end
+
+    return parsed
+  end
+
+  -- No `ngx`: the unit suite loads this file directly. Same answers, slower.
+  for pair in gmatch(tostring(query_string) .. '&', '([^&]*)&') do
+    if #pair > 0 then
+      local key, value = split_pair(pair)
+
+      parsed[decode_component(key, true)] = decode_component(value, true)
     end
   end
 
   return parsed
 end
 
+--[[ Ophal's cookie jar.
+
+  nginx has no primitive for `Cookie`, so this stays hand-rolled -- but on
+  `gmatch` rather than a per-call LPeg grammar.
+
+  **Values are percent-decoded without plus-as-space**, which is the change
+  from the parser this replaced. `+` meaning a space is the
+  `application/x-www-form-urlencoded` rule; RFC 6265 has no such rule, so a
+  cookie value holding a `+` came back holding a space. Nothing Ophal stores in
+  a cookie is affected -- a session id is hex and dashes -- but a module keeping
+  a base64 value in one would have been, silently and only for some values.
+]]
 function server_parse_cookies(cookie_string)
   local parsed = {}
-  local cookies = explode(';', cookie_string or '')
 
-  if cookies then
-    local key, value
-    for _, v in pairs(cookies) do
-      v = trim(v)
-      if #v > 0 then
-        key, value = split_pair(v)
-        key = decode_component(key, true)
-        value = decode_component(value, true)
-        parsed[key] = value
-      end
+  if empty(cookie_string) then
+    return parsed
+  end
+
+  for pair in gmatch(tostring(cookie_string) .. ';', '([^;]*);') do
+    local trimmed = trim(pair)
+
+    if #trimmed > 0 then
+      local key, value = split_pair(trimmed)
+
+      parsed[decode_component(key)] = decode_component(value)
     end
   end
 

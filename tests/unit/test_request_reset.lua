@@ -154,6 +154,84 @@ do
   assert_eq('query_decode_percent', query.path, '/docs/intro')
   assert_eq('cookie_decode_percent', cookies.alpha, 'one two')
   assert_eq('cookie_preserve_equals', cookies.beta, 'three=four')
+
+  --[[ `ngx.decode_args` answers shapes `_GET` consumers do not expect, and
+    `server_parse_query()` normalizes them. Both come back as strings here or
+    the normalization has stopped happening.
+
+    A valueless argument decodes to the boolean `true`, and a repeated one to a
+    table. `pager_current_page()` runs `tonumber` over whatever `?page=`
+    holds -- `tonumber(true)` and `tonumber({})` are both nil, which is a
+    different page rather than an error, so neither would be loud.
+  ]]
+  local shapes = server_parse_query('flag&page=1&page=2&empty=')
+
+  assert_eq('query_valueless_argument_is_a_string', shapes.flag, '')
+  assert_eq('query_repeated_argument_takes_the_last', shapes.page, '2')
+  assert_eq('query_empty_value_is_a_string', shapes.empty, '')
+  assert_eq('query_repeated_argument_is_not_a_table',
+    type(shapes.page), 'string')
+
+  --[[ Cookies are percent-decoded *without* plus-as-space. `+` meaning a space
+    is the form-encoding rule; RFC 6265 has none, so the parser this replaced
+    turned a `+` in a cookie value into a space. Nothing Ophal stores in a
+    cookie is affected -- a session id is hex and dashes -- but a module keeping
+    a base64 value in one would have been.
+  ]]
+  local plus_cookies = server_parse_cookies('token=a+b; encoded=a%2Bb')
+
+  assert_eq('cookie_value_keeps_a_plus', plus_cookies.token, 'a+b')
+  assert_eq('cookie_value_decodes_an_escaped_plus', plus_cookies.encoded, 'a+b')
+
+  -- A query argument still gets the form-encoding rule, which is where it
+  -- belongs.
+  assert_eq('query_value_still_decodes_a_plus',
+    server_parse_query('token=a+b').token, 'a b')
+
+  -- An absent or empty query string is an empty table, not nil.
+  assert_eq('query_of_nil_is_empty', next(server_parse_query(nil)), nil)
+  assert_eq('query_of_empty_string_is_empty',
+    next(server_parse_query('')), nil)
+  assert_eq('cookies_of_nil_is_empty', next(server_parse_cookies(nil)), nil)
+end
+
+--[[ The same answers with no `ngx` at all.
+
+  `server_parse_query()` resolves `ngx.decode_args` and `ngx.unescape_uri` at
+  load and keeps pure-Lua spellings behind them. Under `resty` the C ones always
+  win, so nothing here would exercise the others -- and an adapter is exactly
+  the file where a branch nobody runs sits until somebody needs it.
+
+  So clear `ngx`, reload the adapter, and ask the same questions. This is the
+  pattern `test_query_layer.lua` uses to drive `driver/resty_mysql.lua`'s
+  missing-binding branch: an assertion about a runtime that is not this one has
+  to say so out loud.
+]]
+do
+  setup_env()
+
+  local real_ngx = _G.ngx
+
+  rawset(_G, 'ngx', nil)
+  dofile('includes/server/adapter.lua')
+
+  local query = server_parse_query('name=Alice+Bob&token=a=b=c&path=%2Fdocs%2Fintro&flag&page=1&page=2')
+  local cookies = server_parse_cookies('token=a+b; alpha=one%20two')
+
+  assert_eq('fallback_query_decode_plus', query.name, 'Alice Bob')
+  assert_eq('fallback_query_preserve_equals', query.token, 'a=b=c')
+  assert_eq('fallback_query_decode_percent', query.path, '/docs/intro')
+  assert_eq('fallback_query_valueless_argument', query.flag, '')
+  assert_eq('fallback_query_repeated_takes_the_last', query.page, '2')
+  assert_eq('fallback_cookie_keeps_a_plus', cookies.token, 'a+b')
+  assert_eq('fallback_cookie_decode_percent', cookies.alpha, 'one two')
+
+  rawset(_G, 'ngx', real_ngx)
+  dofile('includes/server/adapter.lua')
+
+  -- And the adapter is back on the nginx primitives for everything below.
+  assert_eq('adapter_restored_to_ngx',
+    server_parse_query('token=a+b').token, 'a b')
 end
 
 -- ================================================================

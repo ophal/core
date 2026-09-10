@@ -2,15 +2,22 @@ local temp_dir = require('includes.fs.path').temp_dir
 local store = require 'includes.session.store'
 local time, rawset = os.time, rawset
 local format, empty = string.format, require('includes.util').empty
---[[ Session ids come from the CSPRNG, not from `uuid.new()`.
+--[[ Session ids come from the CSPRNG, and their shape is checked here.
 
-  `uuid` here is whatever binding is installed -- production is told to install
-  `luuid`, over libuuid, which can generate time-and-MAC based UUIDs as well as
-  random ones, and which of those `new()` returns is that library's default
-  rather than this project's choice. A session id is the credential for a whole
-  session, so it is generated from a source this codebase knows the strength
-  of. `uuid.isvalid()` still gates what arrives in the cookie, and
-  `random.uuid()` produces the same 8-4-4-4-12 shape so that check is unchanged.
+  Ids used to come from `uuid.new()` -- whatever binding was installed, which
+  production was told to make `luuid`, over libuuid, which can generate
+  time-and-MAC based UUIDs as well as random ones. Which of those `new()`
+  returned was that library's default rather than this project's decision, and a
+  session id is not a thing to hold by an unpinned default.
+  `includes/random.lua` mints them now, from a CSPRNG.
+
+  The check on the way *in* was `uuid.isvalid()`, and that was luuid's last use
+  anywhere in Ophal -- a whole C binding, required at bootstrap, for one shape
+  test. It is the pattern below.
+
+  The shape matters rather than the flavour: `random.uuid()` produces the usual
+  8-4-4-4-12 spelling, and this has to accept exactly that or every request
+  would reject the cookie it just set and issue another.
 ]]
 local random = require 'includes.random'
 
@@ -98,9 +105,27 @@ end
   from no session. The id is minted at the first *write* into `_SESSION`, which
   is where a session starts meaning something.
 ]]
+--[[ Whether a cookie value looks like an id this server could have issued.
+
+  Not a security check -- a well-formed id is still checked against the store
+  before it is adopted, which is what `session_start()` does. This only keeps
+  arbitrary cookie text out of a filename: `session_file_name()` interpolates
+  the id straight into a path, so the character class here is what stops a `/`
+  or a `..` getting near it.
+]]
+local function session_id_is_well_formed(value)
+  if type(value) ~= 'string' then
+    return false
+  end
+
+  return value:match(
+    '^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$'
+  ) ~= nil
+end
+
 function session_init()
   local session_id = ophal.cookies['session-id'] or ''
-  local resumed = uuid.isvalid(session_id)
+  local resumed = session_id_is_well_formed(session_id)
 
   ophal.session = {
     id = resumed and session_id or nil,

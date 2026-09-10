@@ -645,13 +645,21 @@ do
   _G.base.route = '/'
   env.base = _G.base
 
-  mock_request.cookies = {['session-id'] = 'aaa-bbb-ccc'}
+  mock_request.cookies = {['session-id'] = '11111111-1111-4111-8111-111111111111'}
   ophal.cookies = mock_request.cookies
 
   -- Stub uuid
   local uuid_counter = 0
+  --[[ No `isvalid` stub any more.
+
+    `session_init()` checked the cookie with `uuid.isvalid()`, which was luuid's
+    last use in Ophal -- a C binding required at bootstrap for one shape test.
+    It is a pattern in `includes/session.lua` now, so the ids above had to
+    become real 8-4-4-4-12 values: they were `aaa-bbb-ccc` and friends, which
+    passed only because this stub accepted anything longer than five
+    characters.
+  ]]
   _G.uuid = {
-    isvalid = function(s) return s and #s > 5 end,
     new = function() uuid_counter = uuid_counter + 1; return 'new-uuid-' .. uuid_counter end,
   }
   -- Session ids come from `includes/random.lua` now. `isvalid` above still
@@ -673,13 +681,13 @@ do
 
   -- 1. session_init picks up cookie
   session_init()
-  assert_eq('session_init_id', ophal.session.id, 'aaa-bbb-ccc')
+  assert_eq('session_init_id', ophal.session.id, '11111111-1111-4111-8111-111111111111')
 
   -- 2. Change cookies, re-init
-  mock_request.cookies = {['session-id'] = 'ddd-eee-fff'}
+  mock_request.cookies = {['session-id'] = '22222222-2222-4222-8222-222222222222'}
   ophal.cookies = mock_request.cookies
   session_init()
-  assert_eq('session_reinit_id', ophal.session.id, 'ddd-eee-fff')
+  assert_eq('session_reinit_id', ophal.session.id, '22222222-2222-4222-8222-222222222222')
 
   --[[ 2b. A well-formed id the server holds no file for is not resumed.
 
@@ -700,7 +708,7 @@ do
   do
     local before = #opened
 
-    mock_request.cookies = {['session-id'] = 'ghi-jkl-mno'}
+    mock_request.cookies = {['session-id'] = '33333333-3333-4333-8333-333333333333'}
     ophal.cookies = mock_request.cookies
     session_init()
     assert_eq('unknown_id_is_resumed_until_checked', ophal.session.resumed, true)
@@ -712,7 +720,7 @@ do
     assert_eq('unknown_session_reads_once', #opened, before + 1)
     assert_eq('unknown_session_creates_no_file',
       require('includes.fs.path').is_file(
-        session_dir .. '/ghi-jkl-mno.ophal'), false)
+        session_dir .. '/33333333-3333-4333-8333-333333333333.ophal'), false)
     assert_eq('unknown_session_reads_as_empty', _SESSION.anything, nil)
   end
 
@@ -724,7 +732,7 @@ do
   ]]
   do
     local before = #opened
-    local held = session_dir .. '/pqr-stu-vwx.ophal'
+    local held = session_dir .. '/44444444-4444-4444-8444-444444444444.ophal'
     local fh = assert(io.open(held, 'w'))
 
     -- JSON, not `return {}`. A session file stopped being executable Lua when
@@ -734,12 +742,12 @@ do
     fh:write '{}'
     fh:close()
 
-    mock_request.cookies = {['session-id'] = 'pqr-stu-vwx'}
+    mock_request.cookies = {['session-id'] = '44444444-4444-4444-8444-444444444444'}
     ophal.cookies = mock_request.cookies
     session_init()
     session_start()
 
-    assert_eq('held_session_keeps_its_id', ophal.session.id, 'pqr-stu-vwx')
+    assert_eq('held_session_keeps_its_id', ophal.session.id, '44444444-4444-4444-8444-444444444444')
     assert_eq('held_session_is_resumed', ophal.session.resumed, true)
     assert_eq('held_session_opens_the_file', #opened, before + 1)
 
@@ -768,6 +776,38 @@ do
   mock_request.cookies = {['session-id'] = 'bad'}
   ophal.cookies = mock_request.cookies
   session_init()
+
+  --[[ The shape check, which replaced `uuid.isvalid()`.
+
+    `session_file_name()` interpolates the id straight into a path, so this is
+    what keeps arbitrary cookie text out of a filename. It is not the security
+    boundary on its own -- a well-formed id is still checked against the store
+    before it is adopted -- but a `/` or a `..` must never get that far.
+  ]]
+  do
+    local rejected = {
+      'bad',
+      '../../etc/passwd',
+      '11111111-1111-4111-8111-11111111111',
+      '11111111-1111-4111-8111-1111111111111',
+      '1111111z-1111-4111-8111-111111111111',
+      '11111111/1111/4111/8111/111111111111',
+      '11111111-1111-4111-8111-111111111111\0',
+    }
+
+    for index, value in ipairs(rejected) do
+      mock_request.cookies = {['session-id'] = value}
+      ophal.cookies = mock_request.cookies
+      session_init()
+
+      assert_nil(('malformed_session_id_%d_is_refused'):format(index),
+        ophal.session.id)
+    end
+
+    mock_request.cookies = {['session-id'] = 'bad'}
+    ophal.cookies = mock_request.cookies
+    session_init()
+  end
 
   assert_nil('session_without_a_cookie_has_no_id', ophal.session.id)
   assert_eq('session_without_a_cookie_is_not_resumed', ophal.session.resumed, false)
@@ -888,7 +928,6 @@ do
 
   local uuid_counter = 0
   _G.uuid = {
-    isvalid = function(v) return v and #v > 5 end,
     new = function() uuid_counter = uuid_counter + 1; return 'rotated-' .. uuid_counter end,
   }
   package.loaded['includes.random'] = {
@@ -905,18 +944,18 @@ do
   _G.get_cookie_domain = function() return 'localhost' end
   env.get_cookie_domain = _G.get_cookie_domain
 
-  mock_request.cookies = {['session-id'] = 'planted-session-id'}
+  mock_request.cookies = {['session-id'] = '55555555-5555-4555-8555-555555555555'}
   ophal.cookies = mock_request.cookies
 
   dofile('includes/session.lua')
 
   session_init()
   assert_eq('regen_starts_from_the_presented_id',
-    ophal.session.id, 'planted-session-id')
+    ophal.session.id, '55555555-5555-4555-8555-555555555555')
 
   -- Stand in for `session_start()` having resumed the session, which is the
   -- state a sign-in actually rotates from.
-  ophal.session.file.name = '/tmp/planted-session-id.ophal'
+  ophal.session.file.name = '/tmp/55555555-5555-4555-8555-555555555555.ophal'
   ophal.session.open = true
   _SESSION = {cart = 'kept'}
   ophal.session.data = _SESSION
@@ -926,7 +965,7 @@ do
   assert_truthy('regen_returns_the_new_id', new_id and new_id:find('^rotated%-'))
   assert_eq('regen_changes_the_session_id', ophal.session.id, new_id)
   assert_eq('regen_id_is_not_the_planted_one',
-    ophal.session.id == 'planted-session-id', false)
+    ophal.session.id == '55555555-5555-4555-8555-555555555555', false)
 
   -- The cookie has to move with it, or the browser keeps presenting the old id
   -- and the next request rotates again forever.
@@ -937,7 +976,7 @@ do
 
   -- Left behind, the old id is the same fixation with an expiry on it.
   assert_eq('regen_removes_the_old_file',
-    removed[1], '/tmp/planted-session-id.ophal')
+    removed[1], '/tmp/55555555-5555-4555-8555-555555555555.ophal')
 
   -- Anything a `user_login` hook wrote before the account is set must survive.
   assert_eq('regen_keeps_the_session_data', (_SESSION or {}).cart, 'kept')

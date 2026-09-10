@@ -64,6 +64,93 @@ io.write '\n-- hex --\n'
 assert_eq('hex_is_two_chars_per_byte', #random.hex(16), 32)
 assert_truthy('hex_is_lowercase_hex', random.hex(32):match('^[0-9a-f]+$'))
 
+--[[ The `gsub` fallback, driven on purpose.
+
+  `M.hex` resolves `resty.string.to_hex` at load and keeps a pure-Lua spelling
+  behind it, because this module works without OpenResty -- that is what
+  `urandom_source()` is for. Under `resty` the C path is the one that runs, so
+  the two assertions above say nothing at all about the fallback, and a defect
+  in it would sit there until somebody ran the CLI on a bare LuaJIT.
+
+  So make `require` fail the way `test_query_layer.lua` drives
+  `driver/resty_mysql.lua`'s missing-binding branch, and reload the module. An
+  assertion about a runtime that is not this one has to say so out loud.
+]]
+do
+  local real_require = _G.require
+  local real_loaded = package.loaded['resty.string']
+
+  package.loaded['resty.string'] = nil
+  package.loaded['includes.random'] = nil
+
+  _G.require = function(name)
+    if name == 'resty.string' then
+      error("module 'resty.string' not found", 0)
+    end
+
+    return real_require(name)
+  end
+
+  local fallback_random = real_require 'includes.random'
+
+  _G.require = real_require
+  package.loaded['resty.string'] = real_loaded
+
+  assert_eq('hex_without_resty_string_is_two_chars_per_byte',
+    #fallback_random.hex(16), 32)
+  assert_truthy('hex_without_resty_string_is_lowercase_hex',
+    fallback_random.hex(32):match('^[0-9a-f]+$'))
+
+  --[[ And the encoding itself, on bytes we choose.
+
+    Asserting a length would be almost a test: `%x` in place of `%02x` shortens
+    the output only when some byte happens to be under 16, so it fails about
+    two runs in three. Feed the fallback known bytes instead by standing in for
+    `/dev/urandom`, and the two encoders have to agree exactly -- otherwise a
+    session id changes shape with the runtime.
+
+    The fixture covers the nibble boundaries: 0x00 for the leading zero the pad
+    has to keep, 0x0f and 0xf0 either side of it, 0xff at the top.
+  ]]
+  local fixed = '\0\15\240\255\1\170'
+  local real_open = io.open
+
+  package.loaded['includes.random'] = nil
+  package.loaded['resty.string'] = nil
+
+  io.open = function(path, mode)
+    if path == '/dev/urandom' then
+      return {
+        read = function(_, n) return fixed:sub(1, n) end,
+        close = function() end,
+      }
+    end
+
+    return real_open(path, mode)
+  end
+
+  _G.require = function(name)
+    if name == 'resty.string' or name == 'resty.random' then
+      error(("module '%s' not found"):format(name), 0)
+    end
+
+    return real_require(name)
+  end
+
+  local fixed_random = real_require 'includes.random'
+
+  assert_eq('fallback_hex_encodes_known_bytes',
+    fixed_random.hex(#fixed), '000ff0ff01aa')
+  assert_eq('fallback_hex_agrees_with_resty_string',
+    fixed_random.hex(#fixed), real_require('resty.string').to_hex(fixed))
+
+  io.open = real_open
+  _G.require = real_require
+  package.loaded['resty.string'] = real_loaded
+  package.loaded['includes.random'] = nil
+  random = real_require 'includes.random'
+end
+
 io.write '\n-- uuid --\n'
 
 do

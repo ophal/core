@@ -1,7 +1,6 @@
 local temp_dir = require('includes.fs.path').temp_dir
-local safe_open, safe_write = seawolf.fs.safe_open, seawolf.fs.safe_write
-local safe_close, table_dump = seawolf.fs.safe_close, seawolf.contrib.table_dump
-local time, rawset, tconcat = os.time, rawset, table.concat
+local store = require 'includes.session.store'
+local time, rawset = os.time, rawset
 local format, empty = string.format, require('includes.util').empty
 --[[ Session ids come from the CSPRNG, not from `uuid.new()`.
 
@@ -68,21 +67,6 @@ local function session_file_name(id)
   return format('%s/%s.ophal', sessions_path(), id)
 end
 
---[[ Whether the server actually holds a session for this id.
-
-  Read rather than stat'ed, because the caller that matters next wants the
-  contents anyway and `io.open` answers both questions at once.
-]]
-local function session_file_exists(name)
-  local fh = io.open(name, 'r')
-
-  if fh == nil then
-    return false
-  end
-
-  fh:close()
-  return true
-end
 
 -- Session handler
 if settings.sessionapi then
@@ -140,7 +124,6 @@ end
 ]]
 local function session_materialize()
   local session = current_session()
-  local fh, sign, err
 
   if session == nil or session.open then
     return
@@ -151,17 +134,16 @@ local function session_materialize()
     cookie_set('session-id', session.id, 3*60*60, base.route, get_cookie_domain())
   end
 
+  --[[ No file is created here, and that is the change.
+
+    `safe_open()` stood here and its side effect was creating the session file
+    before anything had been written into it -- which is also what made an
+    unknown cookie id create one. The file now appears when
+    `session_write_close()` renames it into place, so materializing costs
+    nothing on disk and a request that writes and then fails leaves nothing
+    behind.
+  ]]
   session.file.name = session_file_name(session.id)
-  fh, sign, err = safe_open(session.file.name)
-  fs_stats.record('open', nil, session.file.name, 'session')
-
-  if not fh then
-    error(format('session: cannot open session data: %s', tostring(err)))
-  end
-
-  fh:close()
-
-  session.file.sign = sign
   session.open = true
   http_cache.disable()
 
@@ -208,12 +190,11 @@ function session_start()
     session = current_session()
   end
 
-  local fh, sign, err, data, data_function, parsed
 
   --[[ A well-formed id the server holds no file for is not a session.
 
     `session_init()` knows only that the cookie parses as a uuid, and
-    `safe_open()` below *creates* the file it fails to find -- so without this
+    `safe_open()` used to *create* the file it failed to find -- so without this
     check any visitor could mint a session file, a lock file and an inode per
     request by presenting a random uuid, with cron's 24-hour sweep as the only
     reaper. That is an unauthenticated way to fill a filesystem.
@@ -233,11 +214,20 @@ function session_start()
     The cost is one `io.open` on requests that carry a cookie and none on
     requests that do not, so the anonymous budget is untouched.
   ]]
-  if session.resumed and not session.open
-    and not session_file_exists(session_file_name(session.id))
-  then
-    session.resumed = false
-    session.id = nil
+  local resumed_data
+
+  if session.resumed and not session.open then
+    -- One read answers both questions: whether there is a session here, and
+    -- what is in it. The separate existence probe this replaced was an
+    -- `io.open` that no counter saw.
+    session.file.name = session_file_name(session.id)
+    resumed_data = store.read(session.file.name)
+
+    if resumed_data == nil then
+      session.resumed = false
+      session.id = nil
+      session.file.name = nil
+    end
   end
 
   --[[ No cookie, so there is nothing to resume, nothing to lock and nothing to
@@ -258,82 +248,64 @@ function session_start()
   -- Resuming a presented session is the signed-in case, among others.
   http_cache.disable()
 
+  --[[ The read already happened above, so this is only the handover.
+
+    What stood here was `loadstring` on the file's contents with an empty
+    environment and a `pcall`, guarded by a check for byte 27 -- Lua bytecode's
+    signature -- because a session file was executable Lua. It is JSON now and
+    none of that applies.
+
+    A file that would not decode used to `error()`, which on a site upgrading
+    from the Lua format is a 500 on every request carrying an old cookie.
+    `store.read()` answers nil instead and the demotion above has already turned
+    this request into a new session.
+  ]]
   if not session.open then
-    -- Compute session filename
-    session.file.name = session_file_name(session.id)
-
-    -- Try to create/read session data
-    fh, sign, err = safe_open(session.file.name)
-    fs_stats.record('open', nil, session.file.name, 'session')
-
-    if fh then
-      session.file.sign = sign
-      -- Load session data
-      session.open = true
-      local data = fh:read('*a') or ''
-      fh:close()
-      fs_stats.record('read', #data, session.file.name, 'session')
-      if data:byte(1) == 27 then
-        error 'session: binary bytecode in session data!'
-      end
-
-      -- Parse session data
-      data_function, err = loadstring(data)
-      if data_function then
-        setfenv(data_function, {}) -- empty environment
-        parsed, data, err = pcall(data_function)
-      end
-      if err then
-        error(format('session: %s', err))
-      end
-      _SESSION = type(data) == 'table' and data or {}
-      session.data = _SESSION
-    else
-      error "session: Can't load session data."
-    end
+    session.open = true
+    _SESSION = resumed_data or {}
+    session.data = _SESSION
   end
 end
 
--- Reset runtime session data
+--[[ Reset runtime session data.
+
+  There is no lock to release any more, so this drops the request's view of the
+  session and nothing else. It used to `safe_close()`, which removed the lock
+  file -- and that `remove` was counted against the session budget, which is why
+  every measured session request showed one.
+]]
 local function session_close()
   local session = current_session()
 
-  -- A session that was never materialized has no file and no lock, and
-  -- `safe_close` would compose its lock name out of a nil.
-  if not session or not session.open or session.file.name == nil then
-    if session then
-      session.open = false
-    end
-    _SESSION = nil
-    return
+  if session then
+    session.open = false
   end
 
-  safe_close(session.file.name, session.file.sign)
-  fs_stats.record('remove', nil, session.file.name, 'session')
-  session.open = false
   _SESSION = nil
 end
 
--- Write session data and end session
+--[[ Write session data and end the session.
+
+  One `io.open`, one write and one `os.rename` through
+  `includes/session/store.lua`. It was a `table_dump` into a `'return '`-prefixed
+  string handed to `safe_write`, which reopened and re-read the lock before
+  writing -- three more `open()` calls to check a lock this request already
+  held.
+]]
 function session_write_close()
   local session = current_session()
-  local serialized, rawdata, saved, err
 
-  if session.open then
-    rawdata = {'return '}
-    serialized, err = pcall(table_dump, session.data, function (s) rawset(rawdata, #rawdata + 1, s) end)
-    rawdata = tconcat(rawdata)
-    if serialized then
-      saved, err = safe_write(session.file.name, session.file.sign, rawdata)
-      fs_stats.record('write', #rawdata, session.file.name, 'session')
-      if not saved then
-        error "session: Can't save session data!"
-      end
-    else
-      error(format('session: %s', err))
-    end
-    session_close()
+  if not session or not session.open then
+    return
   end
+
+  local saved, err = store.write(session.file.name, session.data)
+
+  if not saved then
+    error(format('session: %s', tostring(err)))
+  end
+
+  session_close()
 end
 
 -- Destroys all data registered to a session
@@ -342,10 +314,7 @@ function session_destroy()
 
   session_close()
 
-  if session.file.name ~= nil then
-    os.remove(session.file.name)
-    fs_stats.record('remove', nil, session.file.name, 'session')
-  end
+  store.remove(session.file.name)
 
   session.data = _SESSION -- global _SESSION is blank ATM
   session.id = nil
@@ -372,43 +341,26 @@ end
 ]]
 function session_regenerate()
   local session = current_session()
-  local data, fh, sign, err
 
   if not session then
     return nil
   end
 
-  data = _SESSION
-
-  if session.open then
-    safe_close(session.file.name, session.file.sign)
-    session.open = false
-  end
+  local data = _SESSION
 
   if session.file.name then
-    os.remove(session.file.name)
-    fs_stats.record('remove', nil, session.file.name, 'session')
+    store.remove(session.file.name)
   end
 
   session.id = random.uuid()
   session.file = {}
+  session.open = false
 
   cookie_set('session-id', session.id, 3*60*60, base.route, get_cookie_domain())
 
-  -- Reopened straight away so the lock this request holds is the new file's,
-  -- and `session_write_close()` at the end of the request writes there.
+  -- Named but not created. `session_write_close()` writes it at the end of the
+  -- request; there is no lock to take, so there is nothing to open here.
   session.file.name = session_file_name(session.id)
-  fh, sign, err = safe_open(session.file.name)
-  fs_stats.record('open', nil, session.file.name, 'session')
-
-  if not fh then
-    error(format('session: cannot open regenerated session: %s',
-      tostring(err)))
-  end
-
-  fh:close()
-
-  session.file.sign = sign
   session.open = true
   _SESSION = type(data) == 'table' and data or {}
 
@@ -425,25 +377,44 @@ function session_regenerate()
 end
 
 -- Delete expired sessions
+--[[ The cron sweep, over three kinds of leftover.
+
+  `<id>.ophal` on `settings.sessionapi.ttl`, as before.
+
+  `<id>.ophal.tmp.<hex>` from a write that died between `io.open` and
+  `os.rename`. `store.write()` removes its own temp file on every failure it can
+  see, so this only catches a worker killed mid-write. A short TTL, because a
+  temp file older than a few minutes cannot belong to a request still running.
+
+  `<id>.ophal.lock` from before this release, so an upgraded site sweeps itself
+  clean. `settings.sessionapi.lock_ttl` is inert now -- nothing takes a lock --
+  but the key is still read here and still accepted in a settings file rather
+  than being an error, because erroring on a key that used to be valid is a
+  worse upgrade than ignoring it.
+]]
+local TEMP_TTL = 600
+
 function session_destroy_expired()
   local path = sessions_path()
 
   for file in lfs.dir(path) do
-    local session_file = file:sub(-6) == '.ophal'
     local lock_file = file:sub(-11) == '.ophal.lock'
+    local temp_file = file:find('%.ophal%.tmp%.%x+$') ~= nil
+    local session_file = not lock_file and not temp_file
+      and file:sub(-6) == '.ophal'
 
-    if session_file or lock_file then
+    if session_file or lock_file or temp_file then
       local filepath = path .. '/' .. file
       local attr = lfs.attributes(filepath)
-      local age = os.difftime(os.time(), attr.change)
+      local age = attr and os.difftime(os.time(), attr.change) or 0
 
       if
         (session_file and age > (settings.sessionapi.ttl or 86400)) or
-        (lock_file and age > (settings.sessionapi.lock_ttl or 120))
+        (lock_file and age > (settings.sessionapi.lock_ttl or 120)) or
+        (temp_file and age > TEMP_TTL)
       then
         os.remove(filepath)
       end
-
     end
   end
 end

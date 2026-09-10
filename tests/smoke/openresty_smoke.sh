@@ -1489,6 +1489,7 @@ read_fs_stats() {
   FS_STATS_S_OPEN=$(extract_marker 'SMOKE_FS_SESSION_OPEN')
   FS_STATS_S_READ=$(extract_marker 'SMOKE_FS_SESSION_READ')
   FS_STATS_S_WRITE=$(extract_marker 'SMOKE_FS_SESSION_WRITE')
+  FS_STATS_S_RENAME=$(extract_marker 'SMOKE_FS_SESSION_RENAME')
   FS_STATS_S_REMOVE=$(extract_marker 'SMOKE_FS_SESSION_REMOVE')
   FS_STATS_S_BYTES=$(extract_marker 'SMOKE_FS_SESSION_BYTES')
   [[ -n "$FS_STATS_OPEN" && -n "$FS_STATS_BYTES" && -n "$FS_STATS_S_OPEN" ]] ||
@@ -1507,6 +1508,7 @@ measure_fs_request() {
   b_open=$FS_STATS_OPEN; b_read=$FS_STATS_READ; b_write=$FS_STATS_WRITE
   b_rename=$FS_STATS_RENAME; b_remove=$FS_STATS_REMOVE; b_bytes=$FS_STATS_BYTES
   bs_open=$FS_STATS_S_OPEN; bs_read=$FS_STATS_S_READ; bs_write=$FS_STATS_S_WRITE
+  bs_rename=$FS_STATS_S_RENAME
   bs_remove=$FS_STATS_S_REMOVE; bs_bytes=$FS_STATS_S_BYTES
 
   run_request "$name" "$@"
@@ -1523,6 +1525,7 @@ measure_fs_request() {
   FS_S_OPEN=$((FS_STATS_S_OPEN - bs_open))
   FS_S_READ=$((FS_STATS_S_READ - bs_read))
   FS_S_WRITE=$((FS_STATS_S_WRITE - bs_write))
+  FS_S_RENAME=$((FS_STATS_S_RENAME - bs_rename))
   FS_S_REMOVE=$((FS_STATS_S_REMOVE - bs_remove))
   FS_S_BYTES=$((FS_STATS_S_BYTES - bs_bytes))
 
@@ -1549,13 +1552,19 @@ assert_fs_budget() {
 # The session bucket, asserted apart from the media one. A media request opens a
 # session too, so one set of counters would make every media budget a statement
 # about sessions as well -- and moving one would move the other.
+#
+# `rename` joined the list when the session store did. Until then only the media
+# path renamed anything, so the session helper had no term for it -- and the one
+# syscall the lock-free store turns on would have gone uncounted, which would
+# leave the budget describing less work than the request does.
 assert_session_fs_budget() {
-  local e_open=$1 e_read=$2 e_write=$3 e_remove=$4 e_bytes=$5
-  local measured="open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE remove=$FS_S_REMOVE bytes=$FS_S_BYTES"
+  local e_open=$1 e_read=$2 e_write=$3 e_rename=$4 e_remove=$5 e_bytes=$6
+  local measured="open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE rename=$FS_S_RENAME remove=$FS_S_REMOVE bytes=$FS_S_BYTES"
 
   [[ "$FS_S_OPEN" -eq "$e_open" ]] || fail "expected $e_open session opens; $measured"
   [[ "$FS_S_READ" -eq "$e_read" ]] || fail "expected $e_read session reads; $measured"
   [[ "$FS_S_WRITE" -eq "$e_write" ]] || fail "expected $e_write session writes; $measured"
+  [[ "$FS_S_RENAME" -eq "$e_rename" ]] || fail "expected $e_rename session renames; $measured"
   [[ "$FS_S_REMOVE" -eq "$e_remove" ]] || fail "expected $e_remove session removes; $measured"
   [[ "$FS_S_BYTES" -eq "$e_bytes" ]] || fail "expected $e_bytes session bytes through Lua; $measured"
 }

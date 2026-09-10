@@ -588,6 +588,7 @@ do
   -- A directory of this test's own, because `session_start()` now asks the
   -- filesystem whether a presented id names a session it actually holds. A
   -- shared `/tmp` would make that answer depend on what another run left behind.
+  local removed_paths = {}
   local session_dir = (function()
     local path = os.tmpname()
     os.remove(path)
@@ -613,14 +614,32 @@ do
     stubbed.temp_dir = function() return session_dir end
     package.loaded['includes.fs.path'] = stubbed
   end
-  _G.seawolf.fs.safe_open = function(path)
-    opened[#opened + 1] = path
-    return {close = function() end, read = function() return '' end}, 'sign'
+  --[[ The store, recorded rather than replaced.
+
+    `opened` counted `safe_open` calls; it counts `store.read` and `store.write`
+    now, which is where the file work moved. The real store is delegated to, so
+    files really appear on disk and a resume really has to find one -- a stub
+    that always answered a session would pass every assertion below while the
+    demotion was broken.
+  ]]
+  do
+    local real_store = require 'includes.session.store'
+
+    package.loaded['includes.session.store'] = {
+      read = function(path)
+        opened[#opened + 1] = path
+        return real_store.read(path)
+      end,
+      write = function(path, value)
+        opened[#opened + 1] = path
+        return real_store.write(path, value)
+      end,
+      remove = function(path)
+        removed_paths[#removed_paths + 1] = path
+        return real_store.remove(path)
+      end,
+    }
   end
-  _G.seawolf.fs.safe_write = function() return true end
-  _G.seawolf.fs.safe_close = function() end
-  _G.seawolf.contrib = _G.seawolf.contrib or {}
-  _G.seawolf.contrib.table_dump = function() end
   env.seawolf = _G.seawolf
   _G.base = _G.base or {}
   _G.base.route = '/'
@@ -670,9 +689,13 @@ do
     with cron's daily sweep as the only reaper, and an id they had planted on a
     victim's browser was adopted as that visitor's session.
 
-    Both halves are asserted: the id is dropped, and `safe_open` is never
-    reached -- a demotion that still opened the file would fix the fixation and
-    leave the flooding.
+    Both halves are asserted: the id is dropped, and **no file is created**.
+
+    The second half used to be "`safe_open` is never reached", which is not the
+    same claim and is no longer the right one. `store.read()` is reached -- it
+    *is* the existence check -- but reading cannot create, which is the whole
+    difference from `safe_open`, whose `'a+'` mode did. So the assertion is on
+    the directory rather than on the call count.
   ]]
   do
     local before = #opened
@@ -686,7 +709,10 @@ do
 
     assert_nil('unknown_session_id_is_dropped', ophal.session.id)
     assert_eq('unknown_session_is_not_resumed', ophal.session.resumed, false)
-    assert_eq('unknown_session_opens_no_file', #opened, before)
+    assert_eq('unknown_session_reads_once', #opened, before + 1)
+    assert_eq('unknown_session_creates_no_file',
+      require('includes.fs.path').is_file(
+        session_dir .. '/ghi-jkl-mno.ophal'), false)
     assert_eq('unknown_session_reads_as_empty', _SESSION.anything, nil)
   end
 
@@ -701,7 +727,11 @@ do
     local held = session_dir .. '/pqr-stu-vwx.ophal'
     local fh = assert(io.open(held, 'w'))
 
-    fh:write 'return {}'
+    -- JSON, not `return {}`. A session file stopped being executable Lua when
+    -- the store landed, and a file that will not decode reads as no session at
+    -- all -- which is exactly how an upgraded site treats the ones an older
+    -- Ophal wrote.
+    fh:write '{}'
     fh:close()
 
     mock_request.cookies = {['session-id'] = 'pqr-stu-vwx'}
@@ -756,15 +786,60 @@ do
   assert_truthy('writing_mints_an_id', ophal.session.id:find('^new%-uuid%-'))
   assert_eq('writing_sets_the_cookie', #cookies, 1)
   assert_eq('writing_sets_the_session_cookie', cookies[1].name, 'session-id')
-  assert_eq('writing_opens_the_file', #opened, 1)
+  --[[ Materializing touches **no file**, and that is the change.
+
+    `safe_open()` stood in `session_materialize()` and created the session file
+    there, before anything had been written into it. The file appears when
+    `session_write_close()` renames it into place at the end of the request, so
+    a request that materializes and then fails leaves nothing behind.
+  ]]
+  assert_eq('writing_opens_no_file', #opened, 0)
   assert_eq('writing_marks_the_session_open', ophal.session.open, true)
+  assert_truthy('writing_names_the_file', ophal.session.file.name)
   assert_eq('the_written_value_survives', _SESSION.user_id, 7)
 
   -- The hook is dropped once it has fired, so the session is an ordinary table
   -- from here rather than one that re-enters materialization per key.
   _SESSION.other = 8
-  assert_eq('a_second_write_opens_nothing_more', #opened, 1)
+  assert_eq('a_second_write_opens_nothing_more', #opened, 0)
   assert_eq('the_second_value_survives', _SESSION.other, 8)
+
+  --[[ And the file appears exactly once, at write-close.
+
+    This is the half `writing_opens_no_file` above would otherwise leave
+    unproven: deferring the file to the end of the request is only correct if
+    the end of the request actually writes it.
+  ]]
+  session_write_close()
+
+  assert_eq('write_close_writes_once', #opened, 1)
+  assert_eq('write_close_writes_the_session_file', opened[1],
+    session_dir .. '/new-uuid-1.ophal')
+
+  do
+    local fh = assert(io.open(session_dir .. '/new-uuid-1.ophal', 'r'))
+    local written = fh:read('*a')
+
+    fh:close()
+
+    -- JSON on disk, not `return {...}`. A session file is data now.
+    assert_truthy('the_session_file_is_json', written:find('"user_id"', 1, true))
+    assert_eq('the_session_file_is_not_lua',
+      written:find('return', 1, true), nil)
+  end
+
+  -- No temp file survives a successful write.
+  do
+    local leftovers = 0
+
+    for entry in require('lfs').dir(session_dir) do
+      if entry:find('%.tmp%.') then
+        leftovers = leftovers + 1
+      end
+    end
+
+    assert_eq('write_close_leaves_no_temp_file', leftovers, 0)
+  end
 end
 
 io.write '\n-- session regeneration on privilege change --\n'
@@ -793,14 +868,19 @@ do
     stubbed.temp_dir = function() return '/tmp' end
     package.loaded['includes.fs.path'] = stubbed
   end
-  _G.seawolf.fs.safe_open = function(path)
-    opened[#opened + 1] = path
-    return {close = function() end, read = function() return '' end}, 'sign-' .. #opened
-  end
-  _G.seawolf.fs.safe_write = function() return true end
-  _G.seawolf.fs.safe_close = function(path) end
-  _G.seawolf.contrib = _G.seawolf.contrib or {}
-  _G.seawolf.contrib.table_dump = function() end
+  --[[ The store, recorded and inert.
+
+    This block asserts what `session_regenerate()` does, not what it writes, so
+    nothing touches the disk here. `removed` used to be filled by stubbing the
+    global `os.remove` -- which no longer works, because the store captures
+    `os.remove` as a local at load time, the same load-time capture this file is
+    about.
+  ]]
+  package.loaded['includes.session.store'] = {
+    read = function(path) opened[#opened + 1] = path return nil end,
+    write = function(path) opened[#opened + 1] = path return true end,
+    remove = function(path) removed[#removed + 1] = path end,
+  }
   env.seawolf = _G.seawolf
   _G.base = _G.base or {}
   _G.base.route = '/'
@@ -830,17 +910,13 @@ do
 
   dofile('includes/session.lua')
 
-  local real_remove = os.remove
-  os.remove = function(path) removed[#removed + 1] = path return true end
-
   session_init()
   assert_eq('regen_starts_from_the_presented_id',
     ophal.session.id, 'planted-session-id')
 
-  -- Stand in for `session_start()` having opened the file, which is the state
-  -- a sign-in actually rotates from.
+  -- Stand in for `session_start()` having resumed the session, which is the
+  -- state a sign-in actually rotates from.
   ophal.session.file.name = '/tmp/planted-session-id.ophal'
-  ophal.session.file.sign = 'sign-0'
   ophal.session.open = true
   _SESSION = {cart = 'kept'}
   ophal.session.data = _SESSION
@@ -867,12 +943,18 @@ do
   assert_eq('regen_keeps_the_session_data', (_SESSION or {}).cart, 'kept')
   assert_eq('regen_data_is_the_live_table', ophal.session.data, _SESSION)
 
-  -- Reopened under the new name, so this request's writes land there.
-  assert_eq('regen_opens_the_new_file',
-    opened[#opened], '/tmp/' .. new_id .. '.ophal')
-  assert_eq('regen_marks_the_session_open', ophal.session.open, true)
+  --[[ Renamed, not reopened.
 
-  os.remove = real_remove
+    This used to assert that `safe_open()` had been called on the new path,
+    because rotating had to take the new file's lock straight away. There is no
+    lock, so regeneration only *names* the file and
+    `session_write_close()` creates it at the end of the request -- which is
+    also why nothing here writes to disk.
+  ]]
+  assert_eq('regen_names_the_new_file',
+    ophal.session.file.name, '/tmp/' .. new_id .. '.ophal')
+  assert_eq('regen_opens_no_file', #opened, 0)
+  assert_eq('regen_marks_the_session_open', ophal.session.open, true)
 end
 
 -- ================================================================ summary

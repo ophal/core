@@ -169,13 +169,13 @@ assert_fs_budget 0 0 0 0 0 0
 # `init_js()`, and is zero since sessions became lazy: a visitor who presents no
 # cookie is given no id, no cookie and no file until something writes into
 # `_SESSION`, and nothing on this page does.
-assert_session_fs_budget 0 0 0 0 0
+assert_session_fs_budget 0 0 0 0 0 0
 [[ "$sessions_created" -eq 0 ]] ||
   fail "expected the anonymous request to leave no session file; left $sessions_created"
 # The half that Phase 9 depends on. A response carrying a per-visitor cookie can
 # never be shared by a downstream cache, whatever Cache-Control says.
 assert_not_contains 'session-id='
-report_ok "db_anonymous_session_cost (open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
+report_ok "db_anonymous_session_cost (open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE rename=$FS_S_RENAME remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
 
 #[[ And the other half: a session that is *needed* is still created.
 #
@@ -195,15 +195,20 @@ sessions_after=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/nu
 sessions_created=$((sessions_after - sessions_before))
 [[ "$sessions_created" -eq 1 ]] ||
   fail "expected the token request to create 1 session file; created $sessions_created"
-# One open to take the lock and create the file, one write of the token, one
-# remove to drop the lock. No read: there was no session to resume.
-assert_session_fs_budget 1 0 1 1 95
-report_ok "db_anonymous_session_on_demand (open=$FS_S_OPEN write=$FS_S_WRITE remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
+# One open of the temp file, one write of the token, one rename into place. No
+# read, because there was no session to resume -- and no remove, because there
+# is no lock to drop: that was the third syscall until the store landed.
+#
+# 81 bytes rather than 95. The payload is the same CSRF token; JSON is shorter
+# than the `'return ' .. table_dump` Lua this used to write, and it is not
+# executable.
+assert_session_fs_budget 1 0 1 1 0 81
+report_ok "db_anonymous_session_on_demand (open=$FS_S_OPEN write=$FS_S_WRITE rename=$FS_S_RENAME remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
 
 #[[ A well-formed id the server holds no file for buys nothing.
 #
 # `session_init()` only knows the cookie parses as a uuid, and `safe_open()`
-# creates the file it fails to find -- so before `session_start()` learned to
+# created the file it failed to find -- so before `session_start()` learned to
 # check, this request minted a session file, a lock file and an inode, and did
 # it again for every id an attacker cared to invent. Cron's daily sweep was the
 # only thing collecting them.
@@ -214,12 +219,18 @@ report_ok "db_anonymous_session_on_demand (open=$FS_S_OPEN write=$FS_S_WRITE rem
 # a validator, and `Vary: Cookie` is what keeps a shared cache from handing it
 # to somebody whose session does exist. A demotion placed one line later would
 # leave every budget here at zero and still lose the caching.
+#
+# **One open, and that number went up without the work changing.** The check was
+# `session_file_exists()`, an `io.open` that recorded nothing, so this budget
+# read 0 while the request really made one syscall. The store's `read()` is the
+# existence check now -- same one open, honestly counted. Nothing else: the file
+# is absent, so there is no read, and the demotion means nothing is written.
 stale_session_id='3f2504e0-4f89-41d3-9a0c-0305e82c3301'
 sessions_before=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
 measure_fs_request db_stale_session_cookie_costs_nothing -b "session-id=$stale_session_id" "$DB_URL/"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
-assert_session_fs_budget 0 0 0 0 0
+assert_session_fs_budget 1 0 0 0 0 0
 sessions_after=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
 sessions_created=$((sessions_after - sessions_before))
 [[ "$sessions_created" -eq 0 ]] ||
@@ -231,7 +242,7 @@ assert_not_regex '[Ss]et-[Cc]ookie:'
 # Treated as the anonymous request it is.
 assert_regex '[Ee][Tt]ag:'
 assert_regex 'cache-control:.*public'
-report_ok "db_stale_session_cookie_costs_nothing (open=$FS_S_OPEN write=$FS_S_WRITE bytes=$FS_S_BYTES files=+$sessions_created)"
+report_ok "db_stale_session_cookie_costs_nothing (open=$FS_S_OPEN write=$FS_S_WRITE rename=$FS_S_RENAME bytes=$FS_S_BYTES files=+$sessions_created)"
 
 measure_request db_content_warm "$DB_URL/content/1"
 assert_status_zero

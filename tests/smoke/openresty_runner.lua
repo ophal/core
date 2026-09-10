@@ -230,6 +230,7 @@ local scenarios = {
       'SMOKE_FS_SESSION_OPEN=' .. tostring(session.open),
       'SMOKE_FS_SESSION_READ=' .. tostring(session.read),
       'SMOKE_FS_SESSION_WRITE=' .. tostring(session.write),
+      'SMOKE_FS_SESSION_RENAME=' .. tostring(session.rename),
       'SMOKE_FS_SESSION_REMOVE=' .. tostring(session.remove),
       'SMOKE_FS_SESSION_BYTES=' .. tostring(session.bytes),
     }

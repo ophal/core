@@ -200,6 +200,39 @@ sessions_created=$((sessions_after - sessions_before))
 assert_session_fs_budget 1 0 1 1 95
 report_ok "db_anonymous_session_on_demand (open=$FS_S_OPEN write=$FS_S_WRITE remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
 
+#[[ A well-formed id the server holds no file for buys nothing.
+#
+# `session_init()` only knows the cookie parses as a uuid, and `safe_open()`
+# creates the file it fails to find -- so before `session_start()` learned to
+# check, this request minted a session file, a lock file and an inode, and did
+# it again for every id an attacker cared to invent. Cron's daily sweep was the
+# only thing collecting them.
+#
+# The ETag is the sharp assertion rather than the counters. A visitor holding a
+# stale cookie is anonymous, and the demotion happens before
+# `http_cache.disable()` precisely so the response says so: it is `public` with
+# a validator, and `Vary: Cookie` is what keeps a shared cache from handing it
+# to somebody whose session does exist. A demotion placed one line later would
+# leave every budget here at zero and still lose the caching.
+stale_session_id='3f2504e0-4f89-41d3-9a0c-0305e82c3301'
+sessions_before=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
+measure_fs_request db_stale_session_cookie_costs_nothing -b "session-id=$stale_session_id" "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_session_fs_budget 0 0 0 0 0
+sessions_after=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
+sessions_created=$((sessions_after - sessions_before))
+[[ "$sessions_created" -eq 0 ]] ||
+  fail "expected an unknown session id to create no file; created $sessions_created"
+[[ -e "$SMOKE_DB_SESSIONS/$stale_session_id.ophal" ]] &&
+  fail "an unknown session id was adopted: $stale_session_id.ophal exists"
+# Nothing was written, so nothing minted an id and nothing re-issued the cookie.
+assert_not_regex '[Ss]et-[Cc]ookie:'
+# Treated as the anonymous request it is.
+assert_regex '[Ee][Tt]ag:'
+assert_regex 'cache-control:.*public'
+report_ok "db_stale_session_cookie_costs_nothing (open=$FS_S_OPEN write=$FS_S_WRITE bytes=$FS_S_BYTES files=+$sessions_created)"
+
 measure_request db_content_warm "$DB_URL/content/1"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
@@ -269,16 +302,26 @@ COMMENT_BODY='SMOKE_COMMENT_BODY_MARKER'
 
 author_cookie="$SMOKE_DB_WORK/author-cookie.txt"
 
-#[[ The id a fixation attempt plants.
+#[[ The id a fixation attempt plants, obtained from the site itself.
 #
-# This used to be an id the *server* issued to an anonymous visitor, read back
-# out of the jar. Sessions are lazy since Phase 7, so an anonymous request is
-# issued nothing at all -- and planting the id directly is the more faithful
-# test anyway: an attacker chooses the value and sets it on the victim's
-# browser, they do not ask the site for one first. `session_init()` accepts any
-# well-formed id the cookie presents, which is exactly the property being
-# attacked.
-pre_login_session='11111111-2222-4333-8444-555555555555'
+# An invented id no longer works, and that is the point of the change this
+# scenario was rewritten for: `session_start()` checks whether it actually holds
+# a file for a presented id, so a value an attacker made up is discarded rather
+# than adopted. Planting an invented id would therefore pass this scenario with
+# `session_regenerate()` deleted -- the ids would differ because the planted one
+# was never used, not because anything rotated -- and the project would lose its
+# only end-to-end proof of the fixation fix.
+#
+# So the attacker does what an attacker actually does: asks the site for a real
+# session, and plants that. Ophal cannot tell it from a returning visitor, which
+# is precisely why the rotation at sign-in is still required.
+run_request db_author_session_acquire "$DB_URL/__smoke__?scenario=csrf_token"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+pre_login_session=$(printf '%s\n' "$LAST_OUTPUT" |
+  sed -n 's/.*[Ss]et-[Cc]ookie: *session-id=\([^;]*\).*/\1/p' | tr -d '\r' | tail -1)
+[[ -n "$pre_login_session" ]] ||
+  fail 'the site issued no session id to plant'
 rm -f "$author_cookie"
 
 # Sent as a header rather than written into the jar. The jar is then filled only
@@ -288,10 +331,9 @@ run_request db_author_pre_login_session -b "session-id=$pre_login_session" \
   "$DB_URL/"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
-# The planted id is still what the jar holds: a presented session is resumed
-# rather than replaced, which is the behaviour the rotation below has to undo.
-# The server does not re-issue a cookie for a session it merely resumed, so an
-# anonymous request carrying the planted id answers with no `Set-Cookie` at all.
+# The planted id is a session the server really holds, so it is resumed rather
+# than replaced -- which is the behaviour the rotation below has to undo. A
+# resumed session is not re-issued, so there is no `Set-Cookie` here.
 assert_not_contains 'set-cookie'
 assert_not_contains 'Set-Cookie'
 report_ok db_author_pre_login_session
@@ -311,11 +353,18 @@ report_ok db_author_login
 
 #[[ The session id must not survive the privilege change.
 #
-# `session_init()` accepts any well-formed id the cookie presents, so an id
-# planted on a visitor's browser before they sign in would otherwise be an
-# authenticated session afterwards -- textbook fixation. `session_regenerate()`
-# in the auth service is what rotates it, and this is the end-to-end proof:
-# removing that call leaves the two ids equal and turns this red.
+# `session_init()` accepts any well-formed id the cookie presents and the id
+# planted above names a session the server really holds, so it is resumed --
+# which means that without a rotation the visitor signs in *into the attacker's
+# session*. Textbook fixation. `session_regenerate()` in the auth service is
+# what rotates it, and this is the end-to-end proof.
+#
+# Removing that call turns this red at the first check rather than the second,
+# and that is not a weaker signal: a resumed session emits no cookie of its own,
+# so a sign-in response carrying no `Set-Cookie` at all is precisely the
+# statement that the id did not change. Both messages name fixation so a future
+# reader is not left to work that out from an empty variable.
+#
 # Read from the sign-in response's own `Set-Cookie` rather than from the jar.
 # The jar is a merge of what was planted and what was received, and the two can
 # be stored as separate entries when their domain attributes differ -- which is
@@ -323,7 +372,9 @@ report_ok db_author_login
 # header is the server saying so.
 post_login_session=$(printf '%s\n' "$LAST_OUTPUT" |
   sed -n 's/.*[Ss]et-[Cc]ookie: *session-id=\([^;]*\).*/\1/p' | tr -d '\r' | tail -1)
-[[ -n "$post_login_session" ]] || fail 'sign-in issued no session id'
+if [[ -z "$post_login_session" ]]; then
+  fail "sign-in issued no session id, so the planted one was kept (fixation): $pre_login_session"
+fi
 if [[ "$post_login_session" == "$pre_login_session" ]]; then
   fail "session id survived sign-in (fixation): $post_login_session"
 fi

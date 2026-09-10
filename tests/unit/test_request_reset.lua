@@ -487,8 +487,17 @@ do
   -- stub has to be in place before the dofile below rather than beside the
   -- assertions that read it.
   local opened, cookies = {}, {}
+  -- A directory of this test's own, because `session_start()` now asks the
+  -- filesystem whether a presented id names a session it actually holds. A
+  -- shared `/tmp` would make that answer depend on what another run left behind.
+  local session_dir = (function()
+    local path = os.tmpname()
+    os.remove(path)
+    os.execute(("mkdir -p '%s'"):format(path))
+    return path
+  end)()
   -- Extra stubs for session.lua
-  _G.seawolf.behaviour = {temp_dir = function() return '/tmp' end}
+  _G.seawolf.behaviour = {temp_dir = function() return session_dir end}
   _G.seawolf.fs.safe_open = function(path)
     opened[#opened + 1] = path
     return {close = function() end, read = function() return '' end}, 'sign'
@@ -537,6 +546,66 @@ do
   ophal.cookies = mock_request.cookies
   session_init()
   assert_eq('session_reinit_id', ophal.session.id, 'ddd-eee-fff')
+
+  --[[ 2b. A well-formed id the server holds no file for is not resumed.
+
+    Before this, `session_start()` handed any uuid-shaped cookie to
+    `safe_open()`, which *creates* the file it cannot find. So an attacker
+    looping over random uuids minted a session file and a lock file per request,
+    with cron's daily sweep as the only reaper, and an id they had planted on a
+    victim's browser was adopted as that visitor's session.
+
+    Both halves are asserted: the id is dropped, and `safe_open` is never
+    reached -- a demotion that still opened the file would fix the fixation and
+    leave the flooding.
+  ]]
+  do
+    local before = #opened
+
+    mock_request.cookies = {['session-id'] = 'ghi-jkl-mno'}
+    ophal.cookies = mock_request.cookies
+    session_init()
+    assert_eq('unknown_id_is_resumed_until_checked', ophal.session.resumed, true)
+
+    session_start()
+
+    assert_nil('unknown_session_id_is_dropped', ophal.session.id)
+    assert_eq('unknown_session_is_not_resumed', ophal.session.resumed, false)
+    assert_eq('unknown_session_opens_no_file', #opened, before)
+    assert_eq('unknown_session_reads_as_empty', _SESSION.anything, nil)
+  end
+
+  --[[ 2c. An id the server does hold is resumed, which is the other half.
+
+    A demotion that fired for every request would pass 2b and sign every
+    returning visitor out, so the file is really created here and the resume
+    really has to find it.
+  ]]
+  do
+    local before = #opened
+    local held = session_dir .. '/pqr-stu-vwx.ophal'
+    local fh = assert(io.open(held, 'w'))
+
+    fh:write 'return {}'
+    fh:close()
+
+    mock_request.cookies = {['session-id'] = 'pqr-stu-vwx'}
+    ophal.cookies = mock_request.cookies
+    session_init()
+    session_start()
+
+    assert_eq('held_session_keeps_its_id', ophal.session.id, 'pqr-stu-vwx')
+    assert_eq('held_session_is_resumed', ophal.session.resumed, true)
+    assert_eq('held_session_opens_the_file', #opened, before + 1)
+
+    os.remove(held)
+
+    -- The block below counts opens from zero rather than from a baseline, so
+    -- the recorder is cleared here rather than that block being rewritten.
+    for i = #opened, 1, -1 do
+      opened[i] = nil
+    end
+  end
 
   --[[ 3. An invalid or absent cookie now yields **no session at all** here.
 

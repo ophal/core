@@ -62,6 +62,28 @@ local function current_session()
   return ophal.session
 end
 
+-- Where a session id's data lives. Composed in one place because four callers
+-- need it and a fifth would otherwise spell it a fifth way.
+local function session_file_name(id)
+  return format('%s/%s.ophal', sessions_path(), id)
+end
+
+--[[ Whether the server actually holds a session for this id.
+
+  Read rather than stat'ed, because the caller that matters next wants the
+  contents anyway and `io.open` answers both questions at once.
+]]
+local function session_file_exists(name)
+  local fh = io.open(name, 'r')
+
+  if fh == nil then
+    return false
+  end
+
+  fh:close()
+  return true
+end
+
 -- Session handler
 if settings.sessionapi then
   if type(settings.sessionapi) ~= 'table' then
@@ -129,7 +151,7 @@ local function session_materialize()
     cookie_set('session-id', session.id, 3*60*60, base.route, get_cookie_domain())
   end
 
-  session.file.name = format('%s/%s.ophal', sessions_path(), session.id)
+  session.file.name = session_file_name(session.id)
   fh, sign, err = safe_open(session.file.name)
   fs_stats.record('open', nil, session.file.name, 'session')
 
@@ -188,6 +210,36 @@ function session_start()
 
   local fh, sign, err, data, data_function, parsed
 
+  --[[ A well-formed id the server holds no file for is not a session.
+
+    `session_init()` knows only that the cookie parses as a uuid, and
+    `safe_open()` below *creates* the file it fails to find -- so without this
+    check any visitor could mint a session file, a lock file and an inode per
+    request by presenting a random uuid, with cron's 24-hour sweep as the only
+    reaper. That is an unauthenticated way to fill a filesystem.
+
+    It closes session fixation at the root as well. An id Ophal never issued is
+    now never adopted, so a value planted on a victim's browser is discarded
+    here rather than carried until `session_regenerate()` rotates it at sign-in.
+    That rotation still matters and is still tested: an attacker can ask the
+    site for a real session and plant *that*, which this check cannot tell from
+    a returning visitor.
+
+    Demoting rather than erroring is deliberate. A session file also disappears
+    because cron expired it, which is an ordinary returning visitor whose
+    session has lapsed; they get a new one on their next write, exactly as a
+    first-time visitor does.
+
+    The cost is one `io.open` on requests that carry a cookie and none on
+    requests that do not, so the anonymous budget is untouched.
+  ]]
+  if session.resumed and not session.open
+    and not session_file_exists(session_file_name(session.id))
+  then
+    session.resumed = false
+    session.id = nil
+  end
+
   --[[ No cookie, so there is nothing to resume, nothing to lock and nothing to
     read. The table exists so that every reader keeps working -- `_SESSION` is
     an ordinary empty table to anyone who looks -- and the first write into it
@@ -208,7 +260,7 @@ function session_start()
 
   if not session.open then
     -- Compute session filename
-    session.file.name = string.format('%s/%s.ophal' , sessions_path(), session.id)
+    session.file.name = session_file_name(session.id)
 
     -- Try to create/read session data
     fh, sign, err = safe_open(session.file.name)
@@ -345,7 +397,7 @@ function session_regenerate()
 
   -- Reopened straight away so the lock this request holds is the new file's,
   -- and `session_write_close()` at the end of the request writes there.
-  session.file.name = format('%s/%s.ophal', sessions_path(), session.id)
+  session.file.name = session_file_name(session.id)
   fh, sign, err = safe_open(session.file.name)
   fs_stats.record('open', nil, session.file.name, 'session')
 

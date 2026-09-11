@@ -58,27 +58,31 @@ The name has to match; the module resolves `ophal_projection_versions` and
 falls back silently on a typo. If you rename the zone, set
 `settings.performance.projection_shared_dict` to the same name.
 
-Operational note: `0.2.x` runs inside persistent OpenResty workers, but it is
-not yet a fully nonblocking stack. Database access still uses synchronous
-`LuaDBI`, and some filesystem operations still occur on request paths for
-templates, asset metadata, sessions, and uploads. Treat the current runtime as
-correct and persistent, but operationally bounded by those blocking paths.
+Operational note: on PostgreSQL and MySQL the request path does not block on
+the database. `pgmoon` and `lua-resty-mysql` are cosocket drivers, so a query
+yields the worker instead of holding it, and a warm anonymous page issues no
+query at all -- Ophal connects on the first statement, so such a request opens
+no socket.
 
-Template and static-asset metadata are now cached with a short runtime TTL to
+**SQLite is the exception, and it is a limit of SQLite rather than of the
+driver.** There is no socket to yield on, so every query holds the worker for
+its duration, and several workers on one file contend for the write lock --
+which public reads can take, because a stale projection rebuilds from inside a
+GET. That is why SQLite is documented as the development, CLI, test and
+low-scale path rather than as a peer production backend.
+
+Template and static-asset metadata are cached with a short runtime TTL to
 reduce repeated `stat()` calls. The default TTL is `1` second and can be tuned
-through `settings.runtime_cache`.
+through `settings.runtime_cache`. A warm page render costs 14 `stat` calls and
+no file reads; the compile cache absorbs the rest.
 
-Operationally, `0.2.x` should be treated as suitable for low-to-moderate
-traffic. It is not positioned as a fully nonblocking high-concurrency stack
-until an OpenResty-native database path exists.
-
-OpenResty plus PostgreSQL assumptions for this line:
+PostgreSQL assumptions for this line:
 
 - PostgreSQL is the required production backend for the performance
   architecture work
-- the current runtime still opens synchronous LuaDBI connections during
-  bootstrap, so keep database latency low and prefer a local or private-network
-  PostgreSQL deployment or pooler
+- keep database latency low and prefer a local or private-network deployment or
+  pooler -- connections are held per request and returned to OpenResty's
+  keepalive pool at the end of it
 - SQLite remains a supported compatibility path, but not the target backend
   for the performance architecture
 

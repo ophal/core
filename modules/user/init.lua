@@ -255,7 +255,7 @@ end
 --[[ Implements hook route().
 ]]
 function route()
-  items = {}
+  local items = {}
   items.user = {
     page_callback = 'default_page'
   }

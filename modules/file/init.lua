@@ -146,7 +146,7 @@ end
 --[[ Implements hook route().
 ]]
 function route()
-  items = {}
+  local items = {}
   items['file/upload'] = {
     page_callback = 'upload_service',
     access_callback = {module = 'user', 'access', 'upload files'},

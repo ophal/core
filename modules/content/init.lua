@@ -97,7 +97,7 @@ end
 --[[ Implements hook route().
 ]]
 function route()
-  items = {}
+  local items = {}
   items.content = {
     page_callback = 'router',
   }
@@ -364,7 +364,7 @@ function _M.entity_type_info()
 end
 
 function save_service()
-  local input, parsed, err, output, account, action, id
+  local _, input, parsed, err, output, account, action, id
   local entity
 
   if not user_mod.is_logged_in() then
@@ -422,7 +422,7 @@ function save_service()
         if action == 'create' then
           id, err = create(parsed)
         elseif action == 'update' then
-          do _, err = update(parsed) end
+          _, err = update(parsed)
         end
 
         if err then

@@ -142,11 +142,27 @@ function create_form()
 end
 
 function fetch_service()
-  local output, entity, entity_id, err
+  --[[ `list` is a local, and it was not.
+
+    Inside `module()` an unqualified assignment becomes a field on the module
+    table, so one visitor's comment list stayed on `ophal.modules.comment.list`
+    for the worker's lifetime and a request that failed before the assignment
+    below rendered the previous request's comments. Same class as
+    `modules/file`'s `load_by_field` in stage 8.5 and `save_service`'s own
+    `comment` -- and `includes/module.lua` now seals a jailed module's table
+    after it loads, so a fifth instance raises at the line instead of leaking.
+
+    `entity` and `err` went with it. `entity` was declared and never used, and
+    `err` named a second return `load_multiple_by` does not have.
+  ]]
+  local output, entity_id, list
 
   output = {success = false}
 
-  if not comment_access(comment, 'read') then
+  -- `nil`, not a bare `comment`, which is a module-table read that has always
+  -- resolved to nothing. The `read` arm of `comment_access` never looks at the
+  -- entity; `entity_render` above spells the same call this way.
+  if not comment_access(nil, 'read') then
     header('status', 401)
   else
     --[[ A number, not the string the route hands over.
@@ -160,27 +176,30 @@ function fetch_service()
     ]]
     entity_id = tonumber(arg(2) or '')
     if entity_id then
-      list, err = load_multiple_by('entity_id', entity_id)
-      if err then
-        output.error = err
-      else
-        for k, row in pairs(list) do
-          list[k].rendered = render_t{'comment', entity = row,
-            account = user_mod.load(row.user_id),
-            author = theme{'author', entity = row},
-          }
-        end
-        --[[ A list, and it says so.
+      --[[ One return value. `load_multiple_by` ends in
+        `db:with(...):run(value)`, and a `Statement` carries only `run` and
+        `sql` -- so a database error here is a raise, which `theme.json`
+        answers 500. `Connection:try()` is the shape if a recoverable error is
+        ever wanted; the `if err then` branch that stood here could not run.
+      ]]
+      list = load_multiple_by('entity_id', entity_id)
 
-          dkjson writes `[]` for an empty table and cjson writes `{}`, so an
-          entity with no comments would answer `"list":{}` on one backend and
-          `"list":[]` on the other. A browser doing `for (const c of list)`
-          works on the first and throws on the second, which makes it a bug
-          that appears only on a page with nothing on it.
-        ]]
-        output.list = json.array(list)
-        output.success = true
+      for k, row in pairs(list) do
+        list[k].rendered = render_t{'comment', entity = row,
+          account = user_mod.load(row.user_id),
+          author = theme{'author', entity = row},
+        }
       end
+      --[[ A list, and it says so.
+
+        dkjson writes `[]` for an empty table and cjson writes `{}`, so an
+        entity with no comments would answer `"list":{}` on one backend and
+        `"list":[]` on the other. A browser doing `for (const c of list)`
+        works on the first and throws on the second, which makes it a bug
+        that appears only on a page with nothing on it.
+      ]]
+      output.list = json.array(list)
+      output.success = true
     end
   end
 

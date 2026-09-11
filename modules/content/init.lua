@@ -394,21 +394,42 @@ function save_service()
       output.error = err
     elseif not csrf_validate_request(parsed) then
       csrf_denied(output)
-    -- Existence is checked before access because the access answer depends on
-    -- the entity: the update and delete arms of `entity_access()` compare
-    -- `entity.user_id` against the account, and `load()` returns nil for an id
-    -- that is not there. In the other order, `content/save/9999` raised on that
-    -- index, and the module dispatcher turned the raise into a 200 whose JSON
-    -- body carried the file and line of the error rather than a 404. Only a
-    -- user holding `edit own content` ever reached it -- `administer content`
-    -- returns true before the comparison, and without the permission the `and`
-    -- short-circuits before it -- which is why it survived this long.
-    elseif action == 'update' and empty(entity) then
-      header('status', 404)
-      output.error = 'No such content.'
-    elseif not _M.entity_access(entity, action) then
-      header('status', 401)
-    elseif 'table' == type(parsed) and not empty(parsed) then
+    else
+      --[[ The delete arm, which the body asks for rather than the route.
+
+        `content/save` is the one service this module registers, so a delete
+        says so in its payload the way `tag/save` does -- `modules/entity`
+        carries the `entity/remove` route, and that module is enabled in no
+        settings file that ships, which is why content could not be deleted
+        over HTTP at all until 2026-09-11.
+
+        The upgrade happens *after* the body is parsed and *before* the
+        existence check, and both halves matter. A delete always carries an id,
+        so `action` is already `update` by the time the entity is loaded above
+        -- which is what lets the load stay where it is rather than moving
+        below the parse and costing every create the two misses that comment
+        describes.
+      ]]
+      if 'table' == type(parsed) and parsed.action == 'delete' then
+        action = 'delete'
+      end
+
+      -- Existence is checked before access because the access answer depends
+      -- on the entity: the update and delete arms of `entity_access()` compare
+      -- `entity.user_id` against the account, and `load()` returns nil for an
+      -- id that is not there. In the other order, `content/save/9999` raised on
+      -- that index, and the module dispatcher turned the raise into a 200 whose
+      -- JSON body carried the file and line of the error rather than a 404.
+      -- Only a user holding `edit own content` ever reached it -- `administer
+      -- content` returns true before the comparison, and without the permission
+      -- the `and` short-circuits before it -- which is why it survived this
+      -- long.
+      if action ~= 'create' and empty(entity) then
+        header('status', 404)
+        output.error = 'No such content.'
+      elseif not _M.entity_access(entity, action) then
+        header('status', 401)
+      elseif 'table' == type(parsed) and not empty(parsed) then
         parsed.id = id
         parsed.type = 'content'
 
@@ -423,6 +444,11 @@ function save_service()
           id, err = create(parsed)
         elseif action == 'update' then
           _, err = update(parsed)
+        elseif action == 'delete' then
+          -- `delete()` reads `entity.id`, which the line above just set, and
+          -- reaches `entity_after_delete` -- so `content_public` loses its row
+          -- and the source version moves without anything further here.
+          _, err = delete(parsed)
         end
 
         if err then
@@ -431,6 +457,7 @@ function save_service()
           output.id = id
           output.success = true
         end
+      end
     end
   end
 

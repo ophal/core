@@ -659,6 +659,11 @@ VALUES('authenticated', 'access tags', 'tag')]]},
 VALUES('authenticated', 'create content', 'content')]]},
   {[[INSERT INTO role_permission(role_id, permission, module)
 VALUES('authenticated', 'edit own content', 'content')]]},
+  -- Seeded 2026-09-11, with the delete arm of `content/save`. Without it the
+  -- delete scenarios would answer 401 and pass a suite that only ever asserted
+  -- refusal, which is the shape a missing permission always takes.
+  {[[INSERT INTO role_permission(role_id, permission, module)
+VALUES('authenticated', 'delete own content', 'content')]]},
 
   -- `tag/service` creates a row of its own, which no other scenario exercises:
   -- the authoring test attaches an existing tag by id. That is how the `tag`

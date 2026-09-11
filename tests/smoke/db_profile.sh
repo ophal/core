@@ -1338,6 +1338,98 @@ assert_not_contains "$UNPUBLISHED_BODY"
 assert_not_contains "$UNPUBLISHED_TITLE"
 report_ok db_unpublished_content_denied_anonymously
 
+#[[ Content can be deleted over HTTP, as of 2026-09-11.
+#
+# Down here with the other writers, below every pinned budget, for the reason
+# the block above gives: these create and delete rows, which moves the content
+# and tag projections that scenarios further up measure warm.
+#
+# `modules/content` registers `content` and `content/save` and nothing else, and
+# `save_service()` had `create` and `update` arms and no `delete` -- so with
+# `modules/entity` disabled, and it is disabled in every settings file that
+# ships, content deletion had no route at all. The `content.delete` statement
+# and the module's own `delete()` both already existed; only the arm was
+# missing.
+DELETE_TITLE='SMOKE_DELETE_TITLE_MARKER'
+DELETE_BODY='SMOKE_DELETE_BODY_MARKER'
+
+run_request db_content_delete_create -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  -H "X-CSRF-Token: $author_csrf" \
+  --data-binary "{\"title\":\"$DELETE_TITLE\",\"teaser\":\"$DELETE_BODY\",\"body\":\"$DELETE_BODY\",\"status\":true,\"promote\":true}" \
+  "$DB_URL/content/save"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"success" *: *true'
+doomed_id=$(printf '%s\n' "$LAST_OUTPUT" | sed -n 's/.*"id" *: *\([0-9][0-9]*\).*/\1/p' | tail -n 1)
+[[ -n "$doomed_id" ]] || fail 'content save before the delete reported no id'
+report_ok db_content_delete_create
+
+# Promoted and published, so it is on the front page -- which is what makes the
+# projection half of the delete visible. `entity_after_delete` drops the
+# `content_public` row and moves the source version; if it did not, the title
+# would survive here while the content page 404ed.
+run_request db_content_delete_on_frontpage "$DB_URL/"
+assert_status_zero
+assert_contains "$DELETE_TITLE"
+report_ok db_content_delete_on_frontpage
+
+run_request db_content_delete -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  -H "X-CSRF-Token: $author_csrf" \
+  --data-binary '{"action":"delete"}' \
+  "$DB_URL/content/save/$doomed_id"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_regex '"success" *: *true'
+report_ok db_content_delete
+
+run_request db_content_deleted_is_gone "$DB_URL/content/$doomed_id"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+assert_not_contains "$DELETE_BODY"
+assert_not_contains "$DELETE_TITLE"
+report_ok db_content_deleted_is_gone
+
+run_request db_content_deleted_left_the_frontpage "$DB_URL/"
+assert_status_zero
+assert_not_contains "$DELETE_TITLE"
+report_ok db_content_deleted_left_the_frontpage
+
+# Existence before access, the same order the update arm already had. In the
+# other order `entity_access()`'s delete branch indexes a nil `entity.user_id`
+# and the dispatcher renders the raise.
+run_request db_content_delete_missing_is_404 -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  -H "X-CSRF-Token: $author_csrf" \
+  --data-binary '{"action":"delete"}' \
+  "$DB_URL/content/save/9999"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 404'
+assert_regex '"success" *: *false'
+assert_contains 'No such content.'
+report_ok db_content_delete_missing_is_404
+
+# And ownership is what the permission rests on. `smokeauthor` is user 2 and
+# holds `delete own content` but not `administer content`; content 1 belongs to
+# user 1. Without this, a delete arm that granted to anybody signed in would
+# pass every assertion above.
+run_request db_content_delete_not_owned_is_denied -c "$author_cookie" -b "$author_cookie" \
+  -H 'Content-Type: application/json' \
+  -H "X-CSRF-Token: $author_csrf" \
+  --data-binary '{"action":"delete"}' \
+  "$DB_URL/content/save/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 401'
+report_ok db_content_delete_not_owned_is_denied
+
+# ... and it is still there, which is the half that says the 401 refused the
+# work rather than merely the answer.
+run_request db_content_not_owned_survived_the_delete "$DB_URL/content/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+report_ok db_content_not_owned_survived_the_delete
+
 # The injection probe, against this profile's backend.
 #
 # Last in the profile, so nothing it creates can move a budget measured above

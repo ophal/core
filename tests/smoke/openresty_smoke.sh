@@ -604,6 +604,22 @@ prepare_db_tree() {
   # for.
   cp "$ROOT/modules/comment/comment.tpl.html" "$SMOKE_DB_DOCROOT/themes/basic/"
 
+  #[[ A menu, rendered into the page shell.
+  #
+  # `modules/menu` was in no profile, and it is worse than untested: **nothing
+  # in the repository renders a menu**. `theme.menu` is defined only by that
+  # module, and the one caller of `theme{'menu', ...}` is `modules/tag`'s
+  # `theme.tags_menu()`, which no shipped template calls. So enabling the module
+  # is not enough -- the profile's theme has to ask for a menu, which is what
+  # this does.
+  #
+  # `primary_links` rather than `tags_menu`: `menus_alter` builds the tags
+  # closure but does not run it, so this adds no query and every pinned budget
+  # above stays where it is. That is the assertion -- if one moves, the menu is
+  # doing database work.
+  sed -i "s|<h1 class=\"title\">|<div id=\"nav\"><?lua print_t{'menu', id = 'primary_links'} ?></div>\n<h1 class=\"title\">|" \
+    "$SMOKE_DB_DOCROOT/themes/basic/html.tpl.html"
+
   # This profile has no scenario switch. It is one configuration -- database on,
   # content, user and tag enabled, front page served by the content module --
   # because the whole point of a second instance is that its worker warms up
@@ -659,6 +675,9 @@ return function(settings, vault)
     tag = true,
     file = true,
     comment = true,
+    -- On here since 2026-09-11, with the menu rendered into this profile's
+    -- page shell. `modules/menu` had been in no profile at all.
+    menu = true,
   }
 
   --[[ Comments are enabled here as of 2026-09-09, and the reason is coverage
@@ -1135,7 +1154,7 @@ report_ok() {
 # to come back from each; a profile that ran fewer would otherwise disappear
 # into a single global total, which is the failure the count exists to catch.
 EXPECTED_BASE_SCENARIOS=32
-EXPECTED_DB_SCENARIOS=98
+EXPECTED_DB_SCENARIOS=102
 SCENARIO_COUNT=0
 
 # Reset per profile by `db_profile_begin`; the label prefixes each `ok` line so

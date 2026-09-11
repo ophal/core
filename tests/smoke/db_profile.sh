@@ -1287,6 +1287,45 @@ if [[ "$(wc -c < "$SMOKE_DB_FILES/.incoming/$ordered_id")" != '4104' ]]; then
 fi
 report_ok db_media_ordered_kept_both
 
+#[[ The menu renders, which `modules/menu` had never been asked to do.
+#
+# Above the barrier because neither of these writes -- and because the point is
+# partly that they change no budget: `menus_alter` builds `tags_menu` as a
+# closure and does not call it, so rendering `primary_links` costs no query.
+run_request db_menu_renders "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains '<nav id="menu_primary_links">'
+report_ok db_menu_renders
+
+#[[ And what is in it depends on who is asking.
+#
+# `modules/tag`'s `menus_alter()` adds the `Tags` link only for a signed-in
+# visitor, which is the only conditional the menu system has. An anonymous
+# visitor must not see it and the author must.
+assert_not_contains '>Tags<'
+report_ok db_menu_is_empty_for_anonymous
+
+run_request db_author_menu_has_tags -c "$author_cookie" -b "$author_cookie" "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains '<nav id="menu_primary_links">'
+assert_contains '>Tags<'
+report_ok db_author_menu_has_tags
+
+#[[ And the other direction, which is the one that leaks.
+#
+# The menu was worker state: whichever request warmed the worker decided it for
+# every request after. This scenario follows a signed-in one deliberately, so a
+# regression to that caching shows up as an authenticated menu item served to
+# an anonymous visitor rather than merely as a missing one.
+run_request db_menu_not_leaked_to_anonymous "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains '<nav id="menu_primary_links">'
+assert_not_contains '>Tags<'
+report_ok db_menu_not_leaked_to_anonymous
+
 #[[ The last pinned budget is above this line.
 #
 # Everything below writes, and a write moves a projection version -- which is a

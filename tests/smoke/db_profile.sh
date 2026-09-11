@@ -659,6 +659,9 @@ assert_contains 'comment-body'
 # `db_comment_stale_read_is_refused` below red as well.
 assert_not_regex '[Ee][Tt]ag:'
 assert_not_regex 'cache-control:.*public'
+# Kept for the row-count comparison far below, which asks whether this number
+# moves when the same entity carries thirty-three comments instead of one.
+comment_fetch_normalized=$MEASURED_NORMALIZED
 report_ok "db_comment_fetch (total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 #[[ The end-to-end half: a changed comment is never answered with a 304.
@@ -1527,6 +1530,63 @@ run_request db_content_not_owned_survived_the_delete "$DB_URL/content/1"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 report_ok db_content_not_owned_survived_the_delete
+
+#[[ Does `comment/fetch` scale with the number of comments? -- 2026-09-11.
+#
+# `TODO.md` has a comment projection down as "no longer an argument without a
+# number: the fetch service measures 2 queries total, 1 normalized... the number
+# is small, so this is not urgent". That number was taken at **one** comment,
+# which says nothing about the shape: the service reads normalized `comment`
+# once and then calls `user_mod.load(row.user_id)` per row, so whether it is
+# flat or linear depends entirely on the user module's per-worker cache.
+#
+# Finding 3c sharpened the question rather than answering it. The endpoint is
+# explicitly uncacheable now -- a response built from a normalized table gets no
+# validator -- so every request reaches Ophal and no intermediary absorbs any of
+# it. Whatever this costs, a site pays it per request.
+#
+# Below the barrier because it writes 32 rows.
+run_request db_comment_bulk_seed \
+  "$DB_URL/__smoke__?scenario=comment_seed&entity_id=1&count=32&authors=2"
+assert_status_zero
+assert_contains 'SMOKE_COMMENTS_CREATED=32'
+report_ok db_comment_bulk_seed
+
+# Warm: the accounts are in the user module's cache, so the per-row load costs
+# nothing and the fetch is the same two queries it was at one comment.
+measure_request db_comment_fetch_many "$DB_URL/comment/fetch/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_BULK_COMMENT_32'
+#[[ The assertion is a *comparison*, not a pinned number.
+#
+# Everything down here has written, so an absolute budget would be exactly what
+# `budget_barrier` refuses -- and the claim is not "this costs N" anyway, it is
+# "this costs the same at 33 rows as at 1". That is what a projection would or
+# would not be buying.
+[[ "$MEASURED_NORMALIZED" -eq "$comment_fetch_normalized" ]] ||
+  fail "comment/fetch normalized reads scale with rows: $comment_fetch_normalized at 1 comment, $MEASURED_NORMALIZED at 33"
+report_ok "db_comment_fetch_many (33 rows: total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
+
+# Cold: the same request with the user caches dropped, which is what a worker
+# that has just started answers. This is the number the projection question
+# actually turns on -- one account read per *distinct* author, not per row.
+run_request db_comment_user_cache_cleared \
+  "$DB_URL/__smoke__?scenario=user_cache_clear"
+assert_status_zero
+assert_contains 'SMOKE_USER_CACHE_CLEARED=1'
+report_ok db_comment_user_cache_cleared
+
+measure_request db_comment_fetch_many_cold "$DB_URL/comment/fetch/1"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_contains 'SMOKE_BULK_COMMENT_32'
+# It must cost *more* than the warm one, or the cache clear did nothing and the
+# comparison above proves nothing either -- a scenario that cannot tell a warm
+# worker from a cold one would report "flat in rows" whatever the code did.
+[[ "$MEASURED_NORMALIZED" -gt "$comment_fetch_normalized" ]] ||
+  fail "the cold fetch cost no more than the warm one ($MEASURED_NORMALIZED); the user cache clear did nothing"
+report_ok "db_comment_fetch_many_cold (33 rows, 2 authors: total=$MEASURED_TOTAL normalized=$MEASURED_NORMALIZED)"
 
 # The injection probe, against this profile's backend.
 #

@@ -152,6 +152,51 @@ local scenarios = {
       })
     end)
   end,
+  --[[ Comments in bulk, for the measurement `TODO.md`'s projection entry waits
+    on: does `comment/fetch` scale with the number of comments, and with the
+    number of distinct authors among them?
+
+    They go in through the module rather than through the service, because the
+    service is the thing being measured -- creating 32 comments through it
+    would be measuring 32 writes.
+  ]]
+  comment_seed = function()
+    return run_bootstrap(function()
+      local comment = ophal.modules.comment
+      local entity_id = tonumber(query_arg('entity_id') or '') or 1
+      local count = tonumber(query_arg('count') or '') or 1
+      local authors = tonumber(query_arg('authors') or '') or 1
+      local created = 0
+
+      for i = 1, count do
+        comment.create({
+          entity_id = entity_id,
+          -- Cycled over the seeded accounts, so "how many distinct authors"
+          -- is a parameter rather than an accident of the fixtures.
+          user_id = 1 + ((i - 1) % authors),
+          body = ('SMOKE_BULK_COMMENT_%d'):format(i),
+          language = 'en',
+          status = 1,
+        })
+        created = created + 1
+      end
+
+      write(render{
+        'SMOKE_COMMENTS_CREATED=' .. tostring(created),
+      })
+    end)
+  end,
+  --[[ Drop the user module's per-worker caches, so the next request pays the
+    cold price. One worker in this profile, which is what makes a clear here
+    visible to a request after it.
+  ]]
+  user_cache_clear = function()
+    return run_bootstrap(function()
+      ophal.modules.user.cache_clear()
+
+      write(render{'SMOKE_USER_CACHE_CLEARED=1'})
+    end)
+  end,
   stale_projection = function()
     return run_bootstrap(function()
       local projection = require 'includes.projection'

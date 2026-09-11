@@ -1278,13 +1278,26 @@ if [[ "$(wc -c < "$SMOKE_DB_FILES/.incoming/$ordered_id")" != '4104' ]]; then
 fi
 report_ok db_media_ordered_kept_both
 
+#[[ The last pinned budget is above this line.
+#
+# Everything below writes, and a write moves a projection version -- which is a
+# unix second, so whether it lands inside the next reader's second is timing.
+# That is how three content-creating scenarios inserted mid-file on 2026-09-10
+# moved `db_tag_after_update` from 1 normalized read to 4 on MySQL, in one run
+# out of several.
+#
+# `budget_barrier` makes the rule enforceable in the one direction bash can see:
+# a budget asserted from here on fails the suite naming the scenario. Adding a
+# scenario below is free; pinning a budget below is a deliberate move of this
+# line.
+budget_barrier
+
 #[[ Unpublished content is not readable by a visitor who does not own it.
 #
-# Near the end of the profile, above the injection probe and below every pinned
-# budget, because it **creates content**: the first version of this sat after
-# `db_content_page_after_update` and moved `db_tag_after_update` from 1
-# normalized read to 4, by invalidating the tag projection the scenario below it
-# was measuring warm.
+# Below the barrier, because it **creates content**: the first version of this
+# sat after `db_content_page_after_update` and moved `db_tag_after_update` from
+# 1 normalized read to 4, by invalidating the tag projection the scenario below
+# it was measuring warm.
 #
 # `modules/content`'s `entity_page()` guards the render with
 #

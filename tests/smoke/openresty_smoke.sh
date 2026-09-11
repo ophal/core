@@ -528,6 +528,7 @@ db_profile_begin() {
 
   PROFILE_COUNT=0
   PROFILE_LABEL="$backend"
+  BUDGETS_CLOSED=''
 }
 
 # Runs a Lua program with this profile's environment, under `resty`.
@@ -1096,6 +1097,7 @@ SCENARIO_COUNT=0
 # a failure names the backend it happened on.
 PROFILE_COUNT=0
 PROFILE_LABEL=''
+BUDGETS_CLOSED=''
 DB_PROFILES_RUN=0
 DB_PROFILES_RAN=''
 DB_PROFILES_SKIPPED=''
@@ -1539,6 +1541,8 @@ measure_fs_request() {
 # one of them moved the file through Lua and the other moved a directory entry.
 assert_fs_budget() {
   local e_open=$1 e_read=$2 e_write=$3 e_rename=$4 e_remove=$5 e_bytes=$6
+
+  budgets_are_closed
   local measured="open=$FS_OPEN read=$FS_READ write=$FS_WRITE rename=$FS_RENAME remove=$FS_REMOVE bytes=$FS_BYTES"
 
   [[ "$FS_OPEN" -eq "$e_open" ]] || fail "expected $e_open opens; $measured"
@@ -1559,6 +1563,8 @@ assert_fs_budget() {
 # leave the budget describing less work than the request does.
 assert_session_fs_budget() {
   local e_open=$1 e_read=$2 e_write=$3 e_rename=$4 e_remove=$5 e_bytes=$6
+
+  budgets_are_closed
   local measured="open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE rename=$FS_S_RENAME remove=$FS_S_REMOVE bytes=$FS_S_BYTES"
 
   [[ "$FS_S_OPEN" -eq "$e_open" ]] || fail "expected $e_open session opens; $measured"
@@ -1603,8 +1609,41 @@ measure_request() {
 # should touch the queue or the migration ledger unless it says so. A scenario
 # that expects an enqueue names the number; every other scenario asserts the
 # absence of one by saying nothing.
+#[[ Close the budgets. Everything below this line may write.
+#
+# A pinned budget is a statement about warm caches, and every projection in
+# this codebase is versioned by the **unix second** its source last changed --
+# so whether a write lands inside the next reader's second is timing. Three
+# content-creating scenarios inserted after `db_content_page_after_update` on
+# 2026-09-10 moved `db_tag_after_update` from 1 normalized read to 4 by
+# invalidating the tag projection it measures warm, and it showed up on MySQL
+# only, in one run. A suite that catches that probabilistically does not catch
+# it.
+#
+# So: **a scenario that writes goes below the barrier**, which is where a new
+# scenario naturally lands anyway, and a budget asserted below it is refused
+# rather than quietly trusted. Moving the barrier down is a deliberate edit
+# visible in the diff, the way `EXPECTED_DB_SCENARIOS` is.
+#
+# Bash cannot see that a scenario writes, so this enforces the half that is
+# enforceable. The other half is the sentence above.
+budget_barrier() {
+  BUDGETS_CLOSED=1
+}
+
+budgets_are_closed() {
+  [[ -n "$BUDGETS_CLOSED" ]] &&
+    fail "$LAST_SCENARIO: a budget is pinned below budget_barrier, where an
+  earlier scenario's write may already have moved it. Move the scenario above
+  the barrier, or move the barrier below it if the budget is genuinely
+  independent of everything between."
+  return 0
+}
+
 assert_query_budget() {
   local expected_total=$1 expected_normalized=$2 expected_infrastructure=${3:-0}
+
+  budgets_are_closed
 
   [[ "$MEASURED_NORMALIZED" -eq "$expected_normalized" ]] ||
     fail "expected $expected_normalized normalized queries, measured $MEASURED_NORMALIZED

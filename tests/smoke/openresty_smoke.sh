@@ -1540,103 +1540,147 @@ read_db_stats() {
 
 # The filesystem counterpart of `read_db_stats`, and cumulative in the same way:
 # the difference between two probes is what the requests between them cost.
+#[[ The filesystem counters, read from the non-bootstrapping probe.
+#
+# Three buckets and seven ops, walked rather than spelled out. They used to be
+# written one variable per term, which is why adding `rename` for the session
+# store touched nine call sites and adding `stat` for the render bucket would
+# have touched them again. `includes/fs/stats.lua` names its ops in one list;
+# so does this.
+FS_BUCKETS=(media session render)
+FS_OPS=(stat open read write rename remove bytes)
+
+fs_marker_prefix() {
+  case "$1" in
+    media) printf 'SMOKE_FS' ;;
+    session) printf 'SMOKE_FS_SESSION' ;;
+    render) printf 'SMOKE_FS_RENDER' ;;
+    *) fail "fs stats: unknown bucket '$1'" ;;
+  esac
+}
+
+# The variable-name stem for a bucket: `FS_M_OPEN`, `FS_S_OPEN`, `FS_R_STAT`.
+fs_var_prefix() {
+  case "$1" in
+    media) printf 'FS_M' ;;
+    session) printf 'FS_S' ;;
+    render) printf 'FS_R' ;;
+    *) fail "fs stats: unknown bucket '$1'" ;;
+  esac
+}
+
 read_fs_stats() {
   local saved_scenario=$LAST_SCENARIO
+  local bucket op marker value
 
   run_request fs_stats_probe "$DB_URL/__smoke__?scenario=fs_stats"
-  assert_status_zero
-  assert_regex '^HTTP/1\.[01] 200'
-  FS_STATS_OPEN=$(extract_marker 'SMOKE_FS_OPEN')
-  FS_STATS_READ=$(extract_marker 'SMOKE_FS_READ')
-  FS_STATS_WRITE=$(extract_marker 'SMOKE_FS_WRITE')
-  FS_STATS_RENAME=$(extract_marker 'SMOKE_FS_RENAME')
-  FS_STATS_REMOVE=$(extract_marker 'SMOKE_FS_REMOVE')
-  FS_STATS_BYTES=$(extract_marker 'SMOKE_FS_BYTES')
-  FS_STATS_S_OPEN=$(extract_marker 'SMOKE_FS_SESSION_OPEN')
-  FS_STATS_S_READ=$(extract_marker 'SMOKE_FS_SESSION_READ')
-  FS_STATS_S_WRITE=$(extract_marker 'SMOKE_FS_SESSION_WRITE')
-  FS_STATS_S_RENAME=$(extract_marker 'SMOKE_FS_SESSION_RENAME')
-  FS_STATS_S_REMOVE=$(extract_marker 'SMOKE_FS_SESSION_REMOVE')
-  FS_STATS_S_BYTES=$(extract_marker 'SMOKE_FS_SESSION_BYTES')
-  [[ -n "$FS_STATS_OPEN" && -n "$FS_STATS_BYTES" && -n "$FS_STATS_S_OPEN" ]] ||
-    fail 'filesystem stats probe reported nothing'
+
+  for bucket in "${FS_BUCKETS[@]}"; do
+    for op in "${FS_OPS[@]}"; do
+      marker="$(fs_marker_prefix "$bucket")_$(printf '%s' "$op" | tr '[:lower:]' '[:upper:]')"
+      value=$(extract_marker "$marker")
+      [[ -n "$value" ]] ||
+        fail "filesystem stats probe reported no $marker"
+      printf -v "TOTAL_$(fs_var_prefix "$bucket")_$(printf '%s' "$op" | tr '[:lower:]' '[:upper:]')" '%s' "$value"
+    done
+  done
+
   LAST_SCENARIO=$saved_scenario
 }
 
 measure_fs_request() {
   local name=$1
   shift
-  local b_open b_read b_write b_rename b_remove b_bytes
-  local bs_open bs_read bs_write bs_remove bs_bytes
+  local bucket op var total_var
   local measured_output measured_status
+  declare -A before=()
 
   read_fs_stats
-  b_open=$FS_STATS_OPEN; b_read=$FS_STATS_READ; b_write=$FS_STATS_WRITE
-  b_rename=$FS_STATS_RENAME; b_remove=$FS_STATS_REMOVE; b_bytes=$FS_STATS_BYTES
-  bs_open=$FS_STATS_S_OPEN; bs_read=$FS_STATS_S_READ; bs_write=$FS_STATS_S_WRITE
-  bs_rename=$FS_STATS_S_RENAME
-  bs_remove=$FS_STATS_S_REMOVE; bs_bytes=$FS_STATS_S_BYTES
+  for bucket in "${FS_BUCKETS[@]}"; do
+    for op in "${FS_OPS[@]}"; do
+      total_var="TOTAL_$(fs_var_prefix "$bucket")_$(printf '%s' "$op" | tr '[:lower:]' '[:upper:]')"
+      before["$bucket:$op"]=${!total_var}
+    done
+  done
 
   run_request "$name" "$@"
   measured_output=$LAST_OUTPUT
   measured_status=$LAST_STATUS
 
   read_fs_stats
-  FS_OPEN=$((FS_STATS_OPEN - b_open))
-  FS_READ=$((FS_STATS_READ - b_read))
-  FS_WRITE=$((FS_STATS_WRITE - b_write))
-  FS_RENAME=$((FS_STATS_RENAME - b_rename))
-  FS_REMOVE=$((FS_STATS_REMOVE - b_remove))
-  FS_BYTES=$((FS_STATS_BYTES - b_bytes))
-  FS_S_OPEN=$((FS_STATS_S_OPEN - bs_open))
-  FS_S_READ=$((FS_STATS_S_READ - bs_read))
-  FS_S_WRITE=$((FS_STATS_S_WRITE - bs_write))
-  FS_S_RENAME=$((FS_STATS_S_RENAME - bs_rename))
-  FS_S_REMOVE=$((FS_STATS_S_REMOVE - bs_remove))
-  FS_S_BYTES=$((FS_STATS_S_BYTES - bs_bytes))
+  for bucket in "${FS_BUCKETS[@]}"; do
+    for op in "${FS_OPS[@]}"; do
+      var="$(fs_var_prefix "$bucket")_$(printf '%s' "$op" | tr '[:lower:]' '[:upper:]')"
+      total_var="TOTAL_$var"
+      printf -v "$var" '%s' "$(( ${!total_var} - ${before["$bucket:$op"]} ))"
+    done
+  done
 
   LAST_OUTPUT=$measured_output
   LAST_STATUS=$measured_status
   LAST_SCENARIO=$name
 }
 
-# `bytes` is the number that carries the argument. Ops alone would rate a rename
-# and a read-then-write copy of the same file as comparable; bytes is what says
-# one of them moved the file through Lua and the other moved a directory entry.
-assert_fs_budget() {
-  local e_open=$1 e_read=$2 e_write=$3 e_rename=$4 e_remove=$5 e_bytes=$6
+# Formats one bucket's measured terms for a message or an `ok` line.
+fs_measured() {
+  local bucket=$1 op var out=''
 
-  budgets_are_closed
-  local measured="open=$FS_OPEN read=$FS_READ write=$FS_WRITE rename=$FS_RENAME remove=$FS_REMOVE bytes=$FS_BYTES"
+  for op in "${FS_OPS[@]}"; do
+    var="$(fs_var_prefix "$bucket")_$(printf '%s' "$op" | tr '[:lower:]' '[:upper:]')"
+    out+="$op=${!var} "
+  done
 
-  [[ "$FS_OPEN" -eq "$e_open" ]] || fail "expected $e_open opens; $measured"
-  [[ "$FS_READ" -eq "$e_read" ]] || fail "expected $e_read reads; $measured"
-  [[ "$FS_WRITE" -eq "$e_write" ]] || fail "expected $e_write writes; $measured"
-  [[ "$FS_RENAME" -eq "$e_rename" ]] || fail "expected $e_rename renames; $measured"
-  [[ "$FS_REMOVE" -eq "$e_remove" ]] || fail "expected $e_remove removes; $measured"
-  [[ "$FS_BYTES" -eq "$e_bytes" ]] || fail "expected $e_bytes bytes through Lua; $measured"
+  printf '%s' "${out% }"
 }
 
-# The session bucket, asserted apart from the media one. A media request opens a
-# session too, so one set of counters would make every media budget a statement
-# about sessions as well -- and moving one would move the other.
+#[[ One filesystem budget helper, taking the bucket and named terms.
 #
-# `rename` joined the list when the session store did. Until then only the media
-# path renamed anything, so the session helper had no term for it -- and the one
-# syscall the lock-free store turns on would have gone uncounted, which would
-# leave the budget describing less work than the request does.
-assert_session_fs_budget() {
-  local e_open=$1 e_read=$2 e_write=$3 e_rename=$4 e_remove=$5 e_bytes=$6
+#   assert_fs_budget media  open=2 write=1 bytes=8
+#   assert_fs_budget render stat=6
+#
+# **An unstated term asserts zero**, which is what keeps a budget a statement
+# about absence as well as presence -- the property the positional form had and
+# the reason it is worth preserving. What the positional form did not have is
+# room to grow: `rename` joined when the session store landed and moved every
+# call site, and `stat` would have moved them all again.
+#
+# The bucket is named at the call site for the reason `includes/fs/stats.lua`
+# names it at every `record()` and every `snapshot()`: a media request opens a
+# session and renders a page, so a budget that does not say which path it
+# describes quietly starts describing three.
+assert_fs_budget() {
+  local bucket=$1
+  shift
+  local term op value measured
+  declare -A expected=()
 
   budgets_are_closed
-  local measured="open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE rename=$FS_S_RENAME remove=$FS_S_REMOVE bytes=$FS_S_BYTES"
 
-  [[ "$FS_S_OPEN" -eq "$e_open" ]] || fail "expected $e_open session opens; $measured"
-  [[ "$FS_S_READ" -eq "$e_read" ]] || fail "expected $e_read session reads; $measured"
-  [[ "$FS_S_WRITE" -eq "$e_write" ]] || fail "expected $e_write session writes; $measured"
-  [[ "$FS_S_RENAME" -eq "$e_rename" ]] || fail "expected $e_rename session renames; $measured"
-  [[ "$FS_S_REMOVE" -eq "$e_remove" ]] || fail "expected $e_remove session removes; $measured"
-  [[ "$FS_S_BYTES" -eq "$e_bytes" ]] || fail "expected $e_bytes session bytes through Lua; $measured"
+  case "$bucket" in
+    media|session|render) ;;
+    *) fail "assert_fs_budget: unknown bucket '$bucket'" ;;
+  esac
+
+  for op in "${FS_OPS[@]}"; do
+    expected["$op"]=0
+  done
+
+  for term in "$@"; do
+    op=${term%%=*}
+    value=${term#*=}
+    [[ "$term" == *=* && -n "${expected[$op]+set}" ]] ||
+      fail "assert_fs_budget: unknown term '$term' (ops: ${FS_OPS[*]})"
+    expected["$op"]=$value
+  done
+
+  measured=$(fs_measured "$bucket")
+
+  for op in "${FS_OPS[@]}"; do
+    value="$(fs_var_prefix "$bucket")_$(printf '%s' "$op" | tr '[:lower:]' '[:upper:]')"
+    [[ "${!value}" -eq "${expected[$op]}" ]] ||
+      fail "expected ${expected[$op]} $bucket $op, measured ${!value}
+  $bucket: $measured"
+  done
 }
 
 # Runs one request between two probes and leaves the request's own response in

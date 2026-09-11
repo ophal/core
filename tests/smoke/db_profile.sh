@@ -164,18 +164,18 @@ assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 sessions_after=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
 sessions_created=$((sessions_after - sessions_before))
-assert_fs_budget 0 0 0 0 0 0
+assert_fs_budget media
 # Was 1/1/1/1 and 112 bytes, then 27 once the CSRF token stopped being minted in
 # `init_js()`, and is zero since sessions became lazy: a visitor who presents no
 # cookie is given no id, no cookie and no file until something writes into
 # `_SESSION`, and nothing on this page does.
-assert_session_fs_budget 0 0 0 0 0 0
+assert_fs_budget session
 [[ "$sessions_created" -eq 0 ]] ||
   fail "expected the anonymous request to leave no session file; left $sessions_created"
 # The half that Phase 9 depends on. A response carrying a per-visitor cookie can
 # never be shared by a downstream cache, whatever Cache-Control says.
 assert_not_contains 'session-id='
-report_ok "db_anonymous_session_cost (open=$FS_S_OPEN read=$FS_S_READ write=$FS_S_WRITE rename=$FS_S_RENAME remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
+report_ok "db_anonymous_session_cost ($(fs_measured session) files=+$sessions_created)"
 
 #[[ And the other half: a session that is *needed* is still created.
 #
@@ -202,8 +202,8 @@ sessions_created=$((sessions_after - sessions_before))
 # 81 bytes rather than 95. The payload is the same CSRF token; JSON is shorter
 # than the `'return ' .. table_dump` Lua this used to write, and it is not
 # executable.
-assert_session_fs_budget 1 0 1 1 0 81
-report_ok "db_anonymous_session_on_demand (open=$FS_S_OPEN write=$FS_S_WRITE rename=$FS_S_RENAME remove=$FS_S_REMOVE bytes=$FS_S_BYTES files=+$sessions_created)"
+assert_fs_budget session open=1 write=1 rename=1 bytes=81
+report_ok "db_anonymous_session_on_demand ($(fs_measured session) files=+$sessions_created)"
 
 #[[ A well-formed id the server holds no file for buys nothing.
 #
@@ -230,7 +230,7 @@ sessions_before=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/n
 measure_fs_request db_stale_session_cookie_costs_nothing -b "session-id=$stale_session_id" "$DB_URL/"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
-assert_session_fs_budget 1 0 0 0 0 0
+assert_fs_budget session open=1
 sessions_after=$(find "$SMOKE_DB_SESSIONS" -maxdepth 1 -name '*.ophal' 2>/dev/null | wc -l)
 sessions_created=$((sessions_after - sessions_before))
 [[ "$sessions_created" -eq 0 ]] ||
@@ -242,7 +242,7 @@ assert_not_regex '[Ss]et-[Cc]ookie:'
 # Treated as the anonymous request it is.
 assert_regex '[Ee][Tt]ag:'
 assert_regex 'cache-control:.*public'
-report_ok "db_stale_session_cookie_costs_nothing (open=$FS_S_OPEN write=$FS_S_WRITE rename=$FS_S_RENAME bytes=$FS_S_BYTES files=+$sessions_created)"
+report_ok "db_stale_session_cookie_costs_nothing ($(fs_measured session) files=+$sessions_created)"
 
 measure_request db_content_warm "$DB_URL/content/1"
 assert_status_zero
@@ -1088,8 +1088,8 @@ assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
 # Two opens because this chunk is the one that finds no file yet: `r+` misses,
 # `w+` creates. Every later chunk costs one. The write goes straight to the
 # chunk's own offset in the assembled file, so nothing will read it back.
-assert_fs_budget 2 0 1 0 0 8
-report_ok "db_media_chunk_one (open=$FS_OPEN write=$FS_WRITE bytes=$FS_BYTES)"
+assert_fs_budget media open=2 write=1 bytes=8
+report_ok "db_media_chunk_one ($(fs_measured media))"
 
 measure_fs_request db_media_chunk_two \
   -c "$SMOKE_DB_WORK/media-cookie.txt" -b "$SMOKE_DB_WORK/media-cookie.txt" \
@@ -1100,8 +1100,8 @@ assert_status_zero
 assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
 # One open, because the file the first chunk created is still there. `r+` is
 # what keeps a retried chunk from truncating everything already assembled.
-assert_fs_budget 1 0 1 0 0 3
-report_ok "db_media_chunk_two (open=$FS_OPEN write=$FS_WRITE bytes=$FS_BYTES)"
+assert_fs_budget media open=1 write=1 bytes=3
+report_ok "db_media_chunk_two ($(fs_measured media))"
 
 measure_fs_request db_media_merge \
   -c "$SMOKE_DB_WORK/media-cookie.txt" -b "$SMOKE_DB_WORK/media-cookie.txt" \
@@ -1120,10 +1120,10 @@ assert_contains 'SMOKE_MERGED_FILE=AAAAAAAABBB'
 #
 # Zero is the assertion that matters here. Any reintroduction of a read-back
 # pass shows up in `read` and `bytes` immediately, whatever shape it takes.
-assert_fs_budget 0 0 0 1 0 0
+assert_fs_budget media rename=1
 media_file_id=$(extract_marker 'SMOKE_MERGE_ID')
 [[ -n "$media_file_id" ]] || fail 'finalize registered no file row'
-report_ok "db_media_merge (open=$FS_OPEN read=$FS_READ write=$FS_WRITE bytes=$FS_BYTES)"
+report_ok "db_media_merge ($(fs_measured media))"
 
 # The row is written by finalize; identifying the file is not. Reading the file
 # to work out its type is the unbounded half, and it is the half that moves --
@@ -1228,8 +1228,8 @@ assert_status_zero
 assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
 # Zero bytes through Lua for a 4k body, against `open=2 write=1 bytes=4096` on
 # the path a small body still takes. One rename is the whole cost.
-assert_fs_budget 0 0 0 1 0 0
-report_ok "db_media_spilled_body (rename=$FS_RENAME bytes=$FS_BYTES)"
+assert_fs_budget media rename=1
+report_ok "db_media_spilled_body ($(fs_measured media))"
 
 run_request db_media_spilled_finalize \
   -c "$SMOKE_DB_WORK/media-cookie.txt" -b "$SMOKE_DB_WORK/media-cookie.txt" \
@@ -1276,8 +1276,8 @@ measure_fs_request db_media_ordered_first \
 assert_status_zero
 assert_contains 'SMOKE_UPLOAD_SUCCESS=true'
 # The copy, not the rename, even though the body was spilled and the index is 0.
-assert_fs_budget 1 0 1 0 0 4096
-report_ok "db_media_ordered_first (open=$FS_OPEN write=$FS_WRITE rename=$FS_RENAME bytes=$FS_BYTES)"
+assert_fs_budget media open=1 write=1 bytes=4096
+report_ok "db_media_ordered_first ($(fs_measured media))"
 
 # Chunk 1 sat at offset 8, so the assembled file runs past chunk 0's 4096 bytes.
 # If the rename had won, the file would be exactly 4096 and chunk 1 would be

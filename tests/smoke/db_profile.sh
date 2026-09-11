@@ -1287,6 +1287,43 @@ if [[ "$(wc -c < "$SMOKE_DB_FILES/.incoming/$ordered_id")" != '4104' ]]; then
 fi
 report_ok db_media_ordered_kept_both
 
+#[[ What a page render costs the filesystem, which nothing could state before.
+#
+# `TODO.md` has ranked "template and asset metadata misses" as an optimization
+# with no measurement behind it for as long as it has existed, and said so
+# itself: there was no bucket, so there was no budget, so the entry was an
+# argument. `includes/fs/stats.lua` has a `render` bucket since 2026-09-11 and
+# this is the number.
+#
+# **A warm render is 14 stats and nothing else.** No open, no read, no byte
+# through Lua: every template is already compiled and cached by path and mtime,
+# and all the request does is ask whether each one has changed. The stat TTL is
+# 0 in this profile, so that is one stat per template and asset touched rather
+# than a figure that depends on how fast the harness ran -- see the settings
+# comment for why.
+measure_fs_request db_render_warm "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+assert_fs_budget render stat=14
+report_ok "db_render_warm ($(fs_measured render))"
+
+#[[ And what a compile miss adds, which is the half the entry was about.
+#
+# Touching the templates moves their mtime, which is the compile cache's key,
+# so the next render re-opens and re-reads every one of them. That is the cost
+# a deployment pays on its first request after an upload -- and, before the
+# compile cache existed, on every request.
+find "$SMOKE_DB_DOCROOT/themes/basic" -name '*.tpl.html' -exec touch {} +
+measure_fs_request db_render_compile_miss "$DB_URL/"
+assert_status_zero
+assert_regex '^HTTP/1\.[01] 200'
+# Four templates on this page -- the page shell, the sidebar, the footer and
+# the content teaser -- read whole, 1,928 bytes through Lua. The stats do not
+# move: the same files are asked about either way, and the difference is
+# entirely what happens after the answer comes back.
+assert_fs_budget render stat=14 open=4 read=4 bytes=1928
+report_ok "db_render_compile_miss ($(fs_measured render))"
+
 #[[ The menu renders, which `modules/menu` had never been asked to do.
 #
 # Above the barrier because neither of these writes -- and because the point is

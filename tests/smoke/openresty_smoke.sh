@@ -669,6 +669,25 @@ return function(settings, vault)
   settings.route_redirects_storage = true
   settings.route_redirects_prepend_language = false
 
+  --[[ The template and asset stat caches, turned off so the render budget is a
+    number rather than a coin toss.
+
+    Both are TTL caches over `lfs.attributes` with a default of **one second**,
+    compared with `os.time()` -- so two requests inside the same second re-use
+    the cached attributes and two a second apart do not. A pinned budget over
+    that measures how fast the harness happened to be running, which is the
+    same trap a projection version's one-second granularity sets.
+
+    At 0 every render stats every template and every asset it touches, which is
+    the honest per-render cost and the one worth ranking. The compile cache is
+    untouched -- it is keyed by path and mtime, not by this -- so the budget
+    separates metadata from compilation, which is the distinction `TODO.md`
+    draws.
+  ]]
+  settings.runtime_cache = {
+    stat_ttl = 0,
+  }
+
   settings.modules = {
     content = true,
     user = true,
@@ -1154,7 +1173,7 @@ report_ok() {
 # to come back from each; a profile that ran fewer would otherwise disappear
 # into a single global total, which is the failure the count exists to catch.
 EXPECTED_BASE_SCENARIOS=32
-EXPECTED_DB_SCENARIOS=102
+EXPECTED_DB_SCENARIOS=104
 SCENARIO_COUNT=0
 
 # Reset per profile by `db_profile_begin`; the label prefixes each `ok` line so

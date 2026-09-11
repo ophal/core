@@ -588,6 +588,22 @@ prepare_db_tree() {
   cp "$ROOT/modules/content/content_teaser.tpl.html" "$SMOKE_DB_DOCROOT/themes/basic/"
   cp "$ROOT/modules/content/content_page.tpl.html" "$SMOKE_DB_DOCROOT/themes/basic/"
 
+  #[[ The comment module's template, copied from 2026-09-11.
+  #
+  # It was missing from the moment comments were enabled here, and nothing
+  # said so: `theme_render()` **returned** its error as the rendered value, so
+  # every `rendered` field in `comment/fetch`'s JSON was the string
+  #
+  #   template '/…/themes/basic/comment.tpl.html': cannot obtain information
+  #   from file …: No such file or directory
+  #
+  # -- an absolute filesystem path, in a 200, to an anonymous client.
+  # `assert_no_source_path` matches `.lua:<n>` and could not see it.
+  # `assert_no_theme_error` found it within a minute of being added, which is
+  # the second time a `report_ok` guard has caught a defect it was not written
+  # for.
+  cp "$ROOT/modules/comment/comment.tpl.html" "$SMOKE_DB_DOCROOT/themes/basic/"
+
   # This profile has no scenario switch. It is one configuration -- database on,
   # content, user and tag enabled, front page served by the content module --
   # because the whole point of a second instance is that its worker warms up

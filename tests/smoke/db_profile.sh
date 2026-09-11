@@ -636,6 +636,15 @@ measure_request db_comment_fetch "$DB_URL/comment/fetch/1"
 assert_status_zero
 assert_regex '^HTTP/1\.[01] 200'
 assert_contains "$COMMENT_BODY"
+#[[ The `rendered` field is the template's output, and it has to be asserted
+# positively rather than left to the guard.
+#
+# `assert_contains "$COMMENT_BODY"` above passes on the raw row alone, so it
+# stayed green for two days while every `rendered` field held
+# `template '/…/comment.tpl.html': cannot obtain information from file …` --
+# the theme's template was never copied into this profile. `comment-body` is a
+# class only that template emits.
+assert_contains 'comment-body'
 #[[ And it carries no validator, because it is built from a normalized table.
 #
 # Phase 9's rule is "cacheable if the request observed at least one projection

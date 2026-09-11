@@ -386,6 +386,115 @@ do
   )
 end
 
+-- ============================================== MODULE TABLE SEAL TESTS
+
+io.write('\n-- module table seal --\n')
+
+--[[ `module_load()` seals a jailed module's table once it has loaded, so a
+  bare assignment inside one of its functions raises instead of leaving a field
+  behind for the worker's lifetime.
+
+  These drive the mechanism rather than the shipped modules. What says the
+  shipped modules are covered is the smoke suite: `route()` runs for every
+  module on every worker and the database profile exercises the services, which
+  is how the seal found `_` in `modules/content`'s `save_service()` within a
+  minute of being written -- a site four readings of those files had missed.
+]]
+
+-- A table shaped the way `module()` leaves one: `_NAME` set, no metatable.
+local function jailed(name, surface)
+  local m = surface or {}
+
+  m._NAME = name
+  m._M = m
+  m._PACKAGE = ''
+
+  return m
+end
+
+do
+  reset_globals()
+
+  ophal.modules.sealed_mod = jailed('ophal.modules.sealed_mod', {
+    route = function() return {} end,
+  })
+  module_seal('sealed_mod')
+
+  assert_eq('seal_is_installed', module_is_sealed('sealed_mod'), true)
+
+  -- The leak: a name the module never declared.
+  assert_error('seal_refuses_a_new_key', function()
+    ophal.modules.sealed_mod.items = {}
+  end)
+
+  -- The error has to name the module and the key, or it sends a reader to the
+  -- wrong file. `route()` in three modules and `list` in a fourth all leaked
+  -- the same way, and the message is the only thing that tells them apart.
+  local ok, err = pcall(function() ophal.modules.sealed_mod.leaked = 1 end)
+  assert_eq('seal_error_is_raised', ok, false)
+  assert_match('seal_error_names_the_module', err, 'ophal%.modules%.sealed_mod')
+  assert_match('seal_error_names_the_key', err, "'leaked'")
+  assert_match('seal_error_says_what_to_do', err, 'local')
+
+  -- `__newindex` fires only for absent keys, so the module's own surface stays
+  -- writable. A hook being replaced -- which `modules/file` does to `finfo`'s
+  -- neighbours and the unit suite does constantly -- must keep working.
+  ophal.modules.sealed_mod.route = function() return {a = 1} end
+  assert_eq('seal_allows_an_existing_key',
+    ophal.modules.sealed_mod.route().a, 1)
+
+  -- Reads are untouched, and that is deliberate: `module_invoke_all()` probes
+  -- `m[hook]` for every module and every hook, so a raising `__index` would
+  -- mean `rawget` at every feature probe in the codebase.
+  assert_eq('seal_leaves_reads_alone',
+    ophal.modules.sealed_mod.no_such_hook, nil)
+end
+
+-- A module that keeps its surface on a file-local `_M` is a different shape:
+-- a bare assignment there writes a worker-scoped global instead, which is the
+-- same class through a different door and wants a strict environment rather
+-- than this. `_NAME` is what `module()` sets, so it is the exact test.
+do
+  reset_globals()
+
+  ophal.modules.plain_mod = {route = function() return {} end}
+  module_seal('plain_mod')
+
+  assert_eq('plain_module_is_not_sealed', module_is_sealed('plain_mod'), false)
+
+  ophal.modules.plain_mod.items = {}
+  assert_eq('plain_module_still_takes_a_new_key',
+    type(ophal.modules.plain_mod.items), 'table')
+end
+
+-- A module that brought its own metatable keeps it, because chaining one on
+-- would be guessing at what it is for. No shipped module does; this pins the
+-- decision so that the day one does, the seal's absence is a stated behaviour
+-- rather than a silent hole.
+do
+  reset_globals()
+
+  ophal.modules.meta_mod = jailed('ophal.modules.meta_mod')
+  setmetatable(ophal.modules.meta_mod, {__index = function() return 'fallback' end})
+  module_seal('meta_mod')
+
+  assert_eq('module_with_its_own_metatable_is_left_alone',
+    module_is_sealed('meta_mod'), false)
+  assert_eq('module_with_its_own_metatable_keeps_it',
+    ophal.modules.meta_mod.anything, 'fallback')
+end
+
+-- Sealing a name nothing registered is a no-op rather than a raise: a module
+-- whose file assigns no table at all is already an error `module_load()`
+-- reports, and the seal must not turn it into a different one.
+do
+  reset_globals()
+
+  module_seal('absent_mod')
+  assert_eq('seal_of_an_absent_module_is_a_no_op',
+    module_is_sealed('absent_mod'), false)
+end
+
 -- ================================================================ summary
 
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))

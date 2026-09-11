@@ -182,6 +182,75 @@ function module_invoke_all(hook, ...)
   return result
 end
 
+--[[ Seal a jailed module's table once it has finished loading.
+
+  A file that calls `module()` has the module table as its environment, so an
+  unqualified assignment inside one of its functions does not create a local --
+  it creates a **field on the module table**, which the worker keeps and the
+  next request can read. This project has paid for that six times:
+  `modules/user`'s `_SESSION`, `modules/file`'s `entity`, `modules/comment`'s
+  `comment` and then its `list`, the `os.rename`/`type`/`_GET` captures in
+  Phase 6, `modules/lorem_ipsum`'s `html_safe`, and the route table `items` in
+  three modules at once. Each was found by reading, one at a time, after
+  the maintainer log had already written down the rule five times.
+
+  `module()` is the funnel, so the guard goes here rather than in a linter.
+  `__newindex` fires only for keys a table does not already hold, and by the
+  time loading is done the table holds exactly the module's declared surface --
+  so "undeclared" needs no whitelist and cannot drift out of step with the
+  code. It is whatever the file itself defined.
+
+  Writes only. A strict `__index` would also catch an undeclared *read* -- the
+  bare `comment` that `fetch_service` passed to `comment_access` for years --
+  but `module_invoke_all()` below probes `m[hook]` for every module and every
+  hook, and `modules/entity` probes `entity_class[fn]`, so raising on a missing
+  key would mean `rawget` at every feature probe in the codebase. The read half
+  is a nil handed to something that does not look at it; the write half is the
+  leak.
+
+  It raises rather than warning, which is the trade the maintainer log already records
+  for this class: a guard that turns the bug into silence is worse than the
+  bug, so prefer the loud failure.
+
+  Scope is `module()` files. `modules/system`, `modules/tag` and
+  `modules/entity` assign to a file-local `_M`, so a bare assignment there
+  writes a worker-scoped *global* instead -- the same class through a different
+  door, whose fix is a strict environment rather than this. `_NAME` is the
+  field `module()` sets, and so is the exact test for "this file was jailed".
+]]
+do
+  local function sealed(t, key, value)
+    error(([[module %s: assignment to undeclared name '%s'.
+
+Inside a file that calls module(), a bare assignment becomes a field on the
+module table and outlives the request that made it. Declare it `local` -- above
+the module() call if it is a load-time capture, inside the function if it is
+working state.]]):format(tostring(rawget(t, '_NAME')), tostring(key)), 2)
+  end
+
+  local seal = {__newindex = sealed}
+
+  function module_seal(name)
+    local m = rawget(ophal.modules, name)
+
+    -- A module that brought its own metatable keeps it: chaining one on would
+    -- be guessing at what it is for. No shipped module does, and
+    -- `module_tables_are_sealed` in the unit suite is what notices if that
+    -- stops being true.
+    if
+      type(m) == 'table' and
+      rawget(m, '_NAME') ~= nil and
+      getmetatable(m) == nil
+    then
+      setmetatable(m, seal)
+    end
+  end
+
+  function module_is_sealed(name)
+    return getmetatable(rawget(ophal.modules, name) or {}) == seal
+  end
+end
+
 function module_load(name)
   local status, err = pcall(require, 'modules.' .. name .. '.init')
   if not status then
@@ -194,6 +263,8 @@ function module_load(name)
     end
     error('module: ' .. err)
   end
+
+  module_seal(name)
 end
 
 function module_load_all()

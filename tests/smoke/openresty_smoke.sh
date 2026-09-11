@@ -1081,8 +1081,37 @@ assert_no_source_path() {
   fi
 }
 
+#[[ A theme or template failure must never reach the body.
+#
+# `theme_execute()` and `theme_render()` returned their error string, and a
+# returned string is rendered -- so a missing theme function or an unreadable
+# template became page content at HTTP 200. `assert_no_source_path` could not
+# see either: `pcall(nil, arg)` raises "attempt to call a nil value" with no
+# location, and a template error names a `.tpl.html` path rather than a `.lua`
+# one.
+#
+# Both now answer 500 with the detail in the error log. This is here for the
+# reason `assert_no_source_path` is here: fixing the four `return` sites closes
+# those sites, and only a guard over every response closes the class -- which
+# is how that one found `modules/lorem_ipsum` on its first run, a defect it was
+# not written for.
+assert_no_theme_error() {
+  local name=$1
+
+  printf '%s\n' "$LAST_OUTPUT" | head -1 | grep -Eq '^HTTP/1\.[01] ' || return 0
+
+  if printf '%s\n' "$LAST_OUTPUT" | grep -Eq "theme function [A-Za-z0-9_.]+: '"; then
+    fail "$name: response carries a rendered theme error: $(printf '%s\n' "$LAST_OUTPUT" | grep -Eo "theme function [A-Za-z0-9_.]+: '[^']*'" | head -1)"
+  fi
+
+  if printf '%s\n' "$LAST_OUTPUT" | grep -Eq "template '[^']+\.tpl\.[a-z]+':"; then
+    fail "$name: response carries a rendered template error: $(printf '%s\n' "$LAST_OUTPUT" | grep -Eo "template '[^']+':[^<]*" | head -1)"
+  fi
+}
+
 report_ok() {
   assert_no_source_path "$1"
+  assert_no_theme_error "$1"
 
   SCENARIO_COUNT=$((SCENARIO_COUNT + 1))
   PROFILE_COUNT=$((PROFILE_COUNT + 1))

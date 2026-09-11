@@ -229,6 +229,116 @@ do
   os.execute(("rm -rf '%s'"):format(dir))
 end
 
+--[[ What the cron sweep costs, and that it reaps all three kinds of leftover.
+
+  `TODO.md` has had `session_destroy_expired()` down as an optimization with no
+  measurement behind it -- "it runs from cron, not from a page render", and
+  Phase 7 changed its premise rather than its code: anonymous requests leave no
+  session file at all now, so the directory it walks should be a fraction of
+  what it was. The entry says to measure before optimizing, because the work may
+  already have gone away. This is the measurement.
+
+  It is also the first exercise the sweep's two newer classes have had. The
+  store gave it `<id>.ophal.tmp.<hex>` and legacy `<id>.ophal.lock` to collect
+  on 2026-09-10 and nothing has run either branch since.
+
+  `lfs.attributes` is stubbed rather than the files being aged, because the
+  sweep compares against `attr.change` -- the inode change time, which `touch`
+  cannot backdate: any metadata write sets it to now. The stub is what makes an
+  age a chosen value instead of a race. `lfs.dir` stays real, so the walk is
+  over a real directory with real entries.
+]]
+do
+  local dir = make_temp_dir()
+  local real_lfs, real_remove, real_time = lfs, os.remove, os.time
+  local now = real_time()
+  local counts = {dir = 0, attributes = 0, remove = 0}
+
+  -- name -> how many seconds old the sweep should think it is
+  local ages = {}
+
+  local function write_file(name, age)
+    local handle = assert(io.open(dir .. '/' .. name, 'w'))
+
+    handle:write('x')
+    handle:close()
+    ages[name] = age
+  end
+
+  -- Two live sessions and two past the TTL; one crashed write; one lock from
+  -- before the store landed; and one file that is none of Ophal's business.
+  write_file('11111111-1111-4111-8111-111111111111.ophal', 10)
+  write_file('22222222-2222-4222-8222-222222222222.ophal', 10)
+  write_file('33333333-3333-4333-8333-333333333333.ophal', 5000)
+  write_file('44444444-4444-4444-8444-444444444444.ophal', 5000)
+  write_file('55555555-5555-4555-8555-555555555555.ophal.tmp.a1b2c3d4', 5000)
+  write_file('66666666-6666-4666-8666-666666666666.ophal.lock', 5000)
+  write_file('notes.txt', 5000)
+
+  _G.lfs = setmetatable({
+    dir = function(path)
+      counts.dir = counts.dir + 1
+      return real_lfs.dir(path)
+    end,
+    attributes = function(path)
+      counts.attributes = counts.attributes + 1
+      return {mode = 'file', change = now - (ages[path:match('[^/]+$')] or 0)}
+    end,
+  }, {__index = real_lfs})
+
+  os.remove = function(path)
+    counts.remove = counts.remove + 1
+    return real_remove(path)
+  end
+  os.time = function() return now end
+
+  --[[ `session_init()` runs at the bottom of the file when `settings.sessionapi`
+    is set, and it reads `ophal.cookies`. The sweep does not care, so the
+    minimum that lets the file load is what is provided -- this is a test of
+    one function, not of the session lifecycle.
+  ]]
+  _G.ophal = {cookies = {}}
+  _G.settings = {sessionapi = {path = dir, ttl = 100}}
+  dofile('includes/session.lua')
+  session_destroy_expired()
+
+  _G.lfs, os.remove, os.time = real_lfs, real_remove, real_time
+
+  local function exists(name)
+    return real_lfs.attributes(dir .. '/' .. name) ~= nil
+  end
+
+  --[[ The shape of the walk: **one `lfs.dir` and one stat per session-shaped
+    entry**, and nothing for anything else. `.`, `..` and `notes.txt` are
+    matched on their names and skipped without a syscall, which is what keeps
+    the cost proportional to Ophal's own files rather than to the directory.
+
+    Six of the seven files here are session-shaped, so six stats.
+  ]]
+  assert_eq('sweep_walks_the_directory_once', counts.dir, 1)
+  assert_eq('sweep_stats_only_session_shaped_entries', counts.attributes, 6)
+  -- Two expired sessions, one orphaned temp file, one legacy lock.
+  assert_eq('sweep_removes_only_what_expired', counts.remove, 4)
+
+  assert_eq('sweep_keeps_a_live_session',
+    exists('11111111-1111-4111-8111-111111111111.ophal'), true)
+  assert_eq('sweep_keeps_the_other_live_session',
+    exists('22222222-2222-4222-8222-222222222222.ophal'), true)
+  assert_eq('sweep_reaps_an_expired_session',
+    exists('33333333-3333-4333-8333-333333333333.ophal'), false)
+
+  -- The two classes the store added, neither of which had ever run.
+  assert_eq('sweep_reaps_an_orphaned_temp_file',
+    exists('55555555-5555-4555-8555-555555555555.ophal.tmp.a1b2c3d4'), false)
+  assert_eq('sweep_reaps_a_legacy_lock_file',
+    exists('66666666-6666-4666-8666-666666666666.ophal.lock'), false)
+
+  -- And it is not a directory cleaner.
+  assert_eq('sweep_leaves_a_foreign_file_alone', exists('notes.txt'), true)
+
+  os.execute(("rm -rf '%s'"):format(dir))
+end
+
 io.write(('\n%d passed, %d failed\n'):format(pass_count, fail_count))
 if fail_count > 0 then
   os.exit(1)

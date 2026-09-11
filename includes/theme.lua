@@ -116,6 +116,41 @@ function template_cache_clear()
   template_stat_cache = {}
 end
 
+--[[ A render that failed is a 500, not page content.
+
+  `theme_render()` and `theme_execute()` used to **return** their error string,
+  and a returned string is rendered -- so a missing template or a theme
+  function that raised became part of the page, at HTTP 200, with the reason
+  printed to the visitor. `modules/lorem_ipsum` shipped like that for a while:
+  its `page()` called `html_safe` as a bare global inside a `module()`-jailed
+  file, so every front page on the base profile was an error message served
+  200, and `index_frontpage` passed throughout because it asserts the title,
+  which routing sets before the callback runs.
+
+  `theme.json` was given this treatment on 2026-09-10 and answers 500 when its
+  callback raised; this is the same defect on the HTML path and gets the same
+  answer. The detail goes to the error log, where a developer can read it and a
+  visitor cannot, and caching is disabled because a failed render must never be
+  handed to an intermediary.
+
+  `assert_no_theme_error` in the smoke suite is the other half: fixing these
+  four returns closes the sites, and the guard closes the class.
+]]
+local function theme_failure(event, message, context)
+  local http_cache = require 'includes.http_cache'
+
+  if type(log_error) == 'function' then
+    context = context or {}
+    context.event = event
+    log_error(message, context)
+  end
+
+  http_cache.disable()
+  header('status', 500)
+
+  return ''
+end
+
 --[[
   Render theme template.
 ]]
@@ -127,7 +162,8 @@ local function theme_render(f, env)
 
   local attr, err = template_stat(file)
   if err then
-    return ("template '%s': %s"):format(file, err)
+    return theme_failure('template_missing',
+      'template could not be read', {template = file, error = err})
   end
 
   if attr ~= nil and attr.mode == 'file' then
@@ -148,7 +184,8 @@ local function theme_render(f, env)
       -- load source code
       prog, err = loadstring(src, file)
       if not prog then
-        return ("template '%s': %s"):format(file, err)
+        return theme_failure('template_compile_failed',
+          'template would not compile', {template = file, error = err})
       end
 
       -- Store in cache
@@ -193,7 +230,8 @@ local function theme_render(f, env)
     if status then
       return tconcat(buffer)
     else
-      return ("template '%s': %s"):format(file, result)
+      return theme_failure('template_raised',
+        'template raised while rendering', {template = file, error = result})
     end
   end
 end
@@ -213,7 +251,14 @@ local function theme_execute(f, arg)
       return result
     end
   end
-  return ("theme function %s: '%s'"):format(f, result)
+  --[[ The commonest shape here is not a raise inside the function but the
+    function being absent: `pcall(nil, arg)` is "attempt to call a nil value",
+    with no location at all, which is why `assert_no_source_path` never caught
+    this class. A theme calling `theme{'menu'}` with `modules/menu` disabled is
+    exactly that.
+  ]]
+  return theme_failure('theme_function_failed',
+    'theme function failed', {theme_function = tostring(f), error = result})
 end
 
 --[[

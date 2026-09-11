@@ -220,19 +220,29 @@ local scenarios = {
     local stats = require 'includes.fs.stats'
     local media = stats.snapshot('media')
     local session = stats.snapshot('session')
+    local render_bucket = stats.snapshot('render')
     local lines = {
+      'SMOKE_FS_STAT=' .. tostring(media.stat),
       'SMOKE_FS_OPEN=' .. tostring(media.open),
       'SMOKE_FS_READ=' .. tostring(media.read),
       'SMOKE_FS_WRITE=' .. tostring(media.write),
       'SMOKE_FS_RENAME=' .. tostring(media.rename),
       'SMOKE_FS_REMOVE=' .. tostring(media.remove),
       'SMOKE_FS_BYTES=' .. tostring(media.bytes),
+      'SMOKE_FS_SESSION_STAT=' .. tostring(session.stat),
       'SMOKE_FS_SESSION_OPEN=' .. tostring(session.open),
       'SMOKE_FS_SESSION_READ=' .. tostring(session.read),
       'SMOKE_FS_SESSION_WRITE=' .. tostring(session.write),
       'SMOKE_FS_SESSION_RENAME=' .. tostring(session.rename),
       'SMOKE_FS_SESSION_REMOVE=' .. tostring(session.remove),
       'SMOKE_FS_SESSION_BYTES=' .. tostring(session.bytes),
+      'SMOKE_FS_RENDER_STAT=' .. tostring(render_bucket.stat),
+      'SMOKE_FS_RENDER_OPEN=' .. tostring(render_bucket.open),
+      'SMOKE_FS_RENDER_READ=' .. tostring(render_bucket.read),
+      'SMOKE_FS_RENDER_WRITE=' .. tostring(render_bucket.write),
+      'SMOKE_FS_RENDER_RENAME=' .. tostring(render_bucket.rename),
+      'SMOKE_FS_RENDER_REMOVE=' .. tostring(render_bucket.remove),
+      'SMOKE_FS_RENDER_BYTES=' .. tostring(render_bucket.bytes),
     }
 
     ngx.print(render(lines))

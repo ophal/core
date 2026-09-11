@@ -21,6 +21,12 @@
   and refuses an unknown one, rather than defaulting: a permissive default is
   how a third caller lands in the wrong bucket silently.
 
+  There are three now: `render`, from `includes/theme.lua` and
+  `includes/common.lua`, joined on 2026-09-11. `TODO.md` had template and asset
+  metadata down as an optimization with no measurement behind it, and said so
+  itself -- "adding the bucket is the cheap step, and it is exactly what turned
+  the session path from a ranking into a number".
+
   The number that matters most is `bytes` -- how many bytes moved *through Lua*.
   A rename moves a whole file for one syscall and zero bytes; a read-and-write
   merge moves every byte twice and holds a chunk of them in a Lua string. Ops
@@ -35,8 +41,27 @@ local tonumber = tonumber
 local enabled
 local buckets
 
-local OPS = {'open', 'read', 'write', 'rename', 'remove'}
-local BUCKETS = {'media', 'session'}
+--[[ `stat` joined the list on 2026-09-11, with the `render` bucket.
+
+  A warm page render's whole filesystem cost is one `lfs.attributes` per
+  template and per asset -- no open, no read, nothing to weigh in bytes -- so
+  without an op for it the bucket would have counted zero on the request it
+  exists to describe, which is the blindness it was added to remove rather than
+  a budget.
+]]
+local OPS = {'stat', 'open', 'read', 'write', 'rename', 'remove'}
+
+--[[ Three request paths, three buckets, and `record()` refuses a fourth name
+  rather than defaulting -- a permissive default is how a new caller lands in
+  the wrong bucket silently.
+
+  `render` is template metadata, template compilation and asset metadata
+  together. They are one path: every one of them happens while a page is being
+  built, they share the same TTL-cache design over `lfs.attributes`, and
+  `TODO.md` has always treated them as one item. The name says "what a render
+  costs" rather than naming one of its two halves.
+]]
+local BUCKETS = {'media', 'session', 'render'}
 
 local function new_counts()
   local fresh = {bytes = 0, files = {}}

@@ -22,6 +22,9 @@ local function round(value, places)
 end
 local str_replace = require('includes.text').replace
 local request_state = require 'includes.request_state'
+-- Asset metadata is counted in the `render` bucket beside the template stats
+-- it shares a request with; see `includes/fs/stats.lua`.
+local fs_stats = require 'includes.fs.stats'
 
 if type(html_url_escape) ~= 'function' then
   pcall(require, 'includes.escape')
@@ -91,6 +94,10 @@ do
       return cached.attr
     end
 
+    -- Same bucket as the template stats: both are metadata a render reads,
+    -- both are TTL caches over `lfs.attributes`, and a page pays for them
+    -- together.
+    fs_stats.record('stat', nil, path, 'render')
     attr = lfs.attributes(path)
     asset_stat_cache[path] = {
       attr = attr,

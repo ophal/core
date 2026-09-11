@@ -72,6 +72,12 @@ end
 local template_cache = {}
 local template_stat_cache = {}
 
+-- Counted since 2026-09-11, in the `render` bucket. A warm page's whole
+-- filesystem cost is the stats below; a cold one adds an open and a read per
+-- template. `TODO.md` ranked this without a number for as long as it has
+-- existed, which is what the bucket is for.
+local fs_stats = require 'includes.fs.stats'
+
 local function template_cache_ttl()
   local runtime_cache = settings.runtime_cache or {}
   local ttl = tonumber(runtime_cache.template_stat_ttl)
@@ -101,6 +107,7 @@ local function template_stat(path)
     return cached.attr, cached.err
   end
 
+  fs_stats.record('stat', nil, path, 'render')
   attr, err = lfs.attributes(path)
   template_stat_cache[path] = {
     attr = attr,
@@ -175,8 +182,12 @@ local function theme_render(f, env)
     else
       -- read file contents
       local fh = assert(io.open(file))
-      local src = ('print [[%s]]'):format(fh:read('*a'))
+      local source = fh:read('*a')
+      local src = ('print [[%s]]'):format(source)
+
       fh:close()
+      fs_stats.record('open', nil, file, 'render')
+      fs_stats.record('read', #source, file, 'render')
 
       -- translate lua template tag
       src = src:gsub('(<%?lua)(.-)(%?>)', "]]; %2 print[[")

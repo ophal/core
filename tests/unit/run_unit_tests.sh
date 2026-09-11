@@ -66,5 +66,6 @@ resty "$ROOT/tests/unit/test_escaping.lua"
 resty "$ROOT/tests/unit/test_runtime_fs.lua"
 resty "$ROOT/tests/unit/test_settings_loader.lua"
 resty "$ROOT/tests/unit/test_pager.lua"
+resty "$ROOT/tests/unit/test_repo_references.lua"
 
 printf 'all unit tests passed\n'

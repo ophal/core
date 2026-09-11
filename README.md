@@ -4,6 +4,17 @@
 
 Ophal aimed to become a highly scalable web platform, easy to maintain, learn, extend and open to improvements.
 
+## Releases
+
+Current release: **Ophal 0.2.0**, tagged `v0.2.0-1`.
+
+Release notes:
+<https://github.com/ophal/core/blob/v0.2.0-1/docs/release-notes-0.2.0.md>
+
+0.2 replaces 0.1 completely and is not a drop-in upgrade. The notes carry the
+breaking changes and the upgrade steps; read them before deploying over an
+existing site.
+
 ## Development
 
 Development workflow and release policy: [docs/branching-and-releases.md](docs/branching-and-releases.md).
@@ -51,25 +62,21 @@ Static asset and template metadata now use short-lived runtime caches to avoid
 repeated `stat()` calls on warm requests. The cache TTL defaults to `1` second
 and can be tuned through `settings.runtime_cache`.
 
-The supported operational posture for `0.2.x` is low-to-moderate traffic. It
-is not presented as a fully nonblocking high-concurrency stack until an
-OpenResty-native database path exists.
+On PostgreSQL and MySQL the request path does not block on the database.
+`pgmoon` and `lua-resty-mysql` are cosocket drivers, so a query yields the
+worker rather than holding it, and a warm anonymous page issues no query at
+all -- Ophal connects on the first statement, so such a request opens no socket.
 
-The OpenResty native-hardening work is complete and documented in
-the internal native-hardening notes.
+SQLite is the exception, and that is a property of SQLite rather than of the
+driver: there is no socket to yield on, and several workers contend for one
+file's write lock. It is supported for development, the CLI, tests and
+low-scale sites rather than as a peer production backend.
 
-The active next-step architecture work is tracked in
-the internal performance-architecture notes.
-That plan keeps OpenResty as the only web runtime, treats PostgreSQL as the
-required production SQL backend for the performance architecture, and keeps
-Valkey only as a future optional accelerator rather than a core dependency.
+PostgreSQL is the required production backend for the performance architecture.
+Valkey is a possible future accelerator, not a dependency.
 
-SQLite remains supported for development, CLI tooling, tests, and low-scale
-compatibility work, but it is no longer treated as a peer production backend
-for the performance architecture.
-
-For the concrete remaining worker-blocking paths, see
-the internal blocking-surface notes.
+The measured budgets, the remaining blocking paths and the upgrade notes are in
+the release notes linked above.
 
 ## CLI
 

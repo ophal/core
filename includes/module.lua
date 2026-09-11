@@ -191,8 +191,9 @@ end
   `modules/user`'s `_SESSION`, `modules/file`'s `entity`, `modules/comment`'s
   `comment` and then its `list`, the `os.rename`/`type`/`_GET` captures in
   Phase 6, `modules/lorem_ipsum`'s `html_safe`, and the route table `items` in
-  three modules at once. Each was found by reading, one at a time, after
-  the maintainer log had already written down the rule five times.
+  three modules at once. Each was found by reading, one at a time, long after
+  the rule itself was well known -- which is the argument for a guard rather
+  than for writing the rule down a sixth time.
 
   `module()` is the funnel, so the guard goes here rather than in a linter.
   `__newindex` fires only for keys a table does not already hold, and by the
@@ -208,9 +209,10 @@ end
   is a nil handed to something that does not look at it; the write half is the
   leak.
 
-  It raises rather than warning, which is the trade the maintainer log already records
-  for this class: a guard that turns the bug into silence is worse than the
-  bug, so prefer the loud failure.
+  It raises rather than warning, and that is the settled trade for this class:
+  a guard that turns the bug into silence is worse than the bug, so prefer the
+  loud failure. A `type()` check around a possibly-unresolved name is how this
+  project has been bitten before -- it converts a crash into a no-op.
 
   Scope is `module()` files. `modules/system`, `modules/tag` and
   `modules/entity` assign to a file-local `_M`, so a bare assignment there
